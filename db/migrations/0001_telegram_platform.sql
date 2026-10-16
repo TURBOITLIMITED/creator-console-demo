@@ -104,6 +104,12 @@ alter table conversations add column if not exists last_outbound_at timestamptz;
 alter table conversations add column if not exists disclosure_sent_at timestamptz;
 alter table conversations add column if not exists escalated_at     timestamptz;
 alter table conversations add column if not exists summary          text;
+-- Hard boolean short-circuit checked BEFORE any egress. Set by a 'No' on the
+-- consent gate, by /stopai, or by the Art 9 gate for adult accounts. Nothing
+-- downstream may override it.
+alter table conversations add column if not exists ai_disabled      boolean not null default false;
+alter table conversations add column if not exists consent_state    text not null default 'unasked'
+  check (consent_state in ('unasked','asked','granted','refused','revoked','expired'));
 
 -- Default is 'assisted', never 'ai': brief s7 forbids unrestricted automation
 -- by default, and an un-reviewed reply to a real customer is the one mistake
@@ -130,7 +136,12 @@ create table if not exists messages (
   sender          text not null check (sender in ('customer','ai','human','system')),
   kind            text not null default 'text'
                     check (kind in ('text','photo','video','document','audio','voice','animation','sticker','media_group','other')),
-  body            text,
+  -- ToS 4.4(a) requires encryption at rest with the key held SEPARATELY from
+  -- the data. Cloudflare's own disk encryption does not satisfy that wording,
+  -- so bodies are sealed at the application layer with a per-creator DEK.
+  body_enc        bytea,
+  body_nonce      bytea,
+  body_preview    text,                           -- redacted first line, for list views
   media_key       text,                           -- R2 key in creator-media
   raw             jsonb,
   sent_at         timestamptz not null default now(),
@@ -235,6 +246,46 @@ create index if not exists ai_jobs_pending_idx on ai_jobs (status, created_at)
 create index if not exists audit_log_creator_idx on audit_log (creator_id, at desc);
 
 -- ---------------------------------------------------------------------------
+-- 11. consents - the ToS 5.4(iv) authorisation gate
+-- ---------------------------------------------------------------------------
+-- No model call may fire for a conversation without a 'granted' row here.
+-- 'general'         = content may be processed by an automated assistant
+-- 'special_category'= UK GDPR Art 9(2)(a) explicit consent, required before ANY
+--                     model call on an adult account. Unbundled, never pre-ticked.
+
+create table if not exists consents (
+  id              uuid primary key default gen_random_uuid(),
+  creator_id      text not null references creators(id) on delete cascade,
+  conversation_id uuid not null references conversations(id) on delete cascade,
+  customer_id     uuid references customers(id) on delete cascade,
+  kind            text not null check (kind in ('general','special_category')),
+  state           text not null default 'asked'
+                    check (state in ('asked','granted','refused','revoked','expired')),
+  asked_at        timestamptz not null default now(),
+  answered_at     timestamptz,
+  revoked_at      timestamptz,
+  expires_at      timestamptz,                    -- re-prompt quarterly
+  prompt_version  text not null,                  -- which wording they agreed to
+  evidence        jsonb not null default '{}'::jsonb,  -- callback_query payload
+  constraint consents_one_live_per_kind unique (conversation_id, kind, asked_at)
+);
+create index if not exists consents_conversation_idx on consents (conversation_id, kind, state);
+
+-- ---------------------------------------------------------------------------
+-- 12. account_keys - per-creator data encryption keys, wrapped by a KEK
+-- ---------------------------------------------------------------------------
+-- The KEK lives as a Worker secret, never in Postgres. That is what makes the
+-- key "stored separately" from the ciphertext.
+
+create table if not exists account_keys (
+  creator_id   text primary key references creators(id) on delete cascade,
+  wrapped_dek  bytea not null,
+  kek_version  int not null default 1,
+  created_at   timestamptz not null default now(),
+  rotated_at   timestamptz
+);
+
+-- ---------------------------------------------------------------------------
 -- 11. RLS: deny by default on every new table
 -- ---------------------------------------------------------------------------
 -- The worker uses SUPABASE_SERVICE_KEY and bypasses RLS, so these policies are
@@ -249,6 +300,8 @@ alter table webhook_events      enable row level security;
 alter table ai_profiles         enable row level security;
 alter table customer_memories   enable row level security;
 alter table ai_jobs             enable row level security;
+alter table consents            enable row level security;
+alter table account_keys        enable row level security;
 
 -- Console admins may READ operational tables. No INSERT/UPDATE/DELETE policy is
 -- granted to anyone: all writes go through the worker's service key.
@@ -264,6 +317,12 @@ create policy admins_read_ai_profiles on ai_profiles
   for select to authenticated using (is_console_admin());
 create policy admins_read_ai_jobs on ai_jobs
   for select to authenticated using (is_console_admin());
+
+create policy admins_read_consents on consents
+  for select to authenticated using (is_console_admin());
+
+-- account_keys gets NO policy at all, for anyone. Wrapped DEKs are reachable
+-- only by the worker's service key. A console admin has no reason to read one.
 
 -- customer_memories and webhook_events get NO read policy: raw update payloads
 -- and inferred personal facts stay service-key only (data minimisation).
