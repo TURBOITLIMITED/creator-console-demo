@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>Owner console \u00b7 Turbo Creator Assistant</title>
+<style>
+  :root{
+    --page:#f7f7f6; --panel:#fff; --ink:#14181d; --muted:#6b7280; --faint:#9aa1ab;
+    --rule:#e3e3e0; --rule2:#eeeef0; --accent:#1c3d5a; --ok:#3f6f4f; --warn:#8a5a12; --bad:#9b2c25;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;background:var(--page);color:var(--ink);font-size:13px;line-height:1.5;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-variant-numeric:tabular-nums;
+  }
+  a{color:var(--accent)}
+
+  /* ---------- top bar ---------- */
+  .bar{
+    position:sticky;top:0;z-index:20;background:var(--page);
+    border-bottom:1px solid var(--rule);
+    padding:calc(12px + env(safe-area-inset-top)) 18px 10px;
+    display:flex;align-items:baseline;gap:10px;
+  }
+  .bar .name{font-size:13px;font-weight:600}
+  .bar .env{color:var(--faint);font-size:12px}
+  .bar .stamp{margin-left:auto;color:var(--faint);font-size:11.5px;text-align:right;line-height:1.35}
+  @media(max-width:700px){
+    .bar{flex-wrap:wrap;gap:2px 8px}
+    .bar .stamp{margin-left:0;text-align:left;font-size:11px}
+  }
+
+  /* ---------- shell: left sidebar, drawer on a phone ---------- */
+  .shell{display:block}
+  .side{display:none}
+  .burger{display:flex;align-items:center;gap:8px;background:none;border:0;color:var(--ink);
+          font:inherit;font-size:14px;font-weight:600;padding:8px 10px;cursor:pointer}
+  .burger span.bars{display:inline-block;width:16px;height:12px;position:relative}
+  .burger span.bars i{position:absolute;left:0;right:0;height:2px;background:var(--ink)}
+  .burger span.bars i:nth-child(1){top:0}
+  .burger span.bars i:nth-child(2){top:5px}
+  .burger span.bars i:nth-child(3){top:10px}
+  nav.rail{display:flex;flex-direction:column;gap:1px}
+  nav.rail button{
+    background:none;border:0;border-left:2px solid transparent;color:var(--muted);
+    font-size:13.5px;font-family:inherit;text-align:left;width:100%;padding:8px 10px;
+    cursor:pointer;border-radius:0 4px 4px 0;
+  }
+  nav.rail button.on{color:var(--ink);border-left-color:var(--accent);background:#eeeeec;font-weight:600}
+  .scrim{display:none}
+  @media(max-width:899px){
+    .shell{display:block}
+    .side{display:block;position:fixed;top:0;bottom:0;left:0;width:236px;z-index:31;
+          background:#fff;border-right:1px solid var(--rule);padding:16px 12px 40px;
+          transform:translateX(-100%);transition:transform .18s ease;overflow:auto}
+    .side.open{transform:none;box-shadow:0 8px 34px rgba(0,0,0,.18)}
+    .scrim.on{display:block;position:fixed;inset:0;background:rgba(20,20,20,.34);z-index:30}
+  }
+  @media(min-width:900px){
+    .shell{display:grid;grid-template-columns:210px 1fr;align-items:start}
+    .side{display:flex;flex-direction:column;gap:14px;position:sticky;
+          top:calc(42px + env(safe-area-inset-top));height:calc(100vh - 42px);
+          padding:18px 12px 40px 18px;border-right:1px solid var(--rule);background:var(--page);
+          overflow:auto}
+    .side .brand{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--faint)}
+    .burger{display:none}
+  }
+
+  main{padding:20px 18px calc(60px + env(safe-area-inset-bottom));min-width:0}
+  @media(min-width:900px){ main{padding:24px 28px 80px;max-width:1080px} }
+  section{display:none} section.on{display:block}
+
+  /* ---------- page head ---------- */
+  .ph{margin:0 0 18px}
+  .ph h1{font-size:17px;font-weight:600;margin:0 0 3px;letter-spacing:-.01em}
+  .ph p{margin:0;color:var(--muted);font-size:12.5px}
+
+  /* ---------- metric strip: no cards, no giant numbers ---------- */
+  .strip{display:flex;flex-wrap:wrap;gap:22px 34px;padding:0 0 16px;border-bottom:1px solid var(--rule);
+         margin-bottom:20px}
+  .m{min-width:104px}
+  .m .l{display:block;color:var(--muted);font-size:12px}
+  .m .v{display:block;font-size:16px;font-weight:600;letter-spacing:-.01em;margin-top:1px}
+  .m .n{display:block;color:var(--faint);font-size:11.5px}
+  .v.good{color:var(--ok)} .v.warn{color:var(--warn)} .v.bad{color:var(--bad)}
+  .lnk{color:var(--muted);font-size:11.5px}
+
+  /* ---------- blocks ---------- */
+  .blk{margin-bottom:26px}
+  .blk > h2{
+    font-size:12.5px;font-weight:600;margin:0 0 8px;padding-bottom:6px;border-bottom:1px solid var(--rule);
+  }
+  .cols{display:grid;gap:26px}
+  @media(min-width:760px){ .cols.two{grid-template-columns:1fr 1fr} .cols.three{grid-template-columns:repeat(3,1fr)} }
+  .note{color:var(--muted);font-size:12px;margin-top:8px}
+
+  /* ---------- tables ---------- */
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;font-weight:500;color:var(--muted);font-size:11.5px;padding:0 12px 6px 0;
+     border-bottom:1px solid var(--rule);white-space:nowrap}
+  td{padding:8px 12px 8px 0;border-bottom:1px solid var(--rule2);font-size:12.5px;vertical-align:top}
+  td.name{font-weight:500}
+  tr:last-child td{border-bottom:0}
+  .num,.r{text-align:right}
+  th.num{text-align:right}
+  .muted{color:var(--muted)}
+  .empty{color:var(--muted);font-size:12.5px;padding:10px 0}
+
+  /* ---------- bar rows (activation, funnel) ---------- */
+  .rows{display:grid;gap:7px}
+  .row{display:grid;grid-template-columns:minmax(96px,150px) 1fr 52px;align-items:center;gap:10px;font-size:12.5px}
+  .row .k{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .row .track{height:8px;background:#e9e9e6;border-radius:2px;overflow:hidden}
+  .row .fill{height:100%;background:#7d8a97;border-radius:2px}
+  .row .fill.g{background:#7fa88c}
+  .row .n{text-align:right;color:var(--ink)}
+
+  /* ---------- sparkline strip ---------- */
+  .spark{display:flex;align-items:flex-end;gap:2px;height:56px;margin-top:4px}
+  .spark i{flex:1;background:#d7d9dc;border-radius:1px;min-height:2px}
+  .axis{display:flex;justify-content:space-between;color:var(--faint);font-size:11px;margin-top:6px}
+
+  /* ---------- notices ---------- */
+  .notice{display:flex;gap:8px;align-items:flex-start;padding:7px 0;font-size:12.5px;
+          border-bottom:1px solid var(--rule2)}
+  .notice:last-child{border-bottom:0}
+  .dot{width:6px;height:6px;border-radius:50%;flex:none;margin-top:7px;background:var(--faint)}
+
+  /* ---------- status ---------- */
+  .st{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;white-space:nowrap}
+  .st i{width:6px;height:6px;border-radius:50%;display:inline-block;background:var(--faint)}
+  .st.live i{background:var(--ok)} .st.paused i,.st.setup i,.st.ready i{background:var(--warn)}
+  .st.cancelled i{background:var(--bad)}
+
+  /* ---------- phones: tables to stacked rows ---------- */
+  @media(max-width:759px){
+    thead{display:none}
+    table,tbody,tr,td{display:block;width:100%}
+    tr{padding:9px 0;border-bottom:1px solid var(--rule)}
+    tr:last-child{border-bottom:0}
+    td{border:0;padding:2px 0;display:flex;justify-content:space-between;gap:14px}
+    td::before{content:attr(data-label);color:var(--muted);font-size:11.5px;flex:none}
+    td.name{font-weight:600;font-size:13px;padding-bottom:4px}
+    td.name::before{content:""}
+    td.hide{display:none}
+    .row{grid-template-columns:minmax(84px,1fr) 2fr 46px}
+    /* two or three column tables read better as a single line on a phone */
+    table.tight tr{display:flex;justify-content:space-between;gap:14px;align-items:baseline}
+    table.tight td{display:inline;width:auto;padding:0;border:0}
+    table.tight td::before{content:""}
+    table.tight td.name{font-weight:400;padding:0}
+  }
+  footer{color:var(--faint);font-size:11.5px;padding:26px 0 0;border-top:1px solid var(--rule);margin-top:34px}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <span class="name">Turbo Creator Assistant</span>
+  <span class="env">owner console</span>
+  <span class="stamp" id="stamp"></span>
+</div>
+
+<div class="shell">
+  <div class="side" id="side">
+    <div class="brand">Turbo Creator Assistant</div>
+    <nav class="rail" id="rail"></nav>
+  </div>
+  <div class="scrim" id="scrim"></div>
+  <main>
+    <button class="burger" id="burger" aria-label="Sections">
+      <span class="bars"><i></i><i></i><i></i></span> Sections
+    </button>
+    <section id="s-overview"></section>
+    <section id="s-growth"></section>
+    <section id="s-chats"></section>
+    <section id="s-money"></section>
+    <section id="s-creators"></section>
+    <section id="s-content"></section>
+    <section id="s-compliance"></section>
+    <footer id="foot"></footer>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script type="module">
+const RECOVERY = location.hash.indexOf("type=recovery") >= 0 || location.hash.indexOf("type=invite") >= 0;
+if (RECOVERY) { location.replace("login.html" + location.hash); throw new Error("recovery"); }
+const SUPABASE_URL = "https://xsgvdlgmhuxozjlbjzxy.supabase.co";
+const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzZ3ZkbGdtaHV4b3pqbGJqenh5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNjIxNTcsImV4cCI6MjEwNzYzODE1N30.eTDJH5Xm7LZGEdcQy94X61E7EqFx9S3iWsxEpS20BZ0";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+const { data: { session } } = await sb.auth.getSession();
+if (!session) { location.replace("login.html"); }
+const aal = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
+if (!aal.data || aal.data.currentLevel !== "aal2") { location.replace("login.html"); }
+const snap = await sb.from("console_snapshot").select("data").eq("id", 1).single();
+if (snap.error || !snap.data) {
+  document.body.innerHTML = '<div style="padding:40px;font:16px system-ui">' +
+    'This account is not allowed to see the console.</div>';
+  throw new Error("no access");
+}
+const DATA = snap.data.data;
+
+/* ---------- formatting ---------- */
+const nz = x => (Math.abs(x || 0) < 0.005 ? 0 : x);
+const money = x => "\u00a3" + nz(x).toFixed(2);
+const m0 = x => "\u00a3" + (Math.round(nz(x)) || 0).toLocaleString();
+const num = x => (x || 0).toLocaleString();
+const pct = x => nz(x).toFixed(1) + "%";
+const K = DATA.kpi;
+const nowt = s => (s == null ? "" : s);
+
+/* ---------- building blocks ---------- */
+function stat(label, value, note, cls) {
+  return `<div class="m"><span class="l">${label}</span>` +
+         `<span class="v ${cls || ""}">${value}</span>` +
+         (note ? `<span class="n">${note}</span>` : "") + `</div>`;
+}
+const strip = items => `<div class="strip">${items.join("")}</div>`;
+
+function block(title, inner, note) {
+  return `<div class="blk"><h2>${title}</h2>${inner}` +
+         (note ? `<div class="note">${note}</div>` : "") + `</div>`;
+}
+
+function table(headers, rows, empty, tight) {
+  if (!rows || !rows.length) return `<div class="empty">${empty || "Nothing yet."}</div>`;
+  const th = headers.map(h => `<th class="${h.r ? "num" : ""}">${h.t}</th>`).join("");
+  return `<table class="${tight ? "tight" : ""}"><thead><tr>${th}</tr></thead><tbody>${rows.join("")}</tbody></table>`;
+}
+const td = (label, value, cls) => `<td data-label="${label}" class="${cls || ""}">${value}</td>`;
+
+function rows(list) {
+  /* Steps with counts, and the share that got that far. Sparse data reads better as a
+     list than as a row of empty progress bars. */
+  const first = Math.max(1, ...list.map(x => x.n));
+  return table([{t: "Step"}, {t: "Count", r: 1}, {t: "Share", r: 1}],
+    list.map(x => `<tr>${td("Step", x.label, "name")}${td("Count", num(x.n), "num")}` +
+                  `${td("Share", pct(x.n / first * 100), "num muted")}</tr>`), "", true);
+}
+
+function spark(list, valueKey, labelKey, emptyNote) {
+  if (!list.length || Math.max(...list.map(d => d[valueKey])) === 0) {
+    return `<div class="empty">${emptyNote || "Nothing recorded in this window."}</div>`;
+  }
+  const max = Math.max(1, ...list.map(d => d[valueKey]));
+  return `<div class="spark">` + list.map(d =>
+    `<i style="height:${Math.max(2, d[valueKey] / max * 56)}px" title="${d[labelKey]}: ${d[valueKey]}"></i>`
+  ).join("") + `</div>
+  <div class="axis"><span>${list[0][labelKey]}</span><span>${list[Math.floor(list.length / 2)][labelKey]}</span>` +
+  `<span>${list[list.length - 1][labelKey]}</span></div>`;
+}
+
+function notices(list) {
+  const col = {ok: "#3f6f4f", warn: "#8a5a12", bad: "#9b2c25"};
+  if (!list || !list.length) return `<div class="empty">Nothing to flag.</div>`;
+  return list.map(a => `<div class="notice"><span class="dot" style="background:${col[a.level] || "#9aa1ab"}"></span>` +
+                       `<span>${a.text}</span></div>`).join("");
+}
+
+const FACES = {live: "live", ready: "ready", paused: "paused", setup: "setting up",
+               provisioned: "not set up", cancelled: "cancelled"};
+const statusCell = s => `<span class="st ${s || ""}"><i></i>${FACES[s] || s || "unknown"}</span>`;
+
+/* ---------- navigation ---------- */
+const TABS = [
+  ["overview", "Overview"], ["growth", "Growth"], ["chats", "Chats"], ["money", "Money"],
+  ["creators", "Creators"], ["content", "Content"], ["compliance", "Compliance"],
+];
+const API = "https://api-telebotcreator.turboit.uk";
+
+async function readSwitch() {
+  try {
+    const r = await fetch(API + "/settings", {headers: {Authorization: "Bearer " + session.access_token}});
+    return r.ok ? await r.json() : null;
+  } catch (e) { return null; }
+}
+async function writeSwitch(kill) {
+  const r = await fetch(API + "/settings", {method: "POST",
+    headers: {Authorization: "Bearer " + session.access_token, "Content-Type": "application/json"},
+    body: JSON.stringify({kill_all: kill})});
+  return r.ok;
+}
+async function setOne(id, manual) {
+  const r = await fetch(API + "/manual", {method: "POST",
+    headers: {Authorization: "Bearer " + session.access_token, "Content-Type": "application/json"},
+    body: JSON.stringify({id: id, manual: manual})});
+  return r.ok;
+}
+async function readBots() {
+  try {
+    const r = await fetch(API + "/bots", {headers: {Authorization: "Bearer " + session.access_token}});
+    return r.ok ? (await r.json()).bots || [] : null;
+  } catch (e) { return null; }
+}
+async function saveBot(persona, token) {
+  const r = await fetch(API + "/bots", {method: "POST",
+    headers: {Authorization: "Bearer " + session.access_token, "Content-Type": "application/json"},
+    body: JSON.stringify({persona: persona, token: token})});
+  return r.ok ? await r.json() : await r.json().catch(() => ({error: "failed"}));
+}
+async function hookBot(persona) {
+  const r = await fetch(API + "/bots/hook", {method: "POST",
+    headers: {Authorization: "Bearer " + session.access_token, "Content-Type": "application/json"},
+    body: JSON.stringify({persona: persona})});
+  return r.ok;
+}
+async function paintBots() {
+  const box = document.getElementById("botsList");
+  if (!box) return;
+  const bots = await readBots();
+  if (!bots) { box.innerHTML = '<span class="muted">could not read the bot list</span>'; return; }
+  if (!bots.length) { box.innerHTML = '<span class="muted">No persona bots yet.</span>'; return; }
+  box.innerHTML = "<table><thead><tr><th>Persona</th><th>Bot</th><th>Active</th>" +
+    "<th></th></tr></thead><tbody>" + bots.map(b =>
+      `<tr><td>${b.persona}</td><td>@${b.username || "-"}</td><td>${b.active ? "yes" : "no"}</td>` +
+      `<td class="num"><button class="btn ghost" data-hook="${b.persona}">Hook</button></td></tr>`).join("") +
+    "</tbody></table>";
+}
+document.addEventListener("click", async e => {
+  if (e.target.id === "botSave") {
+    const note = document.getElementById("botNote");
+    const persona = (document.getElementById("botPersona").value || "").trim().toLowerCase();
+    const token = (document.getElementById("botToken").value || "").trim();
+    note.textContent = "checking with Telegram";
+    const out = await saveBot(persona, token);
+    note.textContent = out.username ? ("saved @" + out.username) : (out.error || "failed");
+    document.getElementById("botToken").value = "";
+    await paintBots();
+  }
+  const h = e.target.closest("button[data-hook]");
+  if (h) {
+    h.textContent = "hooking";
+    h.textContent = (await hookBot(h.dataset.hook)) ? "hooked" : "failed";
+  }
+});
+async function paintSwitch() {
+  const note = document.getElementById("switchNote");
+  if (!note) return;
+  const st = await readSwitch();
+  if (!st) { note.textContent = "could not read the switch"; return; }
+  note.innerHTML = st.kill_all
+    ? "<b>Everything is off.</b> Every customer chat is manual mode."
+    : "<b>Assistants are answering.</b>";
+}
+document.addEventListener("click", async e => {
+  if (e.target.id === "allOff") {
+    document.getElementById("switchNote").textContent = "switching everything off";
+    await writeSwitch(true); await paintSwitch();
+  }
+  if (e.target.id === "allOn") {
+    document.getElementById("switchNote").textContent = "switching everything on";
+    await writeSwitch(false); await paintSwitch();
+  }
+  const one = e.target.closest("button[data-manual]");
+  if (one) {
+    const [id, want] = one.dataset.manual.split(":");
+    one.textContent = "working";
+    const ok = await setOne(id, want === "on");
+    one.textContent = ok ? "done" : "failed";
+  }
+});
+document.getElementById("rail").innerHTML = TABS.map(([id, label]) =>
+  `<button data-tab="${id}">${label}</button>`).join("");
+const drawer = document.getElementById("side");
+const scrim = document.getElementById("scrim");
+document.getElementById("burger").onclick = () => {
+  drawer.classList.add("open");
+  scrim.classList.add("on");
+};
+function closeDrawer() {
+  drawer.classList.remove("open");
+  scrim.classList.remove("on");
+}
+scrim.onclick = closeDrawer;
+document.getElementById("rail").onclick = e => {
+  closeDrawer();
+  const b = e.target.closest("button[data-tab]");
+  if (!b) return;
+  history.replaceState(null, "", "#" + b.dataset.tab);
+  document.querySelectorAll("nav.rail button").forEach(x => x.classList.toggle("on", x === b));
+  if (b.dataset.tab === "creators") { paintSwitch(); paintBots(); }
+  document.querySelectorAll("main section").forEach(s =>
+    s.classList.toggle("on", s.id === "s-" + b.dataset.tab));
+  window.scrollTo({top: 0});
+};
+
+document.getElementById("stamp").innerHTML =
+  `Live data, ${DATA.generated}<br><span class="win">${num(DATA.sources.real_events)} events in ` +
+  `${DATA.window_days} days \u00b7 ${num(DATA.sources.simulated_excluded)} test rows excluded</span>`;
+document.getElementById("foot").textContent =
+  "Every figure here is computed from the live event store, the creator roster and each creator's " +
+  "own record. Nothing is estimated or seeded.";
+
+/* ---------- overview ---------- */
+document.getElementById("s-overview").innerHTML =
+  `<div class="ph"><h1>Overview</h1><p>Last ${DATA.window_days} days, and what needs a decision.</p></div>` +
+  strip([
+    stat("Assistants on", num(K.assistants_on), `${num(K.manual_mode)} in manual mode`),
+    stat("Net revenue", m0(K.net_revenue), `${num(K.sales)} sales, ${m0(K.refunded)} refunded`),
+    stat("Sales", m0(K.revenue), `${num(K.buyers)} buyers`),
+    stat("Margin after cost", m0(K.margin), `cost ${m0(K.cost)}`, K.margin > 0 ? "good" : ""),
+    stat("Chats", num(K.conversations), `${K.buyers} buyers, ${K.conversion.toFixed(1)}% converted`),
+  ]) +
+  `<div class="cols two">
+     <div>${block("Activation, signed up to live", rows(DATA.activation.map(a => ({label: a.step, n: a.n}))))}</div>
+     <div>${block("Needs attention", notices(DATA.alerts))}</div>
+   </div>` +
+  block("Sales closed per day", spark(DATA.daily, "rev", "d", "No sales closed in this window."),
+        "Bars are days in the window. Flat means no sales closed that day.");
+
+/* ---------- growth ---------- */
+const ttl = Object.values(DATA.creators).map(c => c.ttl_days).filter(v => v > 0);
+const avgttl = ttl.length ? (ttl.reduce((a, b) => a + b, 0) / ttl.length) : 0;
+document.getElementById("s-growth").innerHTML =
+  `<div class="ph"><h1>Growth</h1><p>Who arrived, who stayed, where people stall.</p></div>` +
+  strip([
+    stat("New creators", num(K.signups), `${K.active_creators} active now`),
+    stat("Cancelled", num(K.cancelled), K.signups ? pct(K.cancelled / Math.max(1, K.signups) * 100) + " of signups" : "none yet"),
+    stat("Stalled mid-setup", num(K.stalled), "not live yet"),
+    stat("Time to live", ttl.length ? avgttl.toFixed(1) + " days" : "no data", ttl.length ? `${ttl.length} creators measured` : "nobody has gone live"),
+  ]) +
+  block("Weekly cohorts", table(
+    [{t: "Week"}, {t: "Creators", r: 1}, {t: "Customers", r: 1}, {t: "Sales", r: 1}, {t: "Revenue", r: 1}],
+    DATA.weekly.map(w => `<tr>${td("Week", w.label, "name")}${td("Creators", num(w.creators), "num")}` +
+      `${td("Customers", num(w.customers), "num")}${td("Sales", num(w.sales), "num")}` +
+      `${td("Revenue", money(w.revenue), "num")}</tr>`), "No weeks in this window.")) +
+  block("Day by day", table(
+    [{t: "Day"}, {t: "Messages", r: 1}, {t: "Chats", r: 1}, {t: "Sales", r: 1}, {t: "Revenue", r: 1}],
+    DATA.daily.slice(-14).reverse().map(d => `<tr>${td("Day", d.d, "name")}${td("Messages", num(d.msgs), "num")}` +
+      `${td("Chats", num(d.convos), "num")}${td("Sales", num(d.new_sales), "num")}` +
+      `${td("Revenue", money(d.rev), "num")}</tr>`)));
+
+/* ---------- chats ---------- */
+document.getElementById("s-chats").innerHTML =
+  `<div class="ph"><h1>Chats</h1><p>How the assistant handles customers, and where it hands over.</p></div>` +
+  strip([
+    stat("Chats", num(K.conversations), `${K.msgs_per_conversation.toFixed(1)} messages each`),
+    stat("Median first reply", K.median_reply ? K.median_reply.toFixed(1) + "s" : "no data", K.p90_reply ? "p90 " + K.p90_reply.toFixed(1) + "s" : ""),
+    stat("Asked if it is a bot", pct(K.bot_question_rate), "answered honestly, never denied"),
+    stat("Handed to a human", pct(K.escalation_rate), `${num(DATA.compliance.escalations)} in the window`),
+    stat("Replies sent", num(K.replies), `cost ${m0(K.cost)}`),
+  ]) +
+  `<div class="cols two">
+     <div>${block("Customer funnel", rows(DATA.funnel.map(f => ({label: f.step, n: f.n}))))}</div>
+     <div>${block("Busiest hours", spark(DATA.hourly.map((n, i) => ({h: String(i).padStart(2, "0"), n})), "n", "h", "No messages yet, so there is no pattern to show."),
+                  "Messages received by hour of day, UTC.")}</div>
+   </div>`;
+
+/* ---------- money ---------- */
+document.getElementById("s-money").innerHTML =
+  `<div class="ph"><h1>Money</h1><p>What came in, what we keep, what we owe.</p></div>` +
+  strip([
+    stat("Gross sales", m0(K.revenue + K.repeat_revenue), `${num(K.sales)} sales`),
+    stat("After refunds", m0(K.net_revenue), `${m0(K.refunded)} back`),
+    stat("Net after costs", m0((K.revenue || 0) - (K.cost || 0)), `cost ${m0(K.cost)}`),
+    stat("Owed to creators", m0(K.owed_to_creators), "paid weekly in arrears"),
+    stat("Average order", money(K.aov), K.sales ? "across the window" : "no sales yet"),
+  ]) +
+  `<div class="cols two">
+     <div>${block("Unit economics", table([{t: "Measure"}, {t: "Value", r: 1}], [
+        ["Revenue per chat", money(K.revenue_per_conversation)],
+        ["Cost per chat", money(K.cost_per_conversation)],
+        ["Cost per sale", money(K.cost_per_sale)],
+        ["Cost per reply", money(K.cost_per_reply)],
+        ["Cost as share of revenue", pct(K.cost_pct)],
+        ["ARPU", money(K.arpu)],
+        ["Lifetime value", money(K.ltv)],
+      ].map(([l, v]) => `<tr>${td("Measure", l, "name")}${td("Value", v, "num")}</tr>`), "", true),
+      "Cost is money actually spent on AI. The assistant runs on rules today, so it is zero.")}</div>
+     <div>${block("Revenue by plan", table(
+        [{t: "Creators", r: 1}, {t: "Assistants on", r: 1}, {t: "Sales", r: 1}],
+        DATA.creators ? Object.entries(
+          Object.values(DATA.creators).reduce((acc, c) => {
+            const p = acc[c.revenue + c.repeat_revenue] || (acc[c.revenue + c.repeat_revenue] = {n: 0, sales: 0, on: 0});
+            p.n++; p.sales += (c.revenue + c.repeat_revenue);
+            if (c.status === "live" || c.status === "paused") p.on++;
+            return acc;
+          }, {}))
+          .map(([plan, d]) => `<tr>${td("Plan", plan, "name")}${td("Creators", num(d.n), "num")}` +
+            `${td("Assistants on", num(d.on), "num")}${td("Sales", m0(d.sales), "num")}</tr>`) : [],
+        "No creators yet."))}</div>
+   </div>` +
+  block("Payouts owed", table(
+    [{t: "Creator"}, {t: "Split", r: 1}, {t: "They keep", r: 1}, {t: "We take", r: 1}],
+    Object.entries(DATA.creators || {}).map(([n, c]) => `<tr>${td("Creator", n, "name")}` +
+      `${td("Assistant", c.manual ? "manual mode" : (c.status || "-"))}` +
+      `${td("Sales", money(c.revenue + c.repeat_revenue), "num")}</tr>`),
+    "Nothing owed yet. Payouts run weekly in arrears from real processor data."));
+
+/* ---------- creators ---------- */
+document.getElementById("s-creators").innerHTML =
+  `<div class="ph"><h1>Creators</h1><p>One row per creator on the platform. Status comes from that creator's own record.</p></div>` +
+  `<div class="blk" id="botsBlock"><h2>Telegram bots</h2>
+     <div id="botsList"><span class="muted">reading</span></div>
+     <div class="row" style="margin-top:12px">
+       <input id="botPersona" placeholder="persona, e.g. ava" style="max-width:160px">
+       <input id="botToken" placeholder="BotFather token" style="max-width:320px">
+       <button class="btn" id="botSave">Save bot</button>
+       <span class="muted" id="botNote"></span>
+     </div>
+     <div class="note">Make the bot in BotFather first: /newbot, then a name and a handle. The token
+       is stored server side and never shown here again. Hook points Telegram at this system.</div>
+   </div>` +
+  `<div class="blk" id="switchBlock"><h2>Kill switch</h2>
+     <div class="row" id="switchRow"><span class="muted" id="switchNote">reading the switch</span></div>
+     <div class="row" style="margin-top:10px">
+       <button class="btn ghost" id="allOff">All assistants off</button>
+       <button class="btn ghost" id="allOn">All assistants on</button>
+     </div>
+     <div class="note">Off means manual mode: nothing is sent to any customer until you switch it back on.</div>
+   </div>` +
+  block("All creators", table(
+    [{t: "Creator"}, {t: "Plan"}, {t: "Status"}, {t: "Chats", r: 1}, {t: "Sales", r: 1},
+     {t: "Repeat", r: 1}, {t: "Split", r: 1}, {t: "Creator keeps", r: 1}, {t: "We take", r: 1}],
+    Object.entries(DATA.creators || {}).map(([n, c]) => `<tr>${td("Creator", n, "name")}` +
+      `${td("Assistant", c.manual ? "manual mode" : (c.status || "-"))}` +
+      `${td("Status", statusCell(c.status))}${td("Chats", num(c.conversations), "num")}` +
+      `${td("Sales", money(c.revenue + c.repeat_revenue), "num")}${td("Repeat", money(c.repeat_revenue), "num")}` +
+      `${td("Sales", money(c.revenue + c.repeat_revenue), "num")}` +
+      `${td("Manual", c.manual ? "yes" : "no")}` +
+      `<td class="num"><button class="btn ghost" data-manual="${c.id}:${c.manual ? "off" : "on"}">` +
+      `${c.manual ? "Turn on" : "Turn off"}</button></td></tr>`),
+    "No creators on the platform yet."));
+
+/* ---------- content ---------- */
+document.getElementById("s-content").innerHTML =
+  `<div class="ph"><h1>Content</h1><p>What each creator has on offer, and what actually sells.</p></div>` +
+  strip([
+    stat("Items sold", num(K.sales), `${DATA.items.length} in the catalogue`),
+    stat("Down-sells", pct(K.down_sell_rate), "closed below list price"),
+    stat("Average order", money(K.aov), K.sales ? "across the window" : "no sales yet"),
+  ]) +
+  block("Catalogue", table(
+    [{t: "Item"}, {t: "Creator"}, {t: "Price", r: 1}, {t: "Floor", r: 1}, {t: "State"}, {t: "Sold", r: 1}, {t: "Revenue", r: 1}],
+    DATA.items.map(i => `<tr>${td("Item", i.title, "name")}${td("Creator", i.creator)}` +
+      `${td("Price", money(i.price), "num")}${td("Floor", money(i.floor), "num")}${td("State", i.state)}` +
+      `${td("Sold", num(i.sold), "num")}${td("Revenue", money(i.revenue), "num")}</tr>`),
+    "No content has been added yet."));
+
+/* ---------- compliance ---------- */
+const C2 = DATA.compliance;
+document.getElementById("s-compliance").innerHTML =
+  `<div class="ph"><h1>Compliance</h1><p>The things card networks and UK law both look for.</p></div>` +
+  strip([
+    stat("Age checks", num(C2.age_gate_passed + C2.age_gate_failed), `${C2.age_gate_failed} turned away`),
+    stat("Notices served", num(C2.notices_served), "one at first contact"),
+    stat("Bot questions", num(C2.bot_questions_answered), "answered, never denied"),
+    stat("Handovers", num(C2.escalations), "calls, meetups, refunds, abuse"),
+    stat("Refunds", num(C2.refunds), C2.next_payout ? "next payout " + C2.next_payout : "none due"),
+  ]) +
+  block("Everything logged", table([{t: "Event"}, {t: "Count", r: 1}], [
+    ["Terms accepted", num(C2.terms_accepted)],
+    ["Telegram connections", num(C2.connections)],
+    ["Connections revoked", num(C2.revocations)],
+    ["Style sheets approved", num(C2.style_versions)],
+    ["Assistant paused", num(C2.pauses)],
+    ["Subscriptions cancelled", num(C2.cancellations)],
+  ].map(([l, v]) => `<tr>${td("Event", l, "name")}${td("Count", v, "num")}</tr>`)));
+
+/* ---------- start ---------- */
+const wanted = (location.hash || "#overview").slice(1);
+const startTab = TABS.some(([id]) => id === wanted) ? wanted : "overview";
+document.querySelector(`nav.rail button[data-tab="${startTab}"]`).click();
+</script>
+</body>
+</html>

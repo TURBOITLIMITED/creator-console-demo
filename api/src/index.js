@@ -1,0 +1,421 @@
+// Creator CRM API: content, prices and style for a creator, stored in KV, media in R2.
+// Auth: creator token in the Authorization header (or ?t= for read-only convenience).
+const CORS = (o) => ({
+  "Access-Control-Allow-Origin": o || "*",
+  "Access-Control-Allow-Methods": "GET,PUT,POST,OPTIONS",
+  "Access-Control-Allow-Headers": "Authorization,Content-Type,X-Filename",
+  "Access-Control-Max-Age": "86400",
+});
+
+const json = (data, status = 200, origin) =>
+  new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...CORS(origin) },
+  });
+
+import { sign, timingSafe } from "./media.js";
+
+// Creator records live in Supabase Postgres: one row per creator, the full record in jsonb,
+// plus the summary columns the console and roster read. Media stays in R2.
+const sbHeaders = (env) => ({
+  apikey: env.SUPABASE_SERVICE_KEY,
+  Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY,
+  "Content-Type": "application/json",
+});
+
+// a signed in console admin: their Supabase token, checked against the admin list
+async function consoleAdmin(env, request) {
+  const auth = request.headers.get("Authorization") || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (!token) return false;
+  try {
+    const r = await fetch(env.SUPABASE_URL + "/auth/v1/user", {
+      headers: { apikey: env.SUPABASE_ANON_KEY || env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + token } });
+    if (!r.ok) return false;
+    const user = await r.json();
+    if (!user || !user.email) return false;
+    const rows = await sb(env, "console_admins?select=email&email=eq." + encodeURIComponent(user.email));
+    return !!(rows && rows.length);
+  } catch (e) { return false; }
+}
+
+async function sb(env, path, init) {
+  const r = await fetch(env.SUPABASE_URL + "/rest/v1/" + path, { ...init, headers: { ...sbHeaders(env), ...((init && init.headers) || {}) } });
+  if (!r.ok && r.status !== 201) throw new Error("supabase " + r.status + " " + (await r.text()).slice(0, 120));
+  const t = await r.text();
+  return t ? JSON.parse(t) : null;
+}
+
+const blankRecord = (id) => ({ id, name: id, items: [], bundles: [], style: {},
+                               connected: false, manual: false, updatedAt: null });
+
+async function record(env, id) {
+  const rows = await sb(env, "creators?id=eq." + encodeURIComponent(id) + "&select=record");
+  if (rows && rows.length) {
+    const rec = rows[0].record || {};
+    return { ...blankRecord(id), ...rec, id };
+  }
+  return blankRecord(id);
+}
+
+async function saveRecord(env, rec, token) {
+  const items = rec.items || [];
+  const row = {
+    id: rec.id,
+    name: rec.name || rec.id,
+    plan: rec.plan || "basic",
+    fee_pence: Math.round((rec.fee || 0) * 100),
+    split_pct: Math.round((rec.split || 0) * 10000) / 100,
+    state: rec.state || null,
+    connected: !!rec.connected,
+    items_live: items.filter((i) => i.state === "live").length,
+    items_total: items.length,
+    record: { ...rec, updatedAt: new Date().toISOString() },
+    updated_at: new Date().toISOString(),
+  };
+  if (rec.dashboard_token || token) row.dashboard_token = rec.dashboard_token || token;
+  if (rec.chat_id || rec.telegram_chat_id) row.telegram_chat_id = String(rec.chat_id || rec.telegram_chat_id);
+  if (rec.id) row.id = rec.id;
+  await sb(env, "creators?on_conflict=id", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify(row),
+  });
+  return row;
+}
+
+async function creatorForToken(env, token) {
+  const rows = await sb(env, "creators?dashboard_token=eq." + encodeURIComponent(token) +
+                             "&select=id&limit=1");
+  return rows && rows.length ? rows[0].id : null;
+}
+
+async function roster(env) {
+  const rows = await sb(env, "creators?select=id,name,record,items_live,items_total,updated_at" +
+                             "&order=created_at.asc");
+  return (rows || []).map((r) => ({ id: r.id, name: r.name,
+                                    manual: !!((r.record || {}).manual),
+                                    items_live: r.items_live, items_total: r.items_total,
+                                    updatedAt: r.updated_at }));
+}
+
+
+// Who is calling: the admin token, or a console admin with a Supabase session.
+// Creator tokens are no longer accepted anywhere: the creator panel was removed, so nobody
+// outside the operator console has business reading or writing a record.
+async function whoami(env, request, url) {
+  const bearer = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
+  const token = bearer || url.searchParams.get("t") || "";
+  if (!token) return null;
+  if (env.ADMIN_TOKEN && token === env.ADMIN_TOKEN) {
+    return { id: url.searchParams.get("creator") || "ava", role: "admin" };
+  }
+  if (token.split(".").length === 3) {
+    // a Supabase login: ask auth who it is, then find the creator it belongs to
+    const r = await fetch(env.SUPABASE_URL + "/auth/v1/user", {
+      headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: "Bearer " + token },
+    });
+    if (!r.ok) return null;
+    const u = await r.json();
+    let aal = "aal1";
+    try {
+      const part = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+      aal = JSON.parse(atob(part + "=".repeat((4 - (part.length % 4)) % 4))).aal || "aal1";
+    } catch (e) { /* older tokens carry no aal */ }
+    return { id: null, role: "nobody", email: u.email };
+  }
+  return null;                      // creator tokens: not a thing any more
+}
+
+export default {
+  async fetch(request, env) {
+   try {
+    const url = new URL(request.url);
+    const origin = request.headers.get("Origin") || "";
+    if (request.method === "OPTIONS") return new Response(null, { headers: CORS(origin) });
+
+    // media is paid content: an expiring signature is required, never public
+    if (url.pathname.startsWith("/m/")) {
+      const key = decodeURIComponent(url.pathname.slice(3));
+      const exp = parseInt(url.searchParams.get("e") || "0", 10);
+      const sig = url.searchParams.get("s") || "";
+      if (!exp || exp * 1000 < Date.now()) {
+        return json({ error: "link expired", hint: "ask for a fresh link" }, 403, origin);
+      }
+      const want = await sign(key, exp, env.MEDIA_SECRET);
+      if (!timingSafe(sig, want)) return json({ error: "bad signature" }, 403, origin);
+      const obj = await env.MEDIA.get(key);
+      if (!obj) return json({ error: "not found" }, 404, origin);
+      return new Response(obj.body, {
+        headers: { "Content-Type": obj.httpMetadata?.contentType || "application/octet-stream",
+                   "Cache-Control": "private, max-age=300" },
+      });
+    }
+
+    const me = await whoami(env, request, url);
+    if (!me) return json({ error: "unauthorised" }, 401, origin);
+    if (me.role === "nobody") {
+      return json({ error: "no creator account is linked to that login" }, 403, origin);
+    }
+    if (me.role === "creator" && me.aal && me.aal !== "aal2") {
+      return json({ error: "two factor required", hint: "finish the code step" }, 403, origin);
+    }
+
+    if (url.pathname === "/me" && request.method === "GET") {
+      return json(await record(env, me.id), 200, origin);
+    }
+
+    if (url.pathname === "/me" && request.method === "PUT") {
+      const body = await request.json();
+      const rec = await record(env, me.id);
+      for (const k of ["items", "style", "bundles", "name", "plan", "fee", "split"]) {
+        if (k in body) rec[k] = body[k];
+      }
+      rec.updatedAt = new Date().toISOString();
+      await saveRecord(env, { ...rec, id: me.id });
+      return json(rec, 200, origin);
+    }
+
+    if (url.pathname === "/sign" && request.method === "POST") {
+      const body = await request.json().catch(() => ({}));
+      const key = String(body.key || "");
+      const ttl = Math.min(Math.max(parseInt(body.ttl || "86400", 10), 60), 7 * 86400);
+      if (!key) return json({ error: "no key" }, 400, origin);
+      if (me.role !== "admin" && !key.startsWith(me.id + "/")) {
+        return json({ error: "not your file" }, 403, origin);
+      }
+      const exp = Math.floor(Date.now() / 1000) + ttl;
+      const sig = await sign(key, exp, env.MEDIA_SECRET);
+      return json({ url: `${url.origin}/m/${encodeURIComponent(key)}?e=${exp}&s=${sig}`, exp },
+                  200, origin);
+    }
+
+    if (url.pathname === "/media" && request.method === "POST") {
+      const name = (url.searchParams.get("name") || "upload.bin").replace(/[^a-zA-Z0-9._-]/g, "_");
+      const key = `${me.id}/${crypto.randomUUID()}-${name}`;
+      await env.MEDIA.put(key, request.body, {
+        httpMetadata: { contentType: request.headers.get("Content-Type") || "application/octet-stream" },
+      });
+      const exp = Math.floor(Date.now() / 1000) + 3600;
+      const sig = await sign(key, exp, env.MEDIA_SECRET);
+      return json({ key, exp,
+                    url: `${url.origin}/m/${encodeURIComponent(key)}?e=${exp}&s=${sig}` }, 200, origin);
+    }
+
+    if (url.pathname === "/style-import" && request.method === "POST") {
+      const name = (url.searchParams.get("name") || "chat.png").replace(/[^a-zA-Z0-9._-]/g, "_");
+      const key = `style-imports/${me.id}/${crypto.randomUUID()}-${name}`;
+      const buf = await request.arrayBuffer();
+      await env.MEDIA.put(key, buf, {
+        httpMetadata: { contentType: request.headers.get("Content-Type") || "image/png" },
+      });
+      const prompt = [
+        "This image is a screenshot of a chat.",
+        "Transcribe every message bubble, top to bottom, one bubble per line, in the order they appear.",
+        "Copy the words exactly, in lower case, no translation, no summarising, no commentary.",
+        "Leave out any name, handle, phone number, link, price or amount.",
+        "Do not label who sent it. Output the lines only.",
+      ].join(" ");
+      const models = [
+        "@cf/mistralai/mistral-small-3.1-24b-instruct",
+        "@cf/meta/llama-3.2-11b-vision-instruct",
+      ];
+      const b64 = btoa(String.fromCharCode(...new Uint8Array(buf).slice(0, 2000000)));
+      const bodyFor = (prompt) => ({
+        messages: [{ role: "user", content: [
+          { type: "text", text: prompt },
+          { type: "image_url", image_url: { url: "data:image/png;base64," + b64 } },
+        ] }],
+        max_tokens: 900,
+      });
+      const AFFECTION = /\b(babe|bby|hun|honey|love|miss you|good boy|darling|sweetheart)\b/i;
+      let lines = [];
+      let note = "queued for review";
+      let used = null;
+      for (const model of models) {
+        try {
+          const out = await env.AI.run(model, bodyFor(prompt));
+          const text = typeof out === "string" ? out : (out.response || JSON.stringify(out));
+          const clean = String(text).replace(/```/g, "").trim();
+          const seen = new Set();
+          lines = [];
+          for (const raw of clean.split(/\r?\n/)) {
+            let l = raw.replace(/^\s*(?:[-*•>]|\d+[.)])\s*/, "").trim();
+            l = l.replace(/\b\d{1,2}:\d{2}\s*(?:am|pm)?\b/gi, " ")
+                 .replace(/https?:\/\/\S+/g, " ")
+                 .replace(/@[a-z0-9_.]+/gi, " ")
+                 .replace(/\s{2,}/g, " ").trim();
+            if (/^(here|sure|the transcript|transcription|i can|i'm sorry|chat|conversation)\b/i.test(l)) continue;
+            if (/^(r|l|right|left)\s*[:\-]/i.test(l)) l = l.replace(/^(r|l|right|left)\s*[:\-]\s*/i, "");
+            if (l.length < 3 || l.length > 160) continue;
+            l = l.toLowerCase();
+            if (seen.has(l)) continue;
+            seen.add(l);
+            lines.push(l);
+          }
+          if (lines.length) { note = "extracted"; used = model; break; }
+          note = "nothing readable with " + model;
+          used = model;
+        } catch (e) {
+          note = "vision model error on " + model + ": " + (e && e.message ? e.message : "unknown");
+          used = model;
+        }
+      }
+      const candidates = lines.slice(0, 24).map((l) => ({
+        text: l,
+        emoji: (l.match(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu) || []).length,
+        likely: (/(^|\s)x$/.test(l) || AFFECTION.test(l) || /[\u{1F300}-\u{1FAFF}]/u.test(l)
+                 || /\b(sending|want a look|up today|give me|gimme)\b/i.test(l)) ? 1 : 0,
+      }));
+      const result = { candidates, read: lines.length, emoji: [...new Set(
+        (lines.join(" ").match(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu) || []))] };
+      return json({ key, url: `${url.origin}/m/${encodeURIComponent(key)}`, note, model: used, result },
+                  200, origin);
+    }
+
+    if (url.pathname === "/style-probe" && request.method === "POST") {
+      const buf = await request.arrayBuffer();
+      const bytes = [...new Uint8Array(buf)];
+      const b64 = btoa(String.fromCharCode(...new Uint8Array(buf).slice(0, 2000000)));
+      const p = "Transcribe every message bubble in this chat screenshot, top to bottom, one per line, " +
+                "prefix R: for right-aligned bubbles and L: for left-aligned. Then TONE: <word>.";
+      const shapes = {
+        "image+prompt": { image: bytes, prompt: p, max_tokens: 300 },
+        "messages-image": { messages: [{ role: "user", content: [{ type: "text", text: p },
+          { type: "image", image: bytes }] }], max_tokens: 300 },
+        "messages-url": { messages: [{ role: "user", content: [{ type: "text", text: p },
+          { type: "image_url", image_url: { url: "data:image/png;base64," + b64 } }] }], max_tokens: 300 },
+      };
+      const models = ["@cf/google/gemma-3-12b-it", "@cf/meta/llama-4-scout-17b-16e-instruct",
+                      "@cf/meta/llama-3.2-11b-vision-instruct",
+                      "@cf/mistralai/mistral-small-3.1-24b-instruct"];
+      const out = [];
+      for (const m of models) {
+        for (const [shape, body] of Object.entries(shapes)) {
+          let txt = "";
+          try {
+            const r = await env.AI.run(m, body);
+            txt = (typeof r === "string" ? r : (r.response || JSON.stringify(r))).slice(0, 160);
+          } catch (e) {
+            txt = "ERR " + (e && e.message ? e.message : "unknown");
+          }
+          out.push({ model: m, shape, grounded: /shower|screenshot|trouble|babe|after/i.test(txt),
+                     txt: txt.replace(/\s+/g, " ") });
+        }
+      }
+      return json({ out }, 200, origin);
+    }
+
+    // the kill switch: readable by the assistant, writable by the assistant or by an admin
+    if (url.pathname === "/settings" && request.method === "GET") {
+      if (me.role !== "admin" && !(await consoleAdmin(env, request))) {
+        return json({ error: "not allowed" }, 403, origin);
+      }
+      const rows = await sb(env, "settings?select=value&key=eq.assistants");
+      const value = (rows && rows[0] && rows[0].value) || {};
+      return json({ kill_all: !!value.kill_all, by: value.by || null }, 200, origin);
+    }
+    if (url.pathname === "/settings" && request.method === "POST") {
+      if (me.role !== "admin" && !(await consoleAdmin(env, request))) {
+        return json({ error: "not allowed" }, 403, origin);
+      }
+      const b = await request.json();
+      const who = b.by || (me.user ? me.user.email : null) || "operator";
+      const value = { kill_all: !!b.kill_all, at: Date.now() / 1000, by: who };
+      await sb(env, "settings?on_conflict=key", { method: "POST",
+        headers: { Prefer: "resolution=merge-duplicates" },
+        body: JSON.stringify({ key: "assistants", value }) });
+      return json({ kill_all: value.kill_all }, 200, origin);
+    }
+
+    // one creator on or off by hand (manual mode), for the console
+    if (url.pathname === "/manual" && request.method === "POST") {
+      if (me.role !== "admin" && !(await consoleAdmin(env, request))) {
+        return json({ error: "not allowed" }, 403, origin);
+      }
+      const b = await request.json();
+      const id = String(b.id || "");
+      if (!id) return json({ error: "which creator?" }, 400, origin);
+      const rows = await sb(env, "creators?id=eq." + encodeURIComponent(id) + "&select=record");
+      if (!rows || !rows.length) return json({ error: "no such creator" }, 404, origin);
+      const rec = rows[0].record || {};
+      rec.manual = !!b.manual;
+      await sb(env, "creators?id=eq." + encodeURIComponent(id), { method: "PATCH",
+        body: JSON.stringify({ record: rec }) });
+      return json({ id, manual: rec.manual }, 200, origin);
+    }
+
+    // never send a token to a browser: the panel shows the handle and a mask
+    if (url.pathname === "/bots" && request.method === "GET") {
+      if (me.role !== "admin" && !(await consoleAdmin(env, request))) {
+        return json({ error: "not allowed" }, 403, origin);
+      }
+      const rows = await sb(env, "bots?select=persona,username,active,created_at&order=created_at.asc");
+      return json({ bots: (rows || []).map(b => ({ persona: b.persona, username: b.username,
+                                                   active: b.active, added: b.created_at })) }, 200, origin);
+    }
+    if (url.pathname === "/bots" && request.method === "POST") {
+      if (me.role !== "admin" && !(await consoleAdmin(env, request))) {
+        return json({ error: "not allowed" }, 403, origin);
+      }
+      const b = await request.json();
+      const persona = String(b.persona || "").trim().toLowerCase();
+      const token = String(b.token || "").trim();
+      if (!persona || !token) return json({ error: "need a persona and a token" }, 400, origin);
+      if (!/^[0-9]+:[A-Za-z0-9_-]{30,}$/.test(token)) {
+        return json({ error: "that does not look like a bot token" }, 400, origin);
+      }
+      // check it with Telegram before storing it, so a typo never becomes a dead persona
+      const who = await fetch("https://api.telegram.org/bot" + token + "/getMe").then(r => r.json()).catch(() => null);
+      if (!who || !who.ok) return json({ error: "Telegram refused that token" }, 400, origin);
+      await sb(env, "bots?on_conflict=persona", { method: "POST",
+        headers: { Prefer: "resolution=merge-duplicates" },
+        body: JSON.stringify({ persona, username: who.result.username, token, active: true }) });
+      return json({ persona, username: who.result.username, active: true }, 200, origin);
+    }
+    if (url.pathname === "/bots/hook" && request.method === "POST") {
+      if (me.role !== "admin" && !(await consoleAdmin(env, request))) {
+        return json({ error: "not allowed" }, 403, origin);
+      }
+      const b = await request.json();
+      const persona = String(b.persona || "").trim().toLowerCase();
+      const rows = await sb(env, "bots?select=token,username&persona=eq." + encodeURIComponent(persona));
+      if (!rows || !rows.length) return json({ error: "no bot saved for that persona" }, 404, origin);
+      const token = rows[0].token;
+      const out = {};
+      if (b.unhook) {
+        out.webhook = await fetch("https://api.telegram.org/bot" + token + "/deleteWebhook")
+          .then(r => r.json()).catch(e => ({ ok: false, error: String(e) }));
+      } else {
+        out.webhook = await fetch("https://api.telegram.org/bot" + token + "/setWebhook?url=" +
+          encodeURIComponent("https://api-telebotcreator.turboit.uk/tg/" + persona))
+          .then(r => r.json()).catch(e => ({ ok: false, error: String(e) }));
+      }
+      return json({ persona, webhook: out.webhook && out.webhook.ok ? "set" : (out.webhook || {}) }, 200, origin);
+    }
+
+    // admin: the creator roster and per-creator records (used by the bot and the owner console)
+    if (me.role === "admin") {
+      if (url.pathname === "/creators" && request.method === "GET") {
+        return json({ creators: await roster(env) }, 200, origin);
+      }
+      if (url.pathname === "/creator" && request.method === "POST") {
+        const b = await request.json();
+        const rec = { id: b.id, name: b.name || b.id, items: b.items || [],
+                      bundles: b.bundles || [], style: b.style || {}, updatedAt: new Date().toISOString() };
+        rec.dashboard_token = b.token || rec.dashboard_token;
+        await saveRecord(env, rec, b.token);
+        return json(rec, 200, origin);
+      }
+      if (url.pathname.startsWith("/creator/")) {
+        return json(await record(env, url.pathname.split("/")[2]), 200, origin);
+      }
+    }
+
+    return json({ error: "no route" }, 404, origin);
+   } catch (e) {
+     return new Response(JSON.stringify({ error: String(e).slice(0, 300) }),
+       { status: 500, headers: { "Content-Type": "application/json" } });
+   }
+  },
+};

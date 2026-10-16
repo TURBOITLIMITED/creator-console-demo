@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<meta name="robots" content="noindex,nofollow">
+<title>Sign in \u00b7 Creator Assistant</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{--bg:#f7f8fa;--panel:#fff;--line:#e4e7ee;--txt:#101828;--dim:#667085;
+        --accent:#0f4c81;--good:#067647;--bad:#b42318}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font-size:15px;line-height:1.45;
+       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       min-height:100vh;display:flex;align-items:center;justify-content:center;
+       padding:24px calc(16px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) 16px}
+  .box{width:100%;max-width:400px}
+  .brand{font-size:13px;color:var(--dim);letter-spacing:.02em;margin-bottom:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:22px}
+  h1{font-size:18px;font-weight:600;margin:0 0 4px}
+  .sub{color:var(--dim);font-size:13px;margin-bottom:18px}
+  label{display:block;font-size:12px;color:var(--dim);margin:12px 0 5px}
+  input{width:100%;padding:11px 12px;font-size:15px;border:1px solid var(--line);border-radius:8px;
+        background:#fff;color:var(--txt);min-height:44px}
+  input:focus{outline:2px solid #cfd8e3;outline-offset:1px;border-color:#cfd8e3}
+  button{width:100%;margin-top:18px;padding:12px;font-size:15px;font-weight:600;border-radius:8px;
+         border:1px solid var(--accent);background:var(--accent);color:#fff;min-height:46px;cursor:pointer}
+  button.ghost{background:#fff;color:var(--txt);border-color:var(--line);font-weight:500}
+  button:disabled{opacity:.55;cursor:default}
+  .msg{margin-top:14px;font-size:13px;padding:10px 12px;border-radius:8px;border:1px solid var(--line);
+       background:#fbfcfd;color:var(--dim);display:none}
+  .msg.on{display:block}
+  .msg.bad{border-color:#f2c9c2;background:#fef3f2;color:var(--bad)}
+  .msg.ok{border-color:#cfe3d4;background:#f2fbf5;color:var(--good)}
+  .step{display:none}.step.on{display:block}
+  .code{letter-spacing:.35em;font-variant-numeric:tabular-nums;text-align:center;font-size:19px}
+  .qr{width:190px;height:190px;margin:6px auto 10px;display:block;border:1px solid var(--line);
+      border-radius:8px;padding:8px;background:#fff}
+  .secret{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;word-break:break-all;
+          background:var(--panel2,#f2f4f8);border:1px solid var(--line);border-radius:6px;padding:8px;margin-top:8px}
+  .foot{color:var(--dim);font-size:12px;margin-top:16px;text-align:center}
+</style>
+</head>
+<body>
+<div class="box">
+  <div class="brand">Turbo Creator Assistant</div>
+  <div class="card">
+
+    <div class="step on" id="s-signin">
+      <h1>Owner console</h1>
+      <div class="sub">Sign in, then confirm with your authenticator.</div>
+      <label>Email</label><input id="email" type="email" autocomplete="username" inputmode="email">
+      <label>Password</label><input id="password" type="password" autocomplete="current-password">
+      <button id="signin">Sign in</button>
+      <div class="msg" id="m-signin"></div>
+      <div class="foot">Not for creators. Creators manage everything from their Telegram chat.</div>
+    </div>
+
+    <div class="step" id="s-challenge">
+      <h1>Two-factor code</h1>
+      <div class="sub">Enter the 6 digits from your authenticator app.</div>
+      <label>Code</label><input id="chcode" class="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6">
+      <button id="chverify">Confirm</button>
+      <button class="ghost" id="chback">Back</button>
+      <div class="msg" id="m-challenge"></div>
+    </div>
+
+    <div class="step" id="s-enrol">
+      <h1>Set up two-factor</h1>
+      <div class="sub">Scan this with Google Authenticator, Authy, 1Password or any TOTP app,
+        then enter the code it shows. You cannot reach the console without this.</div>
+      <img class="qr" id="qr" alt="Two-factor QR code">
+      <div class="secret" id="secret"></div>
+      <label>Code from the app</label><input id="encode" class="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6">
+      <button id="enverify">Turn on two-factor</button>
+      <div class="msg" id="m-enrol"></div>
+    </div>
+
+    <div class="step" id="s-password">
+      <h1>Choose a password</h1>
+      <div class="sub">This is your first sign-in. Set a password for the console.</div>
+      <label>New password</label><input id="newpw" type="password" autocomplete="new-password">
+      <label>Repeat it</label><input id="newpw2" type="password" autocomplete="new-password">
+      <button id="setpw">Save and continue</button>
+      <div class="msg" id="m-password"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const RECOVERY = location.hash.indexOf("type=recovery") >= 0 || location.hash.indexOf("type=invite") >= 0;
+const SUPABASE_URL = "https://xsgvdlgmhuxozjlbjzxy.supabase.co";
+const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzZ3ZkbGdtaHV4b3pqbGJqenh5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNjIxNTcsImV4cCI6MjEwNzYzODE1N30.eTDJH5Xm7LZGEdcQy94X61E7EqFx9S3iWsxEpS20BZ0";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+const el = id => document.getElementById(id);
+const show = id => {
+  ["s-signin", "s-challenge", "s-enrol", "s-password"].forEach(s => el(s).classList.toggle("on", s === id));
+};
+const say = (id, text, kind) => {
+  const m = el(id);
+  m.textContent = text || "";
+  m.className = "msg" + (text ? " on" : "") + (kind ? " " + kind : "");
+};
+
+async function nextStep() {
+  const { data, error } = await sb.auth.getSession();
+  if (error || !data.session) { show("s-signin"); return; }
+  const lvl = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (lvl.data && lvl.data.currentLevel === "aal2") { location.replace("index.html"); return; }
+  const factors = await sb.auth.mfa.listFactors();
+  const totp = (factors.data && factors.data.totp) || [];
+  if (totp.length) {
+    const ch = await sb.auth.mfa.challenge({ factorId: totp[0].id });
+    if (ch.error) { say("m-challenge", ch.error.message, "bad"); show("s-challenge"); return; }
+    window._factorId = totp[0].id;
+    window._challengeId = ch.data.id;
+    show("s-challenge");
+    return;
+  }
+  const en = await sb.auth.mfa.enroll({ factorType: "totp" });
+  if (en.error) { say("m-enrol", en.error.message, "bad"); show("s-enrol"); return; }
+  el("qr").src = en.data.totp.qr_code;
+  el("secret").textContent = en.data.totp.secret;
+  window._enrolId = en.data.id;
+  show("s-enrol");
+}
+
+el("signin").onclick = async () => {
+  say("m-signin", "");
+  el("signin").disabled = true;
+  const { error } = await sb.auth.signInWithPassword({ email: el("email").value.trim(), password: el("password").value });
+  el("signin").disabled = false;
+  if (error) { say("m-signin", error.message, "bad"); return; }
+  nextStep();
+};
+
+el("chverify").onclick = async () => {
+  say("m-challenge", "");
+  const v = await sb.auth.mfa.verify({ factorId: window._factorId, challengeId: window._challengeId,
+                                       code: el("chcode").value.trim() });
+  if (v.error) { say("m-challenge", v.error.message, "bad"); return; }
+  location.replace("index.html");
+};
+el("chback").onclick = async () => { await sb.auth.signOut(); show("s-signin"); };
+el("enverify").onclick = async () => {
+  say("m-enrol", "");
+  const ch = await sb.auth.mfa.challenge({ factorId: window._enrolId });
+  if (ch.error) { say("m-enrol", ch.error.message, "bad"); return; }
+  const v = await sb.auth.mfa.verify({ factorId: window._enrolId, challengeId: ch.data.id, code: el("encode").value.trim() });
+  if (v.error) { say("m-enrol", v.error.message, "bad"); return; }
+  say("m-enrol", "Two-factor is on. Opening the console.", "ok");
+  setTimeout(() => location.replace("index.html"), 700);
+};
+
+el("setpw").onclick = async () => {
+  say("m-password", "");
+  const a = el("newpw").value, b = el("newpw2").value;
+  if (a.length < 10) { say("m-password", "Use at least 10 characters.", "bad"); return; }
+  if (a !== b) { say("m-password", "Those two do not match.", "bad"); return; }
+  const { error } = await sb.auth.updateUser({ password: a });
+  if (error) { say("m-password", error.message, "bad"); return; }
+  nextStep();
+};
+
+(async () => {
+  if (RECOVERY) { show("s-password"); return; }
+  const { data } = await sb.auth.getSession();
+  if (data.session) { nextStep(); } else { show("s-signin"); }
+})();
+</script>
+</body>
+</html>

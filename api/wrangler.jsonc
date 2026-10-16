@@ -1,0 +1,28 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "creator-api",
+  "main": "src/index.js",
+  "compatibility_date": "2026-01-01",
+  "observability": { "enabled": true },
+
+  // RECONSTRUCTED from the live deployment's binding list on 2026-10-16.
+  // The original wrangler config was never committed anywhere; this file was
+  // rebuilt by reading the Cloudflare API, so treat it as a best-effort
+  // reconstruction and diff it against the dashboard before any deploy.
+  "r2_buckets": [
+    { "binding": "MEDIA", "bucket_name": "creator-media" }
+  ],
+  "ai": { "binding": "AI" },
+
+  "vars": {
+    // Declared on the live worker but NEVER referenced anywhere in the source.
+    "DEMO": ""
+  }
+
+  // Secrets (set via `wrangler secret put`, never in this file):
+  //   ADMIN_TOKEN          global cross-tenant admin bearer  (see AUDIT: god-token)
+  //   MEDIA_SECRET         HMAC key for /m/ signed media URLs (falls back to "dev" if unset!)
+  //   SUPABASE_URL         https://xsgvdlgmhuxozjlbjzxy.supabase.co
+  //   SUPABASE_ANON_KEY    used ONLY for /auth/v1/user identity checks
+  //   SUPABASE_SERVICE_KEY used for ALL table access -> bypasses RLS entirely
+}
