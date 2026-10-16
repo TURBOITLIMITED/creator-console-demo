@@ -14,6 +14,8 @@ const json = (data, status = 200, origin) =>
   });
 
 import { sign, timingSafe } from "./media.js";
+import { handleWebhook } from "./tg.js";
+import * as tgapi from "./telegram.js";
 
 // Creator records live in Supabase Postgres: one row per creator, the full record in jsonb,
 // plus the summary columns the console and roster read. Media stays in R2.
@@ -150,6 +152,15 @@ export default {
         headers: { "Content-Type": obj.httpMetadata?.contentType || "application/octet-stream",
                    "Cache-Control": "private, max-age=300" },
       });
+    }
+
+    // Telegram Business webhook. Must sit ahead of whoami(): Telegram sends no
+    // Authorization header, which is exactly why every update has been 401ing.
+    // It authenticates with the secret header instead, checked inside.
+    if (url.pathname.startsWith("/tg/")) {
+      if (request.method !== "POST") return json({ error: "post only" }, 405, origin);
+      const persona = decodeURIComponent(url.pathname.slice(4)).toLowerCase();
+      return handleWebhook(request, env, sb, persona);
     }
 
     const me = await whoami(env, request, url);
@@ -382,16 +393,28 @@ export default {
       const rows = await sb(env, "bots?select=token,username&persona=eq." + encodeURIComponent(persona));
       if (!rows || !rows.length) return json({ error: "no bot saved for that persona" }, 404, origin);
       const token = rows[0].token;
-      const out = {};
-      if (b.unhook) {
-        out.webhook = await fetch("https://api.telegram.org/bot" + token + "/deleteWebhook")
-          .then(r => r.json()).catch(e => ({ ok: false, error: String(e) }));
-      } else {
-        out.webhook = await fetch("https://api.telegram.org/bot" + token + "/setWebhook?url=" +
-          encodeURIComponent("https://api-telebotcreator.turboit.uk/tg/" + persona))
-          .then(r => r.json()).catch(e => ({ ok: false, error: String(e) }));
+      // The previous version registered the webhook with no secret_token and no
+      // allowed_updates. Without allowed_updates Telegram delivers NO business
+      // updates at all, which is the most common reason a Business bot looks
+      // dead; without secret_token the endpoint cannot tell Telegram from anyone.
+      if (!env.TELEGRAM_WEBHOOK_SECRET && !b.unhook) {
+        return json({ error: "TELEGRAM_WEBHOOK_SECRET is not set",
+                      hint: "wrangler secret put TELEGRAM_WEBHOOK_SECRET --name creator-api" }, 409, origin);
       }
-      return json({ persona, webhook: out.webhook && out.webhook.ok ? "set" : (out.webhook || {}) }, 200, origin);
+      const hookUrl = "https://api-telebotcreator.turboit.uk/tg/" + encodeURIComponent(persona);
+      const out = {};
+      try {
+        out.webhook = b.unhook
+          ? await tgapi.deleteWebhook(token)
+          : await tgapi.setWebhook(token, hookUrl, env.TELEGRAM_WEBHOOK_SECRET);
+        out.info = await tgapi.getWebhookInfo(token);
+      } catch (e) {
+        return json({ persona, error: String(e.message || e) }, 502, origin);
+      }
+      return json({ persona, webhook: b.unhook ? "deleted" : "set", url: b.unhook ? null : hookUrl,
+                    allowed_updates: b.unhook ? null : tgapi.ALLOWED_UPDATES,
+                    pending: out.info && out.info.pending_update_count,
+                    last_error: (out.info && out.info.last_error_message) || null }, 200, origin);
     }
 
     // admin: the creator roster and per-creator records (used by the bot and the owner console)

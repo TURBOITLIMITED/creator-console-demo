@@ -108,8 +108,8 @@ alter table conversations add column if not exists summary          text;
 -- consent gate, by /stopai, or by the Art 9 gate for adult accounts. Nothing
 -- downstream may override it.
 alter table conversations add column if not exists ai_disabled      boolean not null default false;
-alter table conversations add column if not exists consent_state    text not null default 'unasked'
-  check (consent_state in ('unasked','asked','granted','refused','revoked','expired'));
+alter table conversations add column if not exists consent_state    text not null default 'not_required'
+  check (consent_state in ('not_required','asked','granted','refused','revoked','expired'));
 
 -- Default is 'assisted', never 'ai': brief s7 forbids unrestricted automation
 -- by default, and an un-reviewed reply to a real customer is the one mistake
@@ -246,9 +246,17 @@ create index if not exists ai_jobs_pending_idx on ai_jobs (status, created_at)
 create index if not exists audit_log_creator_idx on audit_log (creator_id, at desc);
 
 -- ---------------------------------------------------------------------------
--- 11. consents - the ToS 5.4(iv) authorisation gate
+-- 11. consents - ONLY for accounts that egress to a third-party model
 -- ---------------------------------------------------------------------------
--- No model call may fire for a conversation without a 'granted' row here.
+-- ToS 5.4(iv) governs DISCLOSURE TO THIRD PARTIES, not disclosure to the
+-- customer. The default engine is Workers AI running on our own Cloudflare
+-- account, so no third party receives message content and NO consent row is
+-- required. Customer-facing transparency is handled separately by a single
+-- first-contact line in copy.js.
+--
+-- A row here is required only when ai_profiles.model_provider is set to
+-- 'anthropic' or 'openai' for that creator, because then content genuinely
+-- leaves to a third party. The gate is enforced in the send path, not here.
 -- 'general'         = content may be processed by an automated assistant
 -- 'special_category'= UK GDPR Art 9(2)(a) explicit consent, required before ANY
 --                     model call on an adult account. Unbundled, never pre-ticked.
