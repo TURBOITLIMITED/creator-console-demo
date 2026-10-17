@@ -16,6 +16,7 @@ const json = (data, status = 200, origin) =>
 import { sign, timingSafe } from "./media.js";
 import { handleWebhook } from "./tg.js";
 import * as tgapi from "./telegram.js";
+import { validateBotAnswer, DEFAULT_BOT_ANSWERS, EXPLICIT_BOT_ANSWER } from "./persona.js";
 
 // Creator records live in Supabase Postgres: one row per creator, the full record in jsonb,
 // plus the summary columns the console and roster read. Media stays in R2.
@@ -384,6 +385,84 @@ export default {
         body: JSON.stringify({ persona, username: who.result.username, token, active: true }) });
       return json({ persona, username: who.result.username, active: true }, 200, origin);
     }
+    // Per-creator personality. Configurable from the console, no deploy needed.
+    if (url.pathname === "/persona" && request.method === "GET") {
+      if (me.role !== "admin" && !(await consoleAdmin(env, request))) {
+        return json({ error: "not allowed" }, 403, origin);
+      }
+      const cid = url.searchParams.get("creator") || me.id;
+      const rows = await sb(env, "ai_profiles?creator_id=eq." + encodeURIComponent(cid) + "&select=*");
+      const p = (rows && rows[0]) || null;
+      return json({
+        creator_id: cid,
+        profile: p,
+        // What the customer would actually receive today, so the console can
+        // preview it rather than describe it.
+        effective: {
+          variants: p && p.bot_answer_variants && p.bot_answer_variants.length
+            ? p.bot_answer_variants : DEFAULT_BOT_ANSWERS,
+          using_defaults: !(p && p.bot_answer_variants && p.bot_answer_variants.length),
+          explicit: EXPLICIT_BOT_ANSWER,
+        },
+        rules: {
+          playful_when: "a passing first ask",
+          explicit_when: ["money is on the table", "asked more than once", "asking in earnest"],
+          never: ["claim to be a person", "deny being automated", "stay silent"],
+        },
+      }, 200, origin);
+    }
+
+    if (url.pathname === "/persona" && request.method === "PUT") {
+      if (me.role !== "admin" && !(await consoleAdmin(env, request))) {
+        return json({ error: "not allowed" }, 403, origin);
+      }
+      const b = await request.json().catch(() => ({}));
+      const cid = String(b.creator_id || url.searchParams.get("creator") || me.id);
+
+      // Validate every variant before anything is written. Tone is the
+      // creator's; an answer that does not answer is not saved.
+      const variants = Array.isArray(b.bot_answer_variants) ? b.bot_answer_variants : null;
+      if (variants) {
+        const bad = [];
+        variants.forEach((v, i) => {
+          const r = validateBotAnswer(String(v).replace(/\{name\}/g, b.display_name || cid));
+          if (!r.ok) bad.push({ index: i, text: v, reason: r.reason });
+        });
+        if (bad.length) {
+          return json({ error: "some answers were rejected", rejected: bad,
+                        hint: "Keep the tone. Add the answer." }, 422, origin);
+        }
+      }
+
+      const row = { creator_id: cid, updated_at: new Date().toISOString() };
+      for (const k of ["display_name", "tone", "message_length", "emoji_level", "system_prompt",
+                       "faq", "approved_links", "boundaries", "escalation_rules",
+                       "memory_enabled", "model_provider", "model_id", "enabled",
+                       "first_contact_line", "disclose_on_first_contact"]) {
+        if (k in b) row[k] = b[k];
+      }
+      if (variants) row.bot_answer_variants = variants;
+
+      // A third-party model means message content leaves our infrastructure,
+      // which is the one case ToS 5.4(iv) requires customer authorisation for.
+      if (row.model_provider && row.model_provider !== "workers-ai") {
+        row.enabled = false;
+        await sb(env, "audit_log", { method: "POST", headers: { Prefer: "return=minimal" },
+          body: JSON.stringify({ creator_id: cid, action: "ai.provider.third_party_selected",
+            detail: { provider: row.model_provider,
+                      note: "disabled pending per-conversation customer consent" } }) }).catch(() => {});
+      }
+
+      const saved = await sb(env, "ai_profiles?on_conflict=creator_id", {
+        method: "POST",
+        headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+        body: JSON.stringify(row),
+      });
+      return json({ saved: (saved && saved[0]) || row,
+                    consent_required: row.model_provider && row.model_provider !== "workers-ai" },
+                  200, origin);
+    }
+
     if (url.pathname === "/bots/hook" && request.method === "POST") {
       if (me.role !== "admin" && !(await consoleAdmin(env, request))) {
         return json({ error: "not allowed" }, 403, origin);

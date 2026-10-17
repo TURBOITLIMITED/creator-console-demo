@@ -17,6 +17,7 @@
 import * as tg from "./telegram.js";
 import { getDek, seal, preview } from "./crypto.js";
 import { isAskingIfBot, isAskingForHuman, hasAgeSignal, COPY_VERSION } from "./copy.js";
+import { pickBotAnswer, isSeriousRequest, isPurchaseContext } from "./persona.js";
 
 const ok = () => new Response("", { status: 200 });
 
@@ -215,8 +216,9 @@ async function onMessage(env, sb, msg, edited) {
   else patch.last_outbound_at = new Date().toISOString();
 
   // Deterministic screens, all of which run BEFORE any model would.
-  let intercept = null;
+  let intercept = null, reply = null;
   if (!outgoing && text) {
+    if (isPurchaseContext(text)) patch.purchase_intent_at = new Date().toISOString();
     if (hasAgeSignal(text)) {
       patch.ai_disabled = true;
       patch.mode = "human";
@@ -224,6 +226,21 @@ async function onMessage(env, sb, msg, edited) {
       intercept = "age_signal";
     } else if (isAskingIfBot(text)) {
       intercept = "bot_question";
+      // Pick the register BEFORE the model is ever consulted. A wink is fine
+      // for a passing first ask; it is the wrong answer to someone about to
+      // pay, someone asking twice, or someone asking in earnest.
+      const profiles = await sb(env, "ai_profiles?creator_id=eq." +
+        encodeURIComponent(conn.creator_id) +
+        "&select=display_name,bot_answer_variants").catch(() => null);
+      const asked = (conv.bot_questions || 0) + 1;
+      const purchasing = isPurchaseContext(text) || !!conv.purchase_intent_at;
+      reply = pickBotAnswer(profiles && profiles[0], {
+        creatorName: conv.creator_id,
+        purchasing,
+        askedBefore: asked > 1,
+        seriousRequest: isSeriousRequest(text),
+      });
+      patch.bot_questions = asked;
     } else if (isAskingForHuman(text)) {
       patch.mode = "human";
       patch.escalated_at = new Date().toISOString();
@@ -240,7 +257,11 @@ async function onMessage(env, sb, msg, edited) {
       method: "POST", headers: { Prefer: "return=minimal" },
       body: JSON.stringify({
         creator_id: conn.creator_id, action: "intercept." + intercept,
-        detail: { conversation_id: conv.id, copy_version: COPY_VERSION },
+        detail: { conversation_id: conv.id, copy_version: COPY_VERSION,
+                  register: reply ? reply.variant : null,
+                  // The exact words queued in the owner's name, logged verbatim.
+                  // ToS 5.4(v): nothing the bot says is hidden from the owner.
+                  reply_text: reply ? reply.text : null },
       }),
     }).catch(() => {});
   }
@@ -248,6 +269,7 @@ async function onMessage(env, sb, msg, edited) {
   return {
     conversation_id: conv.id, direction: outgoing ? "out" : "in", sender,
     window_open: windowOpen, intercept,
+    reply: reply ? { text: reply.text, register: reply.variant } : null,
   };
 }
 
