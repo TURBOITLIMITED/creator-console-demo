@@ -507,8 +507,8 @@ function ago(iso){ if(!iso) return '—'; const s=(Date.now()-new Date(iso))/100
   if(s<172800) return 'Yesterday'; if(s<7*86400) return Math.floor(s/86400)+'d ago';
   return new Date(iso).toLocaleDateString('en-GB',{day:'numeric',month:'short'}); }
 const uid = () => state.session?.user?.id;
-// Owner can edit any creator's assistant; everyone else edits their own.
-const aiTarget = () => (state.isAdmin && state.aiCreator) ? state.aiCreator : uid();
+// Owner can manage any creator's assistant/content/accounts; everyone else edits their own.
+const ownerTarget = () => (state.isAdmin && state.aiCreator) ? state.aiCreator : uid();
 const configured = () => !/YOUR-/.test(SUPABASE_URL + SUPABASE_ANON_KEY);
 const store = { get(k){ try{ return localStorage.getItem(k) }catch{ return null } }, set(k,v){ try{ localStorage.setItem(k,v) }catch{} } };
 const nameOf = c => c ? (c.first_name || c.username || 'Customer') : 'Customer';
@@ -556,6 +556,7 @@ async function checkAuth(){
       }
       state.creator = creator;
       try{ const { data } = await state.sb.rpc('is_console_admin'); state.isAdmin = !!data; }catch{}
+      if(state.isAdmin){ try{ const { data: rows } = await state.sb.from('creators').select('id, name').order('created_at', { ascending:true }); state.aiCreators = rows || []; }catch{} }
       state.sb.auth.onAuthStateChange(ev => { if(ev === 'SIGNED_OUT') location.href = 'login.html'; });
       return;
     }
@@ -566,11 +567,13 @@ async function checkAuth(){
 /* ---------- demo data ---------- */
 /* ---------- data layer: anon key + RLS (live) or local demo ---------- */
 const Data = {
-  async list(table, { page=1, select='*', order='created_at', asc=false, match=null, size=PAGE_SIZE }={}){
+  // Owner-scoped list: filters to the picked creator when the owner has one selected.
+  async list(table, { page=1, select='*', order='created_at', asc=false, match=null, size=PAGE_SIZE, scopeOwner=false }={}){
     const from = (page-1)*size, to = from + size - 1;
       const tcol = table === 'media_items' ? 'uploaded_at' : table === 'conversations' ? 'started_at' : table === 'bundle_purchases' ? 'purchased_at' : 'created_at';
       const o = order === 'created_at' ? tcol : order;
-      let q = state.sb.from(table).select(select, { count:'exact' }).eq('creator_id', uid());
+      let q = state.sb.from(table).select(select, { count:'exact' });
+      if(table !== 'creators') q = q.eq('creator_id', scopeOwner ? ownerTarget() : uid());
       if(match) q = q.match(match);
       const { data, count, error } = await q.order(o, { ascending:asc }).range(from, to);
       if(error) throw error;
@@ -634,12 +637,13 @@ const Data = {
   },
 
   async mediaOptions(){
-    const { data, error } = await state.sb.from('media_items').select('id,title,kind,price_ton,visible').eq('creator_id', uid()).order('uploaded_at',{ascending:false}).limit(300);
+    const { data, error } = await state.sb.from('media_items').select('id,title,kind,price_ton,visible').eq('creator_id', ownerTarget()).order('uploaded_at',{ascending:false}).limit(300);
     if(error) throw error; return data || [];
   },
-  async saveBundle(id, fields, itemIds){
+  async saveBundle(id, fields, itemIds, cid){
+    const t = cid || ownerTarget();
     let bundle;
-      bundle = id ? await Data.update('content_bundles', id, fields) : await Data.insert('content_bundles', fields);
+      bundle = id ? await Data.update('content_bundles', id, fields) : await state.sb.from('content_bundles').insert({ ...fields, creator_id:t }).select().single().then(({data,error}) => { if(error) throw error; return data; });
       const del = await state.sb.from('bundle_items').delete().eq('bundle_id', bundle.id);
       if(del.error) throw del.error;
       if(itemIds.length){
@@ -649,8 +653,15 @@ const Data = {
     return bundle;
   },
 
-  async saveAccount(fields, connectionId){
-    return await Data.insert('telegram_accounts', fields);
+  async saveAccount(fields, connectionId, cid){
+    const t = cid || ownerTarget();
+    const { data:existing } = await state.sb.from('telegram_accounts').select('id').eq('creator_id', t).maybeSingle();
+    if(existing && !cid){
+      const upd = await state.sb.from('telegram_accounts').update({ ...fields }).eq('id', existing.id).select().single();
+      if(upd.error) throw upd.error; return upd.data;
+    }
+    const ins = await state.sb.from('telegram_accounts').insert({ ...fields, creator_id:t }).select().single();
+    if(ins.error) throw ins.error; return ins.data;
   },
 
   async getAI(cid){
@@ -713,6 +724,20 @@ function pager(key, page, count){
     </div></div>`;
 }
 const secHead = (text, action='') => `<div class="sec-head"><p>${esc(text)}</p>${action}</div>`;
+// Owner-only creator switcher shown at the top of Accounts, Library, Bundles, AI Personality.
+const ownerPicker = () => {
+  if(!state.isAdmin) return '';
+  const rows = state.aiCreators || [];
+  const cur = ownerTarget();
+  const name = c => c ? (c.name || c.id) : '';
+  return `<div class="panel owner-pick" style="margin-bottom:16px;padding:10px 14px;display:flex;gap:12px;align-items:center">
+    <span style="font-size:12px;color:var(--dim)">Managing</span>
+    <select class="input" id="ai-creator" style="max-width:340px;padding:6px 10px;min-height:34px">
+      ${rows.map(c => `<option value="${esc(c.id)}" ${c.id===cur?'selected':''}>${esc(name(c))} · ${esc(c.id)}</option>`).join('')}
+    </select>
+    <span style="font-size:12px;color:var(--dim)">Owner access: everything below is that creator's.</span>
+  </div>`;
+};
 const setView = html => { const v = $('#view'); v.innerHTML = html; v.classList.remove('fade-in'); void v.offsetWidth; v.classList.add('fade-in'); };
 function trend(now, prev){
   if(!prev && !now) return `<span class="trend flat">—</span>`;
@@ -821,6 +846,7 @@ function revenueChart(days){
 async function renderAccounts(){
   setView(`
     ${secHead('Telegram accounts linked through Telegram Business. Disable an account to pause the AI and stop syncing its chats.')}
+    ${ownerPicker()}
     <div class="split">
       <section class="panel"><div class="panel-head"><h2>Connected accounts</h2><span class="muted" id="acc-count"></span></div>
         <div class="table-wrap" id="acc-table">${spinner('Loading accounts…')}</div></section>
@@ -842,7 +868,7 @@ async function loadAccounts(){
   const el = $('#acc-table'); if(!el) return;
   el.innerHTML = spinner('Loading accounts…');
   try{
-    const { rows, count } = await Data.list('telegram_accounts', { select:'*, business_connections(*)', size:50 });
+    const { rows, count } = await Data.list('telegram_accounts', { select:'*, business_connections(*)', size:50, scopeOwner:true });
     $('#acc-count').textContent = count ? `${count} account${count===1?'':'s'}` : '';
     el.innerHTML = rows.length ? `<table><thead><tr><th>Account</th><th>Business connection</th><th>Can reply</th><th>Status</th><th>Connected</th><th class="num">Actions</th></tr></thead><tbody>
       ${rows.map(a => { const bc = (a.business_connections||[])[0]; return `<tr>
@@ -939,6 +965,7 @@ async function openConversation(id){
 async function renderLibrary(){
   setView(`
     ${secHead('Everything you can sell in Telegram. Drafts stay hidden from fans and the AI until you activate them.', `<button class="btn primary" data-act="lib-new">${ic('plus')}New item</button>`)}
+    ${ownerPicker()}
     <div class="split">
       <section class="panel">
         <div class="panel-head"><div class="tabs" role="tablist">
@@ -972,7 +999,7 @@ async function loadLibrary(){
   const page = state.pages.library || 1;
   el.innerHTML = spinner('Loading library…'); $('#lib-pager').innerHTML = '';
   try{
-    const { rows, count } = await Data.list('media_items', { page, match: state.libType ? { type:state.libType } : null });
+    const { rows, count } = await Data.list('media_items', { page, scopeOwner:true, match: state.libType ? { type:state.libType } : null });
     libCache = rows;
     $('#lib-count').textContent = count ? `${count} item${count===1?'':'s'}` : '';
     el.innerHTML = rows.length ? `<table><thead><tr><th>Item</th><th>Type</th><th class="num">Price</th><th>Status</th><th>Added</th><th class="num">Actions</th></tr></thead><tbody>
@@ -996,6 +1023,7 @@ async function loadLibrary(){
 async function renderBundles(){
   setView(`
     ${secHead('Group library items into one priced offer. Fans pay in TON and receive every item in the bundle.', `<button class="btn primary" data-act="bun-new">${ic('plus')}New bundle</button>`)}
+    ${ownerPicker()}
     <div class="split">
       <section class="panel"><div class="panel-head"><h2>All bundles</h2><span class="end muted" id="bun-count"></span></div>
         <div class="table-wrap" id="bun-table">${spinner('Loading bundles…')}</div><div id="bun-pager"></div></section>
@@ -1035,7 +1063,7 @@ async function loadBundles(){
   const page = state.pages.bundles || 1;
   el.innerHTML = spinner('Loading bundles…'); $('#bun-pager').innerHTML = '';
   try{
-    const { rows, count } = await Data.list('content_bundles', { page, select:'*, bundle_items(media_id), bundle_purchases(price_paid_ton)' });
+    const { rows, count } = await Data.list('content_bundles', { page, select:'*, bundle_items(media_id), bundle_purchases(price_paid_ton)', scopeOwner:true });
     bunCache = rows;
     $('#bun-count').textContent = count ? `${count} bundle${count===1?'':'s'}` : '';
     el.innerHTML = rows.length ? `<table><thead><tr><th>Bundle</th><th class="num">Items</th><th class="num">Price</th><th class="num">Sales</th><th class="num">Revenue</th><th>Status</th><th class="num">Actions</th></tr></thead><tbody>
@@ -1059,21 +1087,10 @@ async function loadBundles(){
 /* ---------- AI Personality ---------- */
 const TONES = { warm:['Warm','Friendly, personal, a little chatty'], playful:['Playful','Light jokes, emoji, high energy'], professional:['Professional','Polite, precise, no slang'], concise:['Concise','Short answers, straight to the point'] };
 async function renderAI(){
-  const asOwner = !!state.isAdmin, target = aiTarget();
+  const target = ownerTarget();
   const head = 'How your assistant talks to fans when you are away. Changes apply to new replies straight away.';
-  setView(`${secHead(head)}<div id="ai-body">${spinner('Loading personality…')}</div>`);
-  let p, picker = '';
-  if(asOwner){
-    try{
-      const { data: rows, error } = await state.sb.from('creators').select('id, name').order('created_at', { ascending: true });
-      if(error) throw error;
-      state.aiCreators = rows || [];
-      const cur = state.aiCreators.find(c => c.id === target);
-      picker = `<div class="field" style="margin-bottom:16px"><label for="ai-creator">Creator</label>
-        <select class="input" id="ai-creator">${state.aiCreators.map(c => `<option value="${esc(c.id)}" ${c.id===target?'selected':''}>${esc(c.name||c.id)} · ${esc(c.id)}</option>`).join('')}</select>
-        <span class="hint">Owner access: you are editing${cur?` ${esc(cur.name||cur.id)}'s`:''} assistant, not your own.</span></div>`;
-    }catch{}
-  }
+  setView(`${secHead(head)}${ownerPicker()}<div id="ai-body">${spinner('Loading personality…')}</div>`);
+  let p;
   try{ p = await Data.getAI(target); }catch(e){ $('#ai-body').innerHTML = `<div class="panel">${errorState(e,'ai')}</div>`; return; }
   p = p || { display_name:'', tone:'warm', system_prompt:'', first_contact_line:'', disclose_on_first_contact:false, enabled:false };
   p.persona_name = p.display_name || p.persona_name || '';
@@ -1222,7 +1239,7 @@ view.addEventListener('input', e => {
   if(e.target.classList.contains('invalid') && e.target.id!=='w-addr') e.target.classList.remove('invalid');
 });
 view.addEventListener('change', e => {
-  if(e.target.id === 'ai-creator'){ state.aiCreator = e.target.value; renderAI(); return; }
+  if(e.target.id === 'ai-creator'){ state.aiCreator = e.target.value; route(true); return; }
   if(e.target.closest('form[data-form="ai"]')) updateAIPreview();
 });
 
@@ -1251,13 +1268,14 @@ view.addEventListener('submit', async e => {
       let media_key = null;
       if(file){
         const safe = file.name.replace(/[^\w.\-]/g,'_');
-        const path = `${uid()}/${Date.now()}-${safe}`;
+        const path = `${ownerTarget()}/${Date.now()}-${safe}`;
         const { error: upErr } = await state.sb.storage.from('content-store').upload(path, file, { contentType: file.type || 'application/octet-stream' });
         if(upErr) throw upErr;
         media_key = path;
       }
       const fields = { ...data, ...(media_key ? { media_key, media_type: file.type || 'application/octet-stream', media_size: file.size } : {}) };
-      return id ? Data.update('media_items', id, fields) : Data.insert('media_items', fields);
+      const t = ownerTarget();
+      return id ? Data.update('media_items', id, fields) : state.sb.from('media_items').insert({ ...fields, creator_id:t }).select().single().then(({data:d, error}) => { if(error) throw error; return d; });
     };
     if(await withBusy(btn, run, id ? 'Changes saved' : 'Added to library')){
       if(!id) state.pages.library = 1;
@@ -1276,7 +1294,7 @@ view.addEventListener('submit', async e => {
   if(kind === 'ai'){
     const data = { display_name:f.persona_name.value.trim()||null, tone:f.tone.value, system_prompt:f.system_prompt.value.trim(),
       first_contact_line:f.first_contact_line?.value.trim()||null, disclose_on_first_contact:f.disclose_on_first_contact?.checked||false, enabled:f.enabled.checked };
-    if(await withBusy(btn, () => Data.saveAI(data, aiTarget()), 'Personality saved')) renderAI();
+    if(await withBusy(btn, () => Data.saveAI(data, ownerTarget()), 'Personality saved')) renderAI();
   }
   if(kind === 'wallet'){
     const v = f.ton_wallet.value.trim();
