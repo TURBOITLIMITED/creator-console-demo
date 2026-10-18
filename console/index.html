@@ -5,95 +5,545 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Creator Console</title>
 <style>
-  :root { --bg:#f7f7f6; --panel:#fff; --ink:#14181d; --muted:#6b7280; --rule:#e3e3e0; --accent:#1c3d5a; --ok:#3f6f4f; --warn:#8a5a12; }
-  * { box-sizing:border-box }
-  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; font-size:13px; background:var(--bg); color:var(--ink) }
-  .bar { position:sticky; top:0; z-index:20; background:var(--panel); border-bottom:1px solid var(--rule); padding:12px 18px; display:flex; align-items:center; gap:12px }
-  .bar h1 { margin:0; font-size:14px; font-weight:600 }
-  .shell { display:grid; grid-template-columns:220px 1fr; min-height:100vh }
-  .side { background:var(--panel); border-right:1px solid var(--rule); padding:16px 12px }
-  .side button { display:block; width:100%; text-align:left; padding:10px 12px; margin-bottom:2px; border:0; background:none; cursor:pointer; border-radius:6px; color:var(--muted); font-size:13.5px }
-  .side button:hover { background:#f0f0ef }
-  .side button.active { background:#e8e8e3; color:var(--ink); font-weight:500 }
-  .side .section { font-size:11px; letter-spacing:.04em; text-transform:uppercase; color:var(--muted); margin:16px 12px 8px; font-weight:600 }
-  main { padding:24px 28px; max-width:1000px }
-  section { display:none }
-  section.active { display:block }
-  h2 { font-size:15px; font-weight:600; margin:0 0 14px; padding-bottom:10px; border-bottom:1px solid var(--rule) }
-  .card { background:var(--panel); border:1px solid var(--rule); border-radius:8px; padding:16px; margin-bottom:16px }
-  .card h3 { margin:0 0 12px; font-size:13px; font-weight:500 }
-  label { display:block; margin-bottom:4px; font-size:12px; color:var(--muted) }
-  input, select, textarea { width:100%; padding:10px; border:1px solid var(--rule); border-radius:6px; font-size:13px; margin-bottom:12px; font-family:inherit }
-  input:focus, select:focus, textarea:focus { outline:none; border-color:var(--accent) }
-  button.btn { background:var(--accent); color:#fff; border:0; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:13px }
-  button.btn:hover { opacity:0.9 }
-  button.btn-secondary { background:#e5e5e2; color:var(--ink) }
-  button.btn-small { padding:6px 10px; font-size:12px }
-  table { width:100%; border-collapse:collapse; font-size:12.5px }
-  th { text-align:left; padding:10px 12px; border-bottom:2px solid var(--rule); color:var(--muted); font-weight:500; font-size:11.5px }
-  td { padding:12px; border-bottom:1px solid var(--rule) }
-  tr:last-child td { border-bottom:0 }
-  .status { display:inline-block; padding:3px 10px; border-radius:12px; font-size:11px; font-weight:500; background:#eee }
-  .status.active { background:#e8f5e9; color:var(--ok) }
-  .status.setup { background:#fff8e1; color:var(--warn) }
-  .empty { color:var(--muted); padding:20px; text-align:center; font-size:12.5px }
-  .flex { display:flex; gap:10px; align-items:center }
-  .flex-right { justify-content:flex-end }
-  .mt { margin-top:12px }
-  .mb { margin-bottom:12px }
-  .note { font-size:12px; color:var(--muted); margin-top:8px }
-  .stats { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:16px; margin-bottom:20px }
-  .stat { background:var(--panel); border:1px solid var(--rule); border-radius:8px; padding:16px }
-  .stat .label { display:block; color:var(--muted); font-size:11.5px; margin-bottom:4px }
-  .stat .value { display:block; font-size:24px; font-weight:600; letter-spacing:-0.5px }
-  .stat .sub { display:block; color:var(--muted); font-size:11px; margin-top:4px }
-  #toast { position:fixed; bottom:20px; right:20px; background:var(--ink); color:#fff; padding:12px 16px; border-radius:6px; display:none; font-size:13px; z-index:100 }
-  .msg { padding:10px 14px; border-radius:8px; margin-bottom:8px; max-width:70% }
-  .msg.in { background:#f0f0ef; margin-right:auto }
-  .msg.out { background:#e8f0fe; margin-left:auto; text-align:right }
-  .msg .meta { font-size:10px; color:var(--muted); margin-top:4px }
+  :root { 
+    --paper: #faf6f0; 
+    --panel: #ffffff; 
+    --ink: #1a1a1a; 
+    --ink-soft: #4a4a4a; 
+    --muted: #8b8b8b; 
+    --rule: #e8e4de; 
+    --primary: #1276ce; 
+    --primary-soft: #e8f1f9; 
+    --ok: #16a34a; 
+    --warn: #f59e0b; 
+    --danger: #dc2626;
+  }
+  * { box-sizing: border-box }
+  body { 
+    margin: 0; 
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+    font-size: 13px; 
+    background: var(--paper); 
+    color: var(--ink);
+    line-height: 1.5;
+  }
+  
+  /* Top bar */
+  .bar { 
+    position: sticky; 
+    top: 0; 
+    z-index: 50; 
+    background: var(--panel); 
+    border-bottom: 1px solid var(--rule); 
+    padding: 12px 20px; 
+    display: flex; 
+    align-items: center; 
+    gap: 16px;
+    height: 56px;
+  }
+  .bar h1 { 
+    margin: 0; 
+    font-size: 16px; 
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .bar h1::before {
+    content: "";
+    width: 24px;
+    height: 24px;
+    background: linear-gradient(135deg, #1276ce 0%, #0d5a9e 100%);
+    border-radius: 6px;
+  }
+  
+  /* Layout */
+  .shell { 
+    display: grid; 
+    grid-template-columns: 240px 1fr; 
+    min-height: calc(100vh - 56px);
+  }
+  
+  /* Sidebar */
+  .side { 
+    background: var(--panel); 
+    border-right: 1px solid var(--rule); 
+    padding: 16px;
+    overflow-y: auto;
+    max-height: calc(100vh - 56px);
+  }
+  .side-nav { display: flex; flex-direction: column; gap: 2px }
+  .side-nav button { 
+    display: flex; 
+    align-items: center; 
+    gap: 10px;
+    width: 100%; 
+    text-align: left; 
+    padding: 10px 12px; 
+    border: 0; 
+    background: none; 
+    cursor: pointer; 
+    border-radius: 8px; 
+    color: var(--ink-soft); 
+    font-size: 13px;
+    transition: all 0.15s ease;
+  }
+  .side-nav button:hover { 
+    background: var(--primary-soft); 
+    color: var(--primary);
+  }
+  .side-nav button.active { 
+    background: var(--primary); 
+    color: #fff; 
+    font-weight: 500;
+  }
+  .side-nav button .icon { 
+    width: 18px; 
+    text-align: center;
+    opacity: 0.8;
+  }
+  .side .section { 
+    font-size: 11px; 
+    letter-spacing: 0.06em; 
+    text-transform: uppercase; 
+    color: var(--muted); 
+    margin: 20px 12px 8px; 
+    font-weight: 600;
+    padding-left: 2px;
+  }
+  .side .section:first-of-type { margin-top: 8px }
+  
+  /* Main content */
+  main { 
+    padding: 24px 32px; 
+    max-width: 1200px;
+    overflow-y: auto;
+  }
+  section { display: none }
+  section.active { display: block }
+  
+  h2 { 
+    font-size: 18px; 
+    font-weight: 600; 
+    margin: 0 0 20px; 
+    padding-bottom: 14px; 
+    border-bottom: 1px solid var(--rule);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  
+  /* Cards */
+  .card { 
+    background: var(--panel); 
+    border: 1px solid var(--rule); 
+    border-radius: 12px; 
+    padding: 20px; 
+    margin-bottom: 20px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  }
+  .card h3 { 
+    margin: 0 0 16px; 
+    font-size: 14px; 
+    font-weight: 600;
+  }
+  
+  /* Stats */
+  .stats { 
+    display: grid; 
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); 
+    gap: 16px; 
+    margin-bottom: 24px;
+  }
+  .stat { 
+    background: var(--panel); 
+    border: 1px solid var(--rule); 
+    border-radius: 12px; 
+    padding: 20px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  }
+  .stat .label { 
+    display: block; 
+    color: var(--muted); 
+    font-size: 12px; 
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .stat .value { 
+    display: block; 
+    font-size: 28px; 
+    font-weight: 700; 
+    letter-spacing: -0.5px;
+    color: var(--ink);
+  }
+  .stat .sub { 
+    display: block; 
+    color: var(--muted); 
+    font-size: 12px; 
+    margin-top: 6px;
+  }
+  .stat .trend {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-left: 8px;
+  }
+  .stat .trend.up { background: #dcfce7; color: #166534 }
+  .stat .trend.down { background: #fee2e2; color: #991b1b }
+  
+  /* Forms */
+  label { 
+    display: block; 
+    margin-bottom: 6px; 
+    font-size: 12px; 
+    color: var(--ink-soft); 
+    font-weight: 500;
+  }
+  input, select, textarea { 
+    width: 100%; 
+    padding: 10px 12px; 
+    border: 1px solid var(--rule); 
+    border-radius: 8px; 
+    font-size: 13px; 
+    margin-bottom: 14px; 
+    font-family: inherit;
+    background: var(--panel);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  input:focus, select:focus, textarea:focus { 
+    outline: none; 
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-soft);
+  }
+  textarea { resize: vertical; min-height: 80px }
+  
+  /* Buttons */
+  button.btn { 
+    background: var(--primary); 
+    color: #fff; 
+    border: 0; 
+    padding: 10px 18px; 
+    border-radius: 8px; 
+    cursor: pointer; 
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.15s ease;
+  }
+  button.btn:hover { 
+    background: #0d5a9e;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(18,118,206,0.25);
+  }
+  button.btn-secondary { 
+    background: var(--panel); 
+    color: var(--ink);
+    border: 1px solid var(--rule);
+  }
+  button.btn-secondary:hover { background: var(--paper) }
+  button.btn-small { 
+    padding: 6px 12px; 
+    font-size: 12px;
+    margin-right: 4px;
+  }
+  button.btn-danger { background: var(--danger) }
+  button.btn-danger:hover { background: #b91c1c }
+  
+  /* Tables */
+  .table-container {
+    overflow-x: auto;
+    border-radius: 8px;
+    border: 1px solid var(--rule);
+  }
+  table { 
+    width: 100%; 
+    border-collapse: collapse; 
+    font-size: 13px;
+    background: var(--panel);
+  }
+  th { 
+    text-align: left; 
+    padding: 12px 16px; 
+    border-bottom: 2px solid var(--rule); 
+    color: var(--muted); 
+    font-weight: 600; 
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    background: var(--paper);
+  }
+  td { 
+    padding: 14px 16px; 
+    border-bottom: 1px solid var(--rule);
+    background: var(--panel);
+  }
+  tr:hover td { background: var(--paper) }
+  tr:last-child td { border-bottom: 0 }
+  
+  /* Status badges */
+  .status { 
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px; 
+    border-radius: 100px; 
+    font-size: 11px; 
+    font-weight: 600;
+  }
+  .status::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .status.active { background: #dcfce7; color: #166534 }
+  .status.pending { background: #fef3c7; color: #92400e }
+  .status.setup { background: #fef3c7; color: #92400e }
+  .status.inactive { background: #f3f4f6; color: #6b7280 }
+  .status.error { background: #fee2e2; color: #991b1b }
+  
+  /* Empty state */
+  .empty { 
+    color: var(--muted); 
+    padding: 40px; 
+    text-align: center; 
+    font-size: 13px;
+    background: var(--panel);
+    border: 2px dashed var(--rule);
+    border-radius: 12px;
+  }
+  
+  /* Flex utilities */
+  .flex { display: flex; gap: 12px; align-items: center }
+  .flex-right { justify-content: flex-end }
+  .flex-between { justify-content: space-between }
+  .flex-wrap { flex-wrap: wrap }
+  .mt { margin-top: 16px }
+  .mb { margin-bottom: 16px }
+  .gap-2 { gap: 8px }
+  .gap-4 { gap: 16px }
+  
+  /* Note/help text */
+  .note { 
+    font-size: 12px; 
+    color: var(--muted); 
+    margin-top: 10px;
+    line-height: 1.6;
+  }
+  
+  /* Pagination */
+  .pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--rule);
+  }
+  .pagination button {
+    padding: 6px 12px;
+    border: 1px solid var(--rule);
+    background: var(--panel);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.15s ease;
+  }
+  .pagination button:hover:not(:disabled) {
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+  .pagination button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .pagination button.active {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+  }
+  .pagination span {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  
+  /* Toast */
+  #toast { 
+    position: fixed; 
+    bottom: 24px; 
+    right: 24px; 
+    background: var(--ink); 
+    color: #fff; 
+    padding: 14px 20px; 
+    border-radius: 10px; 
+    display: none; 
+    font-size: 13px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    z-index: 100;
+    animation: slideIn 0.3s ease;
+  }
+  @keyframes slideIn {
+    from { transform: translateY(100%); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+  
+  /* Messages */
+  .msg { 
+    padding: 12px 16px; 
+    border-radius: 12px; 
+    margin-bottom: 10px; 
+    max-width: 75%;
+    font-size: 13px;
+  }
+  .msg.in { 
+    background: var(--panel); 
+    margin-right: auto;
+    border: 1px solid var(--rule);
+  }
+  .msg.out { 
+    background: var(--primary-soft); 
+    margin-left: auto;
+    border: 1px solid var(--primary);
+  }
+  .msg .meta { 
+    font-size: 11px; 
+    color: var(--muted); 
+    margin-top: 6px;
+    display: block;
+  }
+  
+  /* Loading */
+  .loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    color: var(--muted);
+  }
+  .spinner {
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--rule);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-right: 10px;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  
+  /* User menu */
+  .user-menu {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 12px;
+    background: var(--paper);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  .user-menu:hover { background: var(--rule) }
+  .user-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--primary);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 12px;
+  }
+  
+  /* Responsive */
+  @media (max-width: 768px) {
+    .shell { grid-template-columns: 1fr }
+    .side { display: none }
+    main { padding: 16px }
+  }
 </style>
 </head>
 <body>
 
 <div class="bar">
   <h1>Creator Console</h1>
-  <span id="userInfo" class="note" style="margin-left:auto"></span>
+  <div class="user-menu" id="userInfo">
+    <div class="user-avatar" id="userAvatar">?</div>
+    <span id="userEmail" style="font-size: 13px; font-weight: 500">Loading...</span>
+  </div>
+  <button class="btn btn-small" onclick="logout()" style="margin-left: auto">Logout</button>
 </div>
 
 <div class="shell">
   <div class="side">
-    <button onclick="showSection('overview')" class="active" id="btn-overview">Overview</button>
+    <div class="side-nav">
+      <button onclick="showSection('overview')" class="active" id="btn-overview">
+        <span class="icon">📊</span> Overview
+      </button>
+    </div>
     
     <div class="section">Telegram</div>
-    <button onclick="showSection('accounts')" id="btn-accounts">Accounts</button>
-    <button onclick="showSection('inbox')" id="btn-inbox">Inbox</button>
+    <div class="side-nav">
+      <button onclick="showSection('accounts')" id="btn-accounts">
+        <span class="icon">🤖</span> Accounts
+      </button>
+      <button onclick="showSection('inbox')" id="btn-inbox">
+        <span class="icon">📥</span> Inbox
+      </button>
+    </div>
     
     <div class="section">Content</div>
-    <button onclick="showSection('content')" id="btn-content">Library</button>
-    <button onclick="showSection('bundles')" id="btn-bundles">Bundles</button>
+    <div class="side-nav">
+      <button onclick="showSection('content')" id="btn-content">
+        <span class="icon">📚</span> Library
+      </button>
+      <button onclick="showSection('bundles')" id="btn-bundles">
+        <span class="icon">📦</span> Bundles
+      </button>
+    </div>
     
     <div class="section">Settings</div>
-    <button onclick="showSection('ai')" id="btn-ai">AI Personality</button>
-    <button onclick="showSection('wallet')" id="btn-wallet">TON Wallet</button>
-    
-    <button onclick="logout()" style="margin-top:24px; border-top:1px solid var(--rule); padding-top:12px">Logout</button>
+    <div class="side-nav">
+      <button onclick="showSection('ai')" id="btn-ai">
+        <span class="icon">🧠</span> AI Personality
+      </button>
+      <button onclick="showSection('wallet')" id="btn-wallet">
+        <span class="icon">💰</span> TON Wallet
+      </button>
+    </div>
   </div>
 
   <main>
+    <!-- Overview -->
     <section id="overview" class="active">
-      <h2>Overview</h2>
+      <h2>Dashboard</h2>
       <div class="stats" id="overviewStats">
-        <div class="stat"><span class="label">Loading...</span></div>
+        <div class="loading"><div class="spinner"></div>Loading...</div>
+      </div>
+      
+      <div class="card">
+        <h3>Recent Activity</h3>
+        <div id="recentActivity">
+          <div class="loading"><div class="spinner"></div>Loading...</div>
+        </div>
       </div>
     </section>
 
+    <!-- Accounts -->
     <section id="accounts">
       <h2>Telegram Accounts</h2>
       <div class="card">
         <h3>Connect New Account</h3>
         <p class="note">To connect a Telegram account:</p>
-        <ol class="note" style="margin:8px 0 16px; padding-left:20px">
+        <ol class="note" style="margin: 8px 0 16px; padding-left: 20px">
           <li>Go to @BotFather and create a new bot (or use existing)</li>
           <li>Enable Secretary Mode: /mybots → your bot → Bot Settings → Secretary Mode</li>
           <li>On your personal account: Settings → Business → Chatbots → add the bot</li>
@@ -103,20 +553,26 @@
       </div>
     </section>
 
+    <!-- Inbox -->
     <section id="inbox">
       <h2>Inbox</h2>
       <div class="card">
-        <div class="flex">
-          <select id="inboxFilter" onchange="loadConversations()" style="margin-bottom:0; width:180px">
+        <div class="flex flex-wrap">
+          <select id="inboxFilter" onchange="loadConversations()" style="margin-bottom: 0; width: 180px">
             <option value="all">All conversations</option>
+            <option value="ai">AI Mode</option>
+            <option value="assisted">Assisted</option>
+            <option value="human">Human Only</option>
           </select>
-          <input type="text" id="inboxSearch" placeholder="Search conversations..." style="margin-bottom:0; flex:1" oninput="loadConversations()">
+          <input type="text" id="inboxSearch" placeholder="Search conversations..." style="margin-bottom: 0; flex: 1" oninput="loadConversations()">
         </div>
         <div id="conversationList" class="mt"></div>
+        <div id="pagination" class="pagination"></div>
       </div>
-      <div id="conversationView" class="card" style="display:none"></div>
+      <div id="conversationView" class="card" style="display: none"></div>
     </section>
 
+    <!-- Content Library -->
     <section id="content">
       <h2>Content Library</h2>
       <div class="card">
@@ -126,11 +582,13 @@
       <div class="card">
         <h3>Existing Content</h3>
         <div id="contentList"></div>
+        <div id="contentPagination" class="pagination"></div>
       </div>
     </section>
 
+    <!-- Bundles -->
     <section id="bundles">
-      <h2>Bundles</h2>
+      <h2>Content Bundles</h2>
       <div class="card">
         <h3>Create New Bundle</h3>
         <div id="bundleForm"></div>
@@ -138,9 +596,11 @@
       <div class="card">
         <h3>Existing Bundles</h3>
         <div id="bundleList"></div>
+        <div id="bundlePagination" class="pagination"></div>
       </div>
     </section>
 
+    <!-- AI Settings -->
     <section id="ai">
       <h2>AI Personality</h2>
       <div class="card">
@@ -149,6 +609,7 @@
       </div>
     </section>
 
+    <!-- Wallet -->
     <section id="wallet">
       <h2>TON Wallet</h2>
       <div class="card">
@@ -165,27 +626,36 @@
 <script type="module">
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/index.js';
 
-const SUPABASE_URL = 'https://sbxfwonkitihrxdqbhnk.supabase.co';
-const SUPABASE_ANON = 'sb_publishable_Gmcf-sjFDlvMJmAuZf3DCA_OEh6YLf3';
+const SUPABASE_URL = 'https://xsgvdlgmhuxozjlbjzxy.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzZ3ZkbGdtaHV4b3pqbGJqenh5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNjIxNTcsImV4cCI6MjEwNzYzODE1N30.eTDJH5Xm7LZGEdcQy94X61E7EqFx9S3iWsxEpS20BZ0';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON);
 
+// State
 let currentUser = null;
-let currentCreator = 'test-creator-1';  // Default test creator
+let currentCreator = null;
+let currentPage = { conversations: 1, content: 1, bundles: 1 };
+const PAGE_SIZE = 10;
 
+// Initialize
 window.showSection = function(name) {
   document.querySelectorAll('section').forEach(s => s.classList.remove('active'));
-  document.querySelectorAll('.side button').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.side-nav button').forEach(b => b.classList.remove('active'));
   document.getElementById(name).classList.add('active');
-  document.getElementById('btn-' + name).classList.add('active');
+  const btn = document.getElementById('btn-' + name);
+  if (btn) btn.classList.add('active');
   
-  if (name === 'overview') loadOverview();
-  if (name === 'accounts') loadAccounts();
-  if (name === 'inbox') loadConversations();
-  if (name === 'content') loadContent();
-  if (name === 'bundles') loadBundles();
-  if (name === 'ai') loadAISettings();
-  if (name === 'wallet') loadWallet();
+  // Load section data
+  const loaders = {
+    overview: loadOverview,
+    accounts: loadAccounts,
+    inbox: loadConversations,
+    content: loadContent,
+    bundles: loadBundles,
+    ai: loadAISettings,
+    wallet: loadWallet
+  };
+  if (loaders[name]) loaders[name]();
 };
 
 window.logout = async function() {
@@ -204,123 +674,383 @@ async function checkAuth() {
   const { data: { session } } = await sb.auth.getSession();
   if (session) {
     currentUser = session.user;
-    document.getElementById('userInfo').textContent = user.email;
+    document.getElementById('userEmail').textContent = session.user.email;
+    document.getElementById('userAvatar').textContent = session.user.email[0].toUpperCase();
     
-    const { data: creators } = await sb.from('creators').select('*').eq('id', currentUser.id).single();
-    if (creators) {
-      currentCreator = creators;
-    } else {
-      const { data } = await sb.from('creators').insert({ id: currentUser.id, name: currentUser.email.split('@')[0] }).select().single();
+    // Get or create creator record
+    let { data: creators } = await sb.from('creators').select('*').eq('id', session.user.id).single();
+    if (!creators) {
+      const name = session.user.email.split('@')[0];
+      const { data } = await sb.from('creators').insert({ id: session.user.id, name }).select().single();
       currentCreator = data;
+    } else {
+      currentCreator = creators;
     }
   } else {
-    document.getElementById('userInfo').textContent = 'Demo Mode (test-creator-1)';
+    document.getElementById('userEmail').textContent = 'Demo Mode';
+    document.getElementById('userAvatar').textContent = 'D';
+    currentCreator = { id: 'demo', name: 'Demo Creator' };
   }
   
   loadOverview();
 }
 
 async function loadOverview() {
-  const [convs, msgs, content, orders] = await Promise.all([
-    sb.from('conversations').select('*').eq('creator_id', currentCreator.id),
-    sb.from('messages').select('*').eq('creator_id', currentCreator.id).limit(100),
-    sb.from('content_items').select('*').eq('creator_id', currentCreator.id),
-    sb.from('orders').select('*').eq('creator_id', currentCreator.id),
-  ]);
-  
-  document.getElementById('overviewStats').innerHTML = `
-    <div class="stat">
-      <span class="label">Conversations</span>
-      <span class="value">${convs.data?.length || 0}</span>
-      <span class="sub">Active chats</span>
-    </div>
-    <div class="stat">
-      <span class="label">Messages (30d)</span>
-      <span class="value">${msgs.data?.length || 0}</span>
-      <span class="sub">Last 30 days</span>
-    </div>
-    <div class="stat">
-      <span class="label">Content Items</span>
-      <span class="value">${content.data?.length || 0}</span>
-      <span class="sub">In library</span>
-    </div>
-    <div class="stat">
-      <span class="label">Orders</span>
-      <span class="value">${orders.data?.length || 0}</span>
-      <span class="sub">Total orders</span>
-    </div>
-  `;
+  try {
+    const [convs, content, bundles, purchases] = await Promise.all([
+      sb.from('conversations').select('*', { count: 'exact' }).eq('creator_id', currentCreator.id),
+      sb.from('media_items').select('*', { count: 'exact' }).eq('creator_id', currentCreator.id),
+      sb.from('content_bundles').select('*', { count: 'exact' }).eq('creator_id', currentCreator.id),
+      sb.from('bundle_purchases').select('*', { count: 'exact' }).eq('creator_id', currentCreator.id)
+    ]);
+    
+    const totalRevenue = (purchases.data || []).reduce((sum, p) => sum + (parseFloat(p.price_paid_ton) || 0), 0);
+    
+    document.getElementById('overviewStats').innerHTML = `
+      <div class="stat">
+        <span class="label">Conversations</span>
+        <span class="value">${convs.count || 0}</span>
+        <span class="sub">Active chats</span>
+      </div>
+      <div class="stat">
+        <span class="label">Content Items</span>
+        <span class="value">${content.count || 0}</span>
+        <span class="sub">In library</span>
+      </div>
+      <div class="stat">
+        <span class="label">Bundles</span>
+        <span class="value">${bundles.count || 0}</span>
+        <span class="sub">Available for sale</span>
+      </div>
+      <div class="stat">
+        <span class="label">Revenue</span>
+        <span class="value">${totalRevenue.toFixed(4)} TON</span>
+        <span class="sub">Total earnings</span>
+      </div>
+    `;
+    
+    // Recent activity
+    const { data: recent } = await sb.from('bundle_purchases')
+      .select('*,content_bundles(name)')
+      .eq('creator_id', currentCreator.id)
+      .order('purchased_at', { ascending: false })
+      .limit(5);
+    
+    if (recent && recent.length > 0) {
+      document.getElementById('recentActivity').innerHTML = `
+        <table>
+          <tr><th>Bundle</th><th>Customer</th><th>Amount</th><th>Date</th></tr>
+          ${recent.map(r => `
+            <tr>
+              <td>${r.content_bundles?.name || 'Unknown'}</td>
+              <td>Telegram ${r.tg_user_id}</td>
+              <td>${parseFloat(r.price_paid_ton).toFixed(4)} TON</td>
+              <td>${new Date(r.purchased_at).toLocaleDateString()}</td>
+            </tr>
+          `).join('')}
+        </table>
+      `;
+    } else {
+      document.getElementById('recentActivity').innerHTML = '<div class="empty">No recent activity</div>';
+    }
+  } catch (e) {
+    console.error('Overview error:', e);
+    document.getElementById('overviewStats').innerHTML = '<div class="empty">Error loading data</div>';
+  }
 }
 
 async function loadAccounts() {
-  const { data } = await sb.from('business_connections').select('*,telegram_accounts(*)').eq('creator_id', currentCreator.id);
+  const { data } = await sb.from('business_connections')
+    .select('*,telegram_accounts(*)')
+    .eq('creator_id', currentCreator.id);
+  
   if (!data || data.length === 0) {
-    document.getElementById('accountList').innerHTML = '<div class="empty">No connected accounts yet. Follow the steps above to connect your first Telegram account.</div>';
+    document.getElementById('accountList').innerHTML = '<div class="empty">No connected accounts yet. Follow the steps above.</div>';
     return;
   }
+  
   document.getElementById('accountList').innerHTML = `
-    <table>
-      <tr><th>Status</th><th>Username</th><th>Can Reply</th><th>Connected</th></tr>
-      ${data.map(c => `
-        <tr>
-          <td><span class="status ${c.is_enabled ? 'active' : 'setup'}">${c.is_enabled ? 'Enabled' : 'Disabled'}</span></td>
-          <td>@${c.telegram_accounts?.username || 'N/A'}</td>
-          <td>${c.can_reply_cached ? 'Yes' : 'No'}</td>
-          <td>${new Date(c.connected_at).toLocaleDateString()}</td>
-        </tr>
-      `).join('')}
-    </table>
+    <div class="table-container">
+      <table>
+        <tr><th>Status</th><th>Username</th><th>Can Reply</th><th>Connected</th></tr>
+        ${data.map(c => `
+          <tr>
+            <td><span class="status ${c.is_enabled ? 'active' : 'setup'}">${c.is_enabled ? 'Enabled' : 'Disabled'}</span></td>
+            <td>@${c.telegram_accounts?.username || 'N/A'}</td>
+            <td>${c.can_reply_cached ? '✓ Yes' : '✗ No'}</td>
+            <td>${new Date(c.connected_at).toLocaleDateString()}</td>
+          </tr>
+        `).join('')}
+      </table>
+    </div>
   `;
 }
 
 async function loadConversations() {
   const search = document.getElementById('inboxSearch').value.toLowerCase();
-  const { data } = await sb.from('conversations').select('*,customers(first_name,username)').eq('creator_id', currentCreator.id).order('last_message_at', { ascending: false });
+  const filter = document.getElementById('inboxFilter').value;
   
-  const filtered = (data || []).filter(c => {
-    if (search) {
-      const name = (c.customers?.first_name || c.customers?.username || '').toLowerCase();
-      return name.includes(search);
-    }
-    return true;
-  });
+  let query = sb.from('conversations')
+    .select('*,customers(first_name,username)', { count: 'exact' })
+    .eq('creator_id', currentCreator.id)
+    .order('last_message_at', { ascending: false });
   
-  if (!filtered.length) {
-    document.getElementById('conversationList').innerHTML = '<div class="empty">No conversations yet</div>';
+  if (filter !== 'all') {
+    query = query.eq('mode', filter);
+  }
+  
+  const start = (currentPage.conversations - 1) * PAGE_SIZE;
+  const end = start + PAGE_SIZE;
+  
+  query = query.range(start, end - 1);
+  
+  const { data, count } = await query;
+  
+  if (!data || data.length === 0) {
+    document.getElementById('conversationList').innerHTML = '<div class="empty">No conversations found</div>';
+    document.getElementById('pagination').innerHTML = '';
     return;
   }
   
+  // Filter by search
+  const filtered = data.filter(c => {
+    if (!search) return true;
+    const name = (c.customers?.first_name || c.customers?.username || '').toLowerCase();
+    return name.includes(search);
+  });
+  
   document.getElementById('conversationList').innerHTML = `
-    <table>
-      <tr><th>Customer</th><th>Last Message</th><th>Mode</th></tr>
-      ${filtered.map(c => `
-        <tr onclick="window.openConversation('${c.id}')" style="cursor:pointer">
-          <td>${c.customers?.first_name || c.customers?.username || c.customer_ref}</td>
-          <td>${new Date(c.last_message_at).toLocaleString()}</td>
-          <td>${c.mode}</td>
-        </tr>
-      `).join('')}
-    </table>
+    <div class="table-container">
+      <table>
+        <tr><th>Customer</th><th>Last Message</th><th>Mode</th><th>Messages</th></tr>
+        ${filtered.map(c => `
+          <tr onclick="window.openConversation('${c.id}')">
+            <td>${c.customers?.first_name || c.customers?.username || c.customer_ref}</td>
+            <td>${new Date(c.last_message_at).toLocaleString()}</td>
+            <td><span class="status ${c.mode === 'ai' ? 'active' : 'pending'}">${c.mode}</span></td>
+            <td>${c.message_count || 0}</td>
+          </tr>
+        `).join('')}
+      </table>
+    </div>
   `;
+  
+  // Pagination
+  const totalPages = Math.ceil((count || 0) / PAGE_SIZE);
+  if (totalPages > 1) {
+    document.getElementById('pagination').innerHTML = renderPagination(totalPages, currentPage.conversations, 'conversations');
+  } else {
+    document.getElementById('pagination').innerHTML = '';
+  }
+}
+
+async function loadContent() {
+  document.getElementById('uploadForm').innerHTML = `
+    <input type="text" id="contentTitle" placeholder="Title">
+    <textarea id="contentDesc" placeholder="Description"></textarea>
+    <select id="contentKind">
+      <option value="image">Image</option>
+      <option value="video">Video</option>
+      <option value="document">Document</option>
+      <option value="audio">Audio</option>
+    </select>
+    <input type="text" id="contentMediaKey" placeholder="Media key (R2 key)">
+    <input type="number" id="contentPriceTon" placeholder="Price in TON (0 for free)">
+    <label><input type="checkbox" id="contentVisible"> Visible in store</label>
+    <button class="btn" onclick="uploadContent()">Add Content</button>
+  `;
+  
+  const start = (currentPage.content - 1) * PAGE_SIZE;
+  const { data, count } = await sb.from('media_items')
+    .select('*', { count: 'exact' })
+    .eq('creator_id', currentCreator.id)
+    .order('uploaded_at', { ascending: false })
+    .range(start, start + PAGE_SIZE - 1);
+  
+  if (!data?.length) {
+    document.getElementById('contentList').innerHTML = '<div class="empty">No content yet</div>';
+    document.getElementById('contentPagination').innerHTML = '';
+    return;
+  }
+  
+  document.getElementById('contentList').innerHTML = `
+    <div class="table-container">
+      <table>
+        <tr><th>Title</th><th>Type</th><th>Price</th><th>Visible</th><th>Actions</th></tr>
+        ${data.map(c => `
+          <tr>
+            <td>${c.title || 'Untitled'}</td>
+            <td>${c.kind}</td>
+            <td>${c.price_ton ? parseFloat(c.price_ton).toFixed(4) + ' TON' : 'Free'}</td>
+            <td>${c.visible ? '✓ Yes' : '✗ No'}</td>
+            <td>
+              <button class="btn btn-small btn-secondary" onclick="toggleContentVisibility('${c.id}', ${!c.visible})">
+                ${c.visible ? 'Hide' : 'Show'}
+              </button>
+              <button class="btn btn-small btn-danger" onclick="deleteContent('${c.id}')">Delete</button>
+            </td>
+          </tr>
+        `).join('')}
+      </table>
+    </div>
+  `;
+  
+  const totalPages = Math.ceil((count || 0) / PAGE_SIZE);
+  if (totalPages > 1) {
+    document.getElementById('contentPagination').innerHTML = renderPagination(totalPages, currentPage.content, 'content');
+  } else {
+    document.getElementById('contentPagination').innerHTML = '';
+  }
+}
+
+async function loadBundles() {
+  document.getElementById('bundleForm').innerHTML = `
+    <input type="text" id="bundleName" placeholder="Bundle name" required>
+    <textarea id="bundleDesc" placeholder="Bundle description"></textarea>
+    <input type="number" id="bundlePriceTon" placeholder="Price in TON" step="0.0001" required>
+    <input type="number" id="bundlePriceUsd" placeholder="Price in USD" step="0.01">
+    <button class="btn" onclick="createBundle()">Create Bundle</button>
+  `;
+  
+  const start = (currentPage.bundles - 1) * PAGE_SIZE;
+  const { data, count } = await sb.from('content_bundles')
+    .select('*', { count: 'exact' })
+    .eq('creator_id', currentCreator.id)
+    .order('created_at', { ascending: false })
+    .range(start, start + PAGE_SIZE - 1);
+  
+  if (!data?.length) {
+    document.getElementById('bundleList').innerHTML = '<div class="empty">No bundles yet</div>';
+    document.getElementById('bundlePagination').innerHTML = '';
+    return;
+  }
+  
+  document.getElementById('bundleList').innerHTML = `
+    <div class="table-container">
+      <table>
+        <tr><th>Name</th><th>Price (TON)</th><th>Price (USD)</th><th>Active</th><th>Actions</th></tr>
+        ${data.map(b => `
+          <tr>
+            <td>${b.name}</td>
+            <td>${parseFloat(b.price_ton || 0).toFixed(4)}</td>
+            <td>${b.price_usd ? '$' + parseFloat(b.price_usd).toFixed(2) : '-'}</td>
+            <td><span class="status ${b.active ? 'active' : 'inactive'}">${b.active ? 'Active' : 'Inactive'}</span></td>
+            <td>
+              <button class="btn btn-small btn-secondary" onclick="toggleBundle('${b.id}', ${!b.active})">
+                ${b.active ? 'Deactivate' : 'Activate'}
+              </button>
+            </td>
+          </tr>
+        `).join('')}
+      </table>
+    </div>
+  `;
+  
+  const totalPages = Math.ceil((count || 0) / PAGE_SIZE);
+  if (totalPages > 1) {
+    document.getElementById('bundlePagination').innerHTML = renderPagination(totalPages, currentPage.bundles, 'bundles');
+  } else {
+    document.getElementById('bundlePagination').innerHTML = '';
+  }
+}
+
+async function loadAISettings() {
+  const { data } = await sb.from('settings')
+    .select('*')
+    .eq('creator_id', currentCreator.id)
+    .single();
+  
+  const value = data?.value || {};
+  
+  document.getElementById('aiForm').innerHTML = `
+    <label>Persona Name</label>
+    <input type="text" id="aiPersona" value="${value.persona_name || ''}">
+    
+    <label>System Prompt</label>
+    <textarea id="aiSystemPrompt" rows="6">${value.system_prompt || ''}</textarea>
+    
+    <label>Tone</label>
+    <select id="aiTone">
+      <option value="friendly" ${value.tone === 'friendly' ? 'selected' : ''}>Friendly</option>
+      <option value="professional" ${value.tone === 'professional' ? 'selected' : ''}>Professional</option>
+      <option value="casual" ${value.tone === 'casual' ? 'selected' : ''}>Casual</option>
+      <option value="witty" ${value.tone === 'witty' ? 'selected' : ''}>Witty</option>
+    </select>
+    
+    <button class="btn" onclick="saveAISettings()">Save Settings</button>
+  `;
+}
+
+async function loadWallet() {
+  const { data } = await sb.from('settings')
+    .select('*')
+    .eq('creator_id', currentCreator.id)
+    .single();
+  
+  const value = data?.value || {};
+  
+  document.getElementById('walletForm').innerHTML = `
+    <label>TON Wallet Address</label>
+    <input type="text" id="tonWallet" value="${value.ton_wallet || ''}" placeholder="UQ...">
+    <p class="note">This is where all bundle payments will be sent.</p>
+    <button class="btn" onclick="saveWallet()">Save Wallet</button>
+  `;
+}
+
+// Helper functions
+function renderPagination(totalPages, currentPage, type) {
+  let html = `
+    <button onclick="changePage('${type}', ${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>← Prev</button>
+    <span>Page ${currentPage} of ${totalPages}</span>
+    <button onclick="changePage('${type}', ${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}>Next →</button>
+  `;
+  
+  if (totalPages <= 7) {
+    for (let i = 1; i <= totalPages; i++) {
+      html += `<button onclick="changePage('${type}', ${i})" class="${i === currentPage ? 'active' : ''}">${i}</button>`;
+    }
+  } else {
+    html += `<button onclick="changePage('${type}', 1)" class="${1 === currentPage ? 'active' : ''}">1</button>`;
+    if (currentPage > 3) html += `<span>...</span>`;
+    for (let i = Math.max(2, currentPage - 1); i <= Math.min(totalPages - 1, currentPage + 1); i++) {
+      html += `<button onclick="changePage('${type}', ${i})" class="${i === currentPage ? 'active' : ''}">${i}</button>`;
+    }
+    if (currentPage < totalPages - 2) html += `<span>...</span>`;
+    html += `<button onclick="changePage('${type}', ${totalPages})" class="${totalPages === currentPage ? 'active' : ''}">${totalPages}</button>`;
+  }
+  
+  return html;
+}
+
+window.changePage = function(type, page) {
+  currentPage[type] = page;
+  
+  if (type === 'conversations') loadConversations();
+  else if (type === 'content') loadContent();
+  else if (type === 'bundles') loadBundles();
 }
 
 window.openConversation = async function(convId) {
   const { data: conv } = await sb.from('conversations').select('*').eq('id', convId).single();
-  const { data: msgs } = await sb.from('messages').select('*').eq('conversation_id', convId).order('sent_at', { ascending: true });
+  const { data: msgs } = await sb.from('messages')
+    .select('*')
+    .eq('conversation_id', convId)
+    .order('sent_at', { ascending: true })
+    .limit(50);
   
   document.getElementById('conversationView').style.display = 'block';
   document.getElementById('conversationView').innerHTML = `
     <h3>Conversation: ${conv.customer_ref}</h3>
-    <div style="max-height:400px; overflow:auto; border:1px solid var(--rule); padding:16px; margin-bottom:16px; background:#fafafa">
+    <div style="max-height: 400px; overflow-y: auto; border: 1px solid var(--rule); padding: 16px; margin-bottom: 16px; background: var(--paper); border-radius: 8px;">
       ${msgs?.map(m => `
-        <div class="msg ${m.direction}">
-          <strong>${m.sender}</strong>: ${m.body_preview || '(media)'}
-          <div class="meta">${new Date(m.sent_at).toLocaleString()}</div>
+        <div class="msg ${m.direction === 'in' ? 'in' : 'out'}">
+          <strong>${m.sender || (m.direction === 'in' ? 'Customer' : 'Bot')}</strong>: ${m.body_preview || '(media)'}
+          <span class="meta">${new Date(m.sent_at).toLocaleString()}</span>
         </div>
       `).join('') || '<div class="empty">No messages</div>'}
     </div>
     <div class="flex">
-      <input type="text" id="replyText" placeholder="Type a reply..." style="margin-bottom:0; flex:1">
+      <input type="text" id="replyText" placeholder="Type a reply..." style="margin-bottom: 0; flex: 1">
       <button class="btn" onclick="sendReply('${convId}')">Send</button>
     </div>
     <div class="mt">
@@ -332,6 +1062,10 @@ window.openConversation = async function(convId) {
       </select>
     </div>
   `;
+  
+  // Scroll to bottom
+  const msgContainer = document.getElementById('conversationView').querySelector('div[style*="max-height"]');
+  if (msgContainer) msgContainer.scrollTop = msgContainer.scrollHeight;
 };
 
 window.sendReply = async function(convId) {
@@ -358,198 +1092,126 @@ window.updateMode = async function(convId, mode) {
   showToast('Mode updated');
 };
 
-async function loadContent() {
-  document.getElementById('uploadForm').innerHTML = `
-    <input type="text" id="contentTitle" placeholder="Title">
-    <textarea id="contentDesc" placeholder="Description" rows="3"></textarea>
-    <input type="text" id="contentCategory" placeholder="Category (optional)">
-    <input type="number" id="contentPriceTon" placeholder="Price (TON, in nanotons)">
-    <select id="contentMediaType">
-      <option value="photo">Photo</option>
-      <option value="video">Video</option>
-      <option value="document">Document</option>
-    </select>
-    <input type="file" id="contentFile">
-    <label><input type="checkbox" id="contentRecommended"> AI can recommend this</label>
-    <button class="btn" onclick="uploadContent()">Upload</button>
-  `;
-  
-  const { data } = await sb.from('content_items').select('*').eq('creator_id', currentCreator.id).order('created_at', { ascending: false });
-  if (!data?.length) {
-    document.getElementById('contentList').innerHTML = '<div class="empty">No content yet</div>';
-    return;
-  }
-  document.getElementById('contentList').innerHTML = `
-    <table>
-      <tr><th>Title</th><th>Type</th><th>Price</th><th>State</th><th>Actions</th></tr>
-      ${data.map(c => `
-        <tr>
-          <td>${c.title}</td>
-          <td>${c.media_type}</td>
-          <td>${c.price_ton ? (c.price_ton / 1e9).toFixed(4) + ' TON' : 'Free'}</td>
-          <td><span class="status ${c.state}">${c.state}</span></td>
-          <td>
-            <button class="btn btn-small btn-secondary" onclick="toggleContentState('${c.id}', '${c.state === 'active' ? 'draft' : 'active'}')">${c.state === 'active' ? 'Deactivate' : 'Activate'}</button>
-          </td>
-        </tr>
-      `).join('')}
-    </table>
-  `;
-}
-
 window.uploadContent = async function() {
   const title = document.getElementById('contentTitle').value;
   const desc = document.getElementById('contentDesc').value;
-  const category = document.getElementById('contentCategory').value;
-  const priceTon = parseInt(document.getElementById('contentPriceTon').value) || 0;
-  const mediaType = document.getElementById('contentMediaType').value;
-  const file = document.getElementById('contentFile').files[0];
-  const recommended = document.getElementById('contentRecommended').checked;
+  const kind = document.getElementById('contentKind').value;
+  const mediaKey = document.getElementById('contentMediaKey').value;
+  const priceTon = document.getElementById('contentPriceTon').value;
+  const visible = document.getElementById('contentVisible').checked;
   
-  if (!title || !file) {
-    showToast('Title and file required');
+  if (!title || !mediaKey) {
+    showToast('Title and media key are required');
     return;
   }
   
-  await sb.from('content_items').insert({
+  await sb.from('media_items').insert({
     creator_id: currentCreator.id,
     title,
     description: desc,
-    category: category || null,
-    media_key: 'placeholder-' + Date.now(),
-    media_type: mediaType,
-    price_ton: priceTon,
-    ai_recommended: recommended,
-    state: 'draft',
+    kind,
+    media_key: mediaKey,
+    price_ton: priceTon || null,
+    visible: visible,
   });
   
-  showToast('Content uploaded');
+  showToast('Content added');
   loadContent();
 };
 
-window.toggleContentState = async function(id, state) {
-  await sb.from('content_items').update({ state }).eq('id', id);
+window.toggleContentVisibility = async function(id, visible) {
+  await sb.from('media_items').update({ visible }).eq('id', id);
+  showToast(visible ? 'Content visible' : 'Content hidden');
   loadContent();
 };
 
-async function loadBundles() {
-  document.getElementById('bundleForm').innerHTML = `
-    <input type="text" id="bundleTitle" placeholder="Bundle title">
-    <textarea id="bundleDesc" placeholder="Bundle description" rows="2"></textarea>
-    <input type="number" id="bundlePriceTon" placeholder="Price (TON, nanotons)">
-    <button class="btn" onclick="createBundle()">Create Bundle</button>
-  `;
-  
-  const { data } = await sb.from('bundles').select('*').eq('creator_id', currentCreator.id);
-  if (!data?.length) {
-    document.getElementById('bundleList').innerHTML = '<div class="empty">No bundles yet</div>';
-    return;
-  }
-  document.getElementById('bundleList').innerHTML = `
-    <table>
-      <tr><th>Title</th><th>Price</th><th>State</th><th>Actions</th></tr>
-      ${data.map(b => `
-        <tr>
-          <td>${b.title}</td>
-          <td>${b.price_ton ? (b.price_ton / 1e9).toFixed(4) + ' TON' : 'Free'}</td>
-          <td>${b.state}</td>
-          <td><button class="btn btn-small btn-secondary">Edit</button></td>
-        </tr>
-      `).join('')}
-    </table>
-  `;
-}
+window.deleteContent = async function(id) {
+  if (!confirm('Delete this content?')) return;
+  await sb.from('media_items').delete().eq('id', id);
+  showToast('Content deleted');
+  loadContent();
+};
 
 window.createBundle = async function() {
-  const title = document.getElementById('bundleTitle').value;
+  const name = document.getElementById('bundleName').value;
   const desc = document.getElementById('bundleDesc').value;
-  const priceTon = parseInt(document.getElementById('bundlePriceTon').value) || 0;
+  const priceTon = document.getElementById('bundlePriceTon').value;
+  const priceUsd = document.getElementById('bundlePriceUsd').value;
   
-  if (!title) {
-    showToast('Title required');
+  if (!name || !priceTon) {
+    showToast('Name and price are required');
     return;
   }
   
-  await sb.from('bundles').insert({
+  await sb.from('content_bundles').insert({
     creator_id: currentCreator.id,
-    title,
+    name,
     description: desc,
-    price_ton: priceTon,
-    state: 'draft',
+    price_ton: parseFloat(priceTon),
+    price_usd: priceUsd ? parseFloat(priceUsd) : null,
   });
   
   showToast('Bundle created');
   loadBundles();
 };
 
-async function loadAISettings() {
-  const { data } = await sb.from('ai_profiles').select('*').eq('creator_id', currentCreator.id).single();
-  
-  document.getElementById('aiForm').innerHTML = `
-    <input type="text" id="aiDisplayName" placeholder="Display name" value="${data?.display_name || ''}">
-    <input type="text" id="aiTone" placeholder="Tone (e.g., friendly, playful)" value="${data?.tone || ''}">
-    <select id="aiMessageLength">
-      <option value="short" ${data?.message_length === 'short' ? 'selected' : ''}>Short</option>
-      <option value="medium" ${data?.message_length === 'medium' ? 'selected' : ''}>Medium</option>
-      <option value="long" ${data?.message_length === 'long' ? 'selected' : ''}>Long</option>
-    </select>
-    <select id="aiEmojiLevel">
-      <option value="none" ${data?.emoji_level === 'none' ? 'selected' : ''}>No emojis</option>
-      <option value="light" ${data?.emoji_level === 'light' ? 'selected' : ''}>Light</option>
-      <option value="moderate" ${data?.emoji_level === 'moderate' ? 'selected' : ''}>Moderate</option>
-      <option value="heavy" ${data?.emoji_level === 'heavy' ? 'selected' : ''}>Heavy</option>
-    </select>
-    <textarea id="aiSystemPrompt" placeholder="System prompt (optional)" rows="4">${data?.system_prompt || ''}</textarea>
-    <label><input type="checkbox" id="aiEnabled" ${data?.enabled ? 'checked' : ''}> Enable AI auto-replies</label>
-    <button class="btn" onclick="saveAISettings()">Save Settings</button>
-  `;
-}
+window.toggleBundle = async function(id, active) {
+  await sb.from('content_bundles').update({ active }).eq('id', id);
+  showToast(active ? 'Bundle activated' : 'Bundle deactivated');
+  loadBundles();
+};
 
 window.saveAISettings = async function() {
-  await sb.from('ai_profiles').upsert({
+  const personaName = document.getElementById('aiPersona').value;
+  const systemPrompt = document.getElementById('aiSystemPrompt').value;
+  const tone = document.getElementById('aiTone').value;
+  
+  const { data: existing } = await sb.from('settings')
+    .select('id')
+    .eq('creator_id', currentCreator.id)
+    .eq('key', 'ai')
+    .single();
+  
+  const payload = {
     creator_id: currentCreator.id,
-    display_name: document.getElementById('aiDisplayName').value,
-    tone: document.getElementById('aiTone').value,
-    message_length: document.getElementById('aiMessageLength').value,
-    emoji_level: document.getElementById('aiEmojiLevel').value,
-    system_prompt: document.getElementById('aiSystemPrompt').value,
-    enabled: document.getElementById('aiEnabled').checked,
-  });
+    key: 'ai',
+    value: { persona_name: personaName, system_prompt: systemPrompt, tone },
+  };
+  
+  if (existing?.id) {
+    await sb.from('settings').update(payload).eq('id', existing.id);
+  } else {
+    await sb.from('settings').insert(payload);
+  }
   
   showToast('AI settings saved');
 };
 
-async function loadWallet() {
-  const { data } = await sb.from('creator_wallets').select('*').eq('creator_id', currentCreator.id).single();
-  
-  document.getElementById('walletForm').innerHTML = `
-    <input type="text" id="walletAddress" placeholder="TON wallet address (e.g., UQD...)" value="${data?.address || ''}">
-    <select id="walletNetwork">
-      <option value="mainnet" ${data?.network === 'mainnet' ? 'selected' : ''}>Mainnet</option>
-      <option value="testnet" ${data?.network === 'testnet' ? 'selected' : ''}>Testnet</option>
-    </select>
-    <button class="btn" onclick="saveWallet()">Save Wallet</button>
-  `;
-}
-
 window.saveWallet = async function() {
-  const address = document.getElementById('walletAddress').value;
-  const network = document.getElementById('walletNetwork').value;
+  const tonWallet = document.getElementById('tonWallet').value;
   
-  if (!address) {
-    showToast('Wallet address required');
-    return;
-  }
+  const { data: existing } = await sb.from('settings')
+    .select('id')
+    .eq('creator_id', currentCreator.id)
+    .eq('key', 'wallet')
+    .single();
   
-  await sb.from('creator_wallets').upsert({
+  const payload = {
     creator_id: currentCreator.id,
-    address,
-    network,
-  });
+    key: 'wallet',
+    value: { ton_wallet: tonWallet },
+  };
+  
+  if (existing?.id) {
+    await sb.from('settings').update(payload).eq('id', existing.id);
+  } else {
+    await sb.from('settings').insert(payload);
+  }
   
   showToast('Wallet saved');
 };
 
+// Start
 checkAuth();
 </script>
 </body>
