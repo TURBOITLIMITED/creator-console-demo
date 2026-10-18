@@ -202,11 +202,14 @@ export default {
       if (request.method === "GET") {
         const username = url.searchParams.get("username");
         if (!username) return json({ error: "username required" }, 400, origin);
-        const accounts = await sb(env, "telegram_accounts?select=id,business_connection_id&username=eq." + encodeURIComponent(username));
+        const accounts = await sb(env, "telegram_accounts?select=id&username=eq." + encodeURIComponent(username));
         if (!accounts || !accounts.length) {
           return json({ error: "account not found" }, 404, origin);
         }
-        return json({ connection_id: accounts[0].business_connection_id || null }, 200, origin);
+        const accountId = accounts[0].id;
+        const connections = await sb(env, "business_connections?select=connection_id&telegram_account_id=eq." + encodeURIComponent(accountId));
+        const connectionId = (connections && connections.length && connections[0].connection_id) || null;
+        return json({ connection_id: connectionId }, 200, origin);
       } else if (request.method === "POST") {
         const body = await request.json();
         const username = body.username;
