@@ -852,12 +852,9 @@ async function renderAccounts(){
         <div class="table-wrap" id="acc-table">${spinner('Loading accounts…')}</div></section>
       <aside class="panel form-panel"><div class="panel-head form-title"><h2>Connect an account</h2></div>
         <form class="form panel-body" data-form="account" autocomplete="off">
-          <div class="field"><label for="acc-user">Telegram username</label>
-            <div class="input-affix"><input class="input" id="acc-user" name="username" placeholder="maravale" required pattern="@?[A-Za-z0-9_]{5,32}"><span>@</span></div>
-            <span class="hint">5–32 letters, numbers or underscores.</span></div>
           <div class="field"><label for="acc-bc">Bot token <span class="muted">(from @BotFather)</span></label>
             <input class="input mono" id="acc-bc" name="connection" placeholder="123456789:ABCdefGhIjKlMnOpQrStUvWxYz">
-            <span class="hint">Create a bot with @BotFather, then add it under your Telegram Settings → Business → Chatbots.</span></div>
+            <span class="hint">Create a bot with @BotFather, then add it under her Telegram Settings → Business → Chatbots.</span></div>
           <label class="switch" for="acc-enabled"><input type="checkbox" id="acc-enabled" name="is_enabled" checked><span class="track"></span><span>Enabled<small>Sync chats and allow AI replies</small></span></label>
           <div class="form-actions"><button class="btn primary" type="submit">${ic('plus')}Connect account</button></div>
         </form></aside>
@@ -866,6 +863,27 @@ async function renderAccounts(){
   loadAccounts();
   loadAIPanel('#acc-personality');
  }
+/* Setup stepper shown right after connecting a bot: what to do next, one panel. */
+function showSetupSteps(me){
+  const old = $('#setup-steps'); if(old) old.remove();
+  const bot = me?.result ? `@${me.result.username}` : 'the bot';
+  const who = state.aiCreators?.find(c => c.id === ownerTarget());
+  const girl = who ? (who.name || who.id) : 'this creator';
+  const wrap = document.createElement('div');
+  wrap.id = 'setup-steps';
+  wrap.innerHTML = `<div class="panel" style="margin-top:16px;border-color:var(--accent)">
+    <div class="panel-head"><h2>Account connected — finish setup</h2><span class="end"><button class="act" data-act="setup-close" title="Close">${ic('x')}</button></span></div>
+    <div class="panel-body">
+      <ol style="margin:0;padding-left:20px;line-height:2">
+        <li>Bot <b>${esc(bot)}</b> is linked to <b>${esc(girl)}</b>. She must add the bot in her Telegram: <b>Settings → Business → Chatbots</b>, and allow replies.</li>
+        <li>Set her personality below on this page — name, tone, and what the bot may promise.</li>
+        <li>Price her content in <a href="#library">Library</a> and group offers in <a href="#bundles">Bundles</a>. She cannot set prices herself.</li>
+        <li>Send her the content link from <a href="#links">Creator Links</a> so she can upload clips and photos.</li>
+      </ol>
+    </div>
+  </div>`;
+  $('#view').insertBefore(wrap, $('#view').firstChild.nextSibling);
+}
 async function loadAccounts(){
   const el = $('#acc-table'); if(!el) return;
   el.innerHTML = spinner('Loading accounts…');
@@ -883,7 +901,7 @@ async function loadAccounts(){
           <button class="act" data-act="acc-toggle" data-id="${a.id}" data-on="${a.connected?1:0}" title="${a.connected?'Disable':'Enable'}">${ic('power')}${a.connected?'Disable':'Enable'}</button>
           <button class="act danger" data-act="acc-del" data-id="${a.id}" title="Remove">${ic('trash')}</button>
         </div></td></tr>`; }).join('')}</tbody></table>`
-      : empty('send','No Telegram accounts yet','Connect your first account to start syncing chats and selling content in DMs.', `<button class="btn sm primary" data-act="focus" data-target="acc-user">${ic('plus')}Connect account</button>`);
+      : empty('send','No Telegram accounts yet','Connect your first account to start syncing chats and selling content in DMs.', `<button class="btn sm primary" data-act="focus" data-target="acc-bc">${ic('plus')}Connect account</button>`);
   }catch(e){ el.innerHTML = errorState(e,'accounts'); }
 }
 
@@ -1230,6 +1248,7 @@ view.addEventListener('click', async e => {
       const tok = 'ct-' + crypto.randomUUID();
       if(await withBusy(a, () => Data.update('creators', id, { dashboard_token: tok }), 'New link created')) renderLinks();
       break; }
+    case 'setup-close': $('#setup-steps')?.remove(); break;
     case 'copy-addr': {
       const t = $('#addr-text')?.textContent || '';
       try{ await navigator.clipboard.writeText(t); toast('Address copied','success'); }
@@ -1258,9 +1277,10 @@ view.addEventListener('submit', async e => {
   if(kind === 'account'){
     const token = f.connection.value.trim();
     const t = ownerTarget();
+    let me = null;
     const run = async () => {
       if(!/^\d+:[\w-]+$/.test(token)) throw new Error('Enter a valid bot token from @BotFather');
-      const me = await fetch(`https://api.telegram.org/bot${token}/getMe`).then(r => r.json());
+      me = await fetch(`https://api.telegram.org/bot${token}/getMe`).then(r => r.json());
       if(!me.ok) throw new Error('Telegram rejected that token');
       const existing = await state.sb.from('telegram_accounts').select('id').eq('creator_id', t).eq('tg_user_id', me.result.id).maybeSingle();
       if(existing.data){
@@ -1268,7 +1288,10 @@ view.addEventListener('submit', async e => {
       }
       return Data.saveAccount({ tg_user_id: me.result.id, username: me.result.username, first_name: me.result.first_name, connected:true }, null, t);
     };
-    if(await withBusy(btn, run, 'Account connected')){ f.reset(); f.is_enabled.checked = true; loadAccounts(); }
+    if(await withBusy(btn, run, 'Account connected')){
+      f.reset(); f.is_enabled.checked = true; loadAccounts();
+      showSetupSteps(me);
+    }
   }
   if(kind === 'media'){
     const data = { title:f.title.value.trim(), kind:f.kind.value, price_ton:f.price_ton.value?Number(f.price_ton.value):null, description:f.description.value.trim()||null, visible:f.visible.checked };
