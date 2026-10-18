@@ -861,9 +861,11 @@ async function renderAccounts(){
           <label class="switch" for="acc-enabled"><input type="checkbox" id="acc-enabled" name="is_enabled" checked><span class="track"></span><span>Enabled<small>Sync chats and allow AI replies</small></span></label>
           <div class="form-actions"><button class="btn primary" type="submit">${ic('plus')}Connect account</button></div>
         </form></aside>
-    </div>`);
+    </div>
+    <div id="acc-personality">${spinner('Loading personality…')}</div>`);
   loadAccounts();
-}
+  loadAIPanel('#acc-personality');
+ }
 async function loadAccounts(){
   const el = $('#acc-table'); if(!el) return;
   el.innerHTML = spinner('Loading accounts…');
@@ -1086,19 +1088,12 @@ async function loadBundles(){
 
 /* ---------- AI Personality ---------- */
 const TONES = { warm:['Warm','Friendly, personal, a little chatty'], playful:['Playful','Light jokes, emoji, high energy'], professional:['Professional','Polite, precise, no slang'], concise:['Concise','Short answers, straight to the point'] };
-async function renderAI(){
-  const target = ownerTarget();
-  const head = 'How your assistant talks to fans when you are away. Changes apply to new replies straight away.';
-  setView(`${secHead(head)}${ownerPicker()}<div id="ai-body">${spinner('Loading personality…')}</div>`);
-  let p;
-  try{ p = await Data.getAI(target); }catch(e){ $('#ai-body').innerHTML = `<div class="panel">${errorState(e,'ai')}</div>`; return; }
-  p = p || { display_name:'', tone:'warm', system_prompt:'', first_contact_line:'', disclose_on_first_contact:false, enabled:false };
-  p.persona_name = p.display_name || p.persona_name || '';
-  $('#ai-body').innerHTML = `<div class="ai-wrap">
+/* Builds the personality form HTML for a loaded profile (shared by AI Personality + Accounts). */
+function aiFormHTML(p){
+  return `<div class="ai-wrap">
     <form class="panel" data-form="ai" autocomplete="off">
       <div class="panel-head"><h2>Persona</h2><span class="end">${p.enabled?'<span class="pill ok">Enabled</span>':'<span class="pill off">Disabled</span>'}</span></div>
       <div class="form panel-body">
-        ${picker}
         <div class="row2">
           <div class="field"><label for="ai-name">Assistant name</label><input class="input" id="ai-name" name="persona_name" maxlength="40" value="${esc(p.persona_name)}" placeholder="Mara"></div>
           <div class="field"><label for="ai-first">First contact line</label><input class="input" id="ai-first" name="first_contact_line" maxlength="120" value="${esc(p.first_contact_line||'')}" placeholder="hey, I'm around…"><span class="hint">Sent to brand-new chats (optional).</span></div>
@@ -1117,7 +1112,21 @@ async function renderAI(){
     <aside class="panel preview"><div class="panel-head"><h2>Preview</h2><span class="end muted">Sample reply</span></div>
       <div class="phone" id="ai-preview"></div></aside>
   </div>`;
+}
+async function loadAIPanel(slotSel){
+  const slot = $(slotSel); if(!slot) return;
+  let p;
+  try{ p = await Data.getAI(ownerTarget()); }catch(e){ slot.innerHTML = `<div class="panel">${errorState(e,'ai')}</div>`; return; }
+  p = p || { display_name:'', tone:'warm', system_prompt:'', first_contact_line:'', disclose_on_first_contact:false, enabled:false };
+  p.persona_name = p.display_name || p.persona_name || '';
+  slot.innerHTML = aiFormHTML(p);
   updateAIPreview();
+}
+async function renderAI(){
+  const target = ownerTarget();
+  const head = 'How your assistant talks to fans when you are away. Changes apply to new replies straight away.';
+  setView(`${secHead(head)}${ownerPicker()}<div id="ai-body">${spinner('Loading personality…')}</div>`);
+  await loadAIPanel('#ai-body');
 }
 function updateAIPreview(){
   const f = $('form[data-form="ai"]'), box = $('#ai-preview'); if(!f || !box) return;
@@ -1248,15 +1257,16 @@ view.addEventListener('submit', async e => {
   const f = e.target, btn = f.querySelector('button[type="submit"]'), kind = f.dataset.form, id = f.dataset.id;
   if(kind === 'account'){
     const token = f.connection.value.trim();
+    const t = ownerTarget();
     const run = async () => {
       if(!/^\d+:[\w-]+$/.test(token)) throw new Error('Enter a valid bot token from @BotFather');
       const me = await fetch(`https://api.telegram.org/bot${token}/getMe`).then(r => r.json());
       if(!me.ok) throw new Error('Telegram rejected that token');
-      const existing = await state.sb.from('telegram_accounts').select('id').eq('creator_id', uid()).eq('tg_user_id', me.result.id).maybeSingle();
+      const existing = await state.sb.from('telegram_accounts').select('id').eq('creator_id', t).eq('tg_user_id', me.result.id).maybeSingle();
       if(existing.data){
         return Data.update('telegram_accounts', existing.data.id, { connected:true });
       }
-      return Data.saveAccount({ tg_user_id: me.result.id, username: me.result.username, first_name: me.result.first_name, connected:true });
+      return Data.saveAccount({ tg_user_id: me.result.id, username: me.result.username, first_name: me.result.first_name, connected:true }, null, t);
     };
     if(await withBusy(btn, run, 'Account connected')){ f.reset(); f.is_enabled.checked = true; loadAccounts(); }
   }
