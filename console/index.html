@@ -681,11 +681,12 @@ const Data = {
   async list(table, { page=1, select='*', order='created_at', asc=false, match=null, size=PAGE_SIZE }={}){
     const from = (page-1)*size, to = from + size - 1;
     if(!state.demo){
+      const tcol = table === 'media_items' ? 'uploaded_at' : table === 'conversations' ? 'started_at' : table === 'bundle_purchases' ? 'purchased_at' : 'created_at';
+      const o = order === 'created_at' ? tcol : order;
       let q = state.sb.from(table).select(select, { count:'exact' }).eq('creator_id', uid());
       if(match) q = q.match(match);
-      const { data, count, error } = await q.order(order, { ascending:asc }).range(from, to);
+      const { data, count, error } = await q.order(o, { ascending:asc }).range(from, to);
       if(error) throw error;
-      const remap = r => r;
       return { rows:(data || []), count:count || 0 };
     }
     await sleep(280 + Math.random()*220);
