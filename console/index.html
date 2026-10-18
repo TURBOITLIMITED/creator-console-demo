@@ -918,7 +918,10 @@ function renderAccConnection(a){
         <div class="input mono" style="background:var(--sunk);padding:8px 11px;flex:1;min-width:200px">@${esc(a.username||'—')}</div>
         ${a.username ? `<a href="https://t.me/${esc(a.username)}" target="_blank" class="btn sm">${ic('external')}Open bot in Telegram</a>` : ''}
       </div>
-      <span class="hint">Step 1: In Telegram, go to <b>Settings → Business → Chatbots</b> and add this bot. You can click the button above or search for <b>@${esc(a.username||'—')}</b></span>
+      <span class="hint">
+        <b>What to enter in Telegram:</b> When Telegram asks for "link or bot name", just type <b>@${esc(a.username||'—')}</b> (the username shown above). 
+        Or click the button to open it directly, then add it in <b>Settings → Business → Chatbots</b>.
+      </span>
     </div>
     <div class="field">
       <label>Business connection ID</label>
