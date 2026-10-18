@@ -575,7 +575,9 @@ const Data = {
     if(error) throw error; return data;
   },
   async update(table, id, patch){
-    const { data, error } = await state.sb.from(table).update(patch).eq('id', id).eq('creator_id', uid()).select().single();
+    let q = state.sb.from(table).update(patch).eq('id', id);
+    if(table !== 'creators') q = q.eq('creator_id', uid());
+    const { data, error } = await q.select().single();
     if(error) throw error; return data;
   },
   async remove(table, id){
