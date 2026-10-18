@@ -368,6 +368,10 @@ input[type=range]{accent-color:var(--accent);width:100%}
 @keyframes fade{from{opacity:.4;transform:translateY(4px)}to{opacity:1;transform:none}}
 .scrim{position:fixed;inset:0;background:rgba(10,10,14,.4);z-index:25}
 
+/* page loading overlay: covers stale view during route changes */
+.page-loading{position:fixed;inset:0;background:var(--bg);display:none;align-items:center;justify-content:center;z-index:90}
+.page-loading.active{display:flex}
+
 /* responsive */
 @media (max-width:1180px){
   .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
