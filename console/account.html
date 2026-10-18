@@ -151,9 +151,27 @@ input.mono,textarea.mono{font-family:var(--f-mono);font-size:13px}
             <input type="text" id="tg_user_id" class="mono" readonly>
           </div>
           <div class="field">
+            <label>Bot to add in Telegram</label>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <input type="text" id="bot_username_display" class="mono" placeholder="@botname" readonly style="flex:1;min-width:200px">
+              <a href="#" id="open_bot_link" target="_blank" class="btn sm" style="display:none">Open bot in Telegram</a>
+            </div>
+            <span class="hint">
+              <b>Step 1:</b> Click <b>Activate bot</b> below first. 
+              <b>Step 2:</b> Then in Telegram go to <b>Settings → Business → Chatbots</b> and add the bot shown above.
+            </span>
+          </div>
+          <div class="field">
             <label>Business connection ID</label>
-            <input type="text" id="business_connection_id" class="mono" readonly>
-            <span class="hint">She must add the bot in Telegram: Settings → Business → Chatbots</span>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <input type="text" id="business_connection_id" class="mono" placeholder="Click 'Activate bot' to fetch" style="flex:1;min-width:200px">
+              <button class="btn sm primary" id="activate_bot_btn" title="Activate bot and fetch connection ID" style="white-space:nowrap">🔄 Activate bot</button>
+              <button class="btn sm" id="save_bc_btn" title="Save connection ID">✓ Save</button>
+            </div>
+            <span class="hint"><b>Step 1:</b> Click <b>Activate bot</b> to set up webhook. <b>Step 2:</b> Add to Telegram Business. <b>Step 3:</b> Click Activate again to fetch connection ID.</span>
+          </div>
+          <div class="err-box" style="margin-top:10px;display:none" id="secrecy-hint">
+            <b>Got "doesn't support secrecy mode" in Telegram?</b> Click <b>Activate bot</b> above first to activate the bot, then try adding it again.
           </div>
           <div class="field">
             <label>Status</label>
@@ -222,7 +240,16 @@ async function loadAccount(){
     $('#connected').checked = !!data.connected;
     $('#bot_token').value = data.bot_token || '';
     $('#tg_user_id').value = data.tg_user_id || '—';
-    $('#business_connection_id').value = (data.business_connections && data.business_connections[0]) ? data.business_connections[0].connection_id : '—';
+    $('#business_connection_id').value = (data.business_connections && data.business_connections[0]) ? data.business_connections[0].connection_id : '';
+    
+    // Set bot username display and link
+    const botUsername = data.username || '';
+    $('#bot_username_display').value = botUsername ? '@' + botUsername : '—';
+    if (botUsername) {
+      $('#open_bot_link').href = 'https://t.me/' + encodeURIComponent(botUsername);
+      $('#open_bot_link').style.display = 'inline-flex';
+    }
+    
     $('#statusPill').className = `pill ${data.connected ? 'ok' : 'off'}`;
     $('#statusPill').textContent = data.connected ? 'Connected' : 'Disconnected';
     
@@ -235,6 +262,59 @@ async function loadAccount(){
     
     // Load persona (placeholder - integrate with your existing AI panel component)
     loadPersona();
+    
+    // Activate bot button
+    $('#activate_bot_btn').addEventListener('click', async () => {
+      const btn = $('#activate_bot_btn');
+      btn.disabled = true;
+      btn.textContent = '⏳ Activating...';
+      
+      try {
+        const token = localStorage.getItem('sb_access_token');
+        const res = await fetch('/api/bots/hook', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+          body: JSON.stringify({ persona: botUsername, unhook: false })
+        });
+        const hookData = await res.json();
+        
+        if (hookData.webhook === 'set') {
+          const connRes = await fetch('/api/bots/connection?username=' + encodeURIComponent(botUsername), {
+            headers: { 'Authorization': 'Bearer ' + token }
+          });
+          if (connRes.ok) {
+            const connData = await connRes.json();
+            if (connData.connection_id) {
+              $('#business_connection_id').value = connData.connection_id;
+              alert('✓ Bot activated! Connection ID: ' + connData.connection_id);
+            } else {
+              $('#secrecy-hint').style.display = 'block';
+              alert('Bot activated. Add to Telegram Business, then click Activate again.');
+            }
+          }
+        } else {
+          alert('Failed: ' + (hookData.error || 'Unknown'));
+        }
+      } catch(e) { alert('Error: ' + e.message); }
+      btn.disabled = false;
+      btn.textContent = '🔄 Activate bot';
+    });
+    
+    // Save button
+    $('#save_bc_btn').addEventListener('click', async () => {
+      const bcId = $('#business_connection_id').value.trim();
+      if (!bcId) { alert('Enter connection ID or click Activate bot'); return; }
+      try {
+        const token = localStorage.getItem('sb_access_token');
+        const res = await fetch('/api/bots/connection', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+          body: JSON.stringify({ username: botUsername, connection_id: bcId })
+        });
+        if (res.ok) alert('✓ Saved!');
+        else alert('Failed to save');
+      } catch(e) { alert('Error: ' + e.message); }
+    });
     
   }catch(e){
     say(e.message || 'Failed to load account.', 'err');
