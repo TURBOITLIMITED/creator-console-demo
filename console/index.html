@@ -913,13 +913,18 @@ function renderAccConnection(a){
     <div class="field"><label>Bot username</label><div class="input mono" style="background:var(--sunk)">@${esc(a.username||'—')}</div></div>
     <div class="field"><label>Telegram user id</label><div class="input mono" style="background:var(--sunk)">${esc(a.tg_user_id||'—')}</div></div>
     <div class="field">
+      <label>Bot username (to add in Telegram)</label>
+      <div class="input mono" style="background:var(--sunk);padding:8px 11px">@${esc(a.username||'—')}</div>
+      <span class="hint">Step 1: In Telegram, go to <b>Settings → Business → Chatbots</b> and add <b>@${esc(a.username||'—')}</b></span>
+    </div>
+    <div class="field">
       <label>Business connection ID</label>
       <div style="display:flex;gap:8px;align-items:center">
-        <input class="input mono" id="acc-bc-id" value="${connectionId}" placeholder="Enter or refresh connection ID" style="flex:1">
-        <button class="btn sm" id="acc-refresh-bc" title="Refresh from Telegram">${ic('refresh')}Sync</button>
+        <input class="input mono" id="acc-bc-id" value="${connectionId}" placeholder="Will appear after bot is added" style="flex:1">
+        <button class="btn sm" id="acc-refresh-bc" title="Fetch connection ID from Telegram">${ic('refresh')}Fetch</button>
         <button class="btn sm primary" id="acc-save-bc" title="Save connection ID">${ic('check')}Save</button>
       </div>
-      <span class="hint">The business connection ID links this bot to the creator's Telegram Business account. Get it from Telegram Settings → Business → Chatbots, or use Sync to fetch it live.</span>
+      <span class="hint">Step 2: After adding the bot, click <b>Fetch</b> to get the connection ID, or enter it manually if you have it.</span>
     </div>
     <label class="switch" for="acc-open-enabled"><input type="checkbox" id="acc-open-enabled" ${a.connected?'checked':''}><span class="track"></span><span>Enabled<small>Sync chats and allow AI replies</small></span></label>`;
   
@@ -951,7 +956,7 @@ function renderAccConnection(a){
             $('#acc-bc-id').value = connData.connection_id;
             toast('Connection synced from Telegram!', 'success');
           } else {
-            toast('No connection ID found. Please add bot in Telegram Business settings.', 'error');
+            toast('No connection ID yet. First add @' + a.username + ' in Telegram Settings → Business → Chatbots, then try Fetch again.', 'error');
           }
         }
       } else {
