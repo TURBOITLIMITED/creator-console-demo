@@ -510,10 +510,10 @@
     <div class="section">Content</div>
     <div class="side-nav">
       <button onclick="showSection('content')" id="btn-content">
-        <span class="icon">📚</span> Library
+        <span class="icon">📚</span> Content
       </button>
-      <button onclick="showSection('bundles')" id="btn-bundles">
-        <span class="icon">📦</span> Bundles
+      <button onclick="showSection('analytics')" id="btn-analytics">
+        <span class="icon">📈</span> Analytics
       </button>
     </div>
   </div>
@@ -616,31 +616,47 @@
       <div id="conversationView" class="card" style="display: none"></div>
     </section>
 
-    <!-- Content Library -->
+    <!-- Content (library + bundles combined) -->
     <section id="content">
-      <h2>Content Library</h2>
+      <h2>Content</h2>
       <div class="card">
         <h3>Upload New Content</h3>
-        <div id="uploadForm"></div>
+        <input type="text" id="contentTitle" placeholder="Title">
+        <textarea id="contentDesc" placeholder="Description"></textarea>
+        <label>File (image / video / audio / document)</label>
+        <input type="file" id="contentFile">
+        <input type="number" id="contentPriceTon" placeholder="Price in TON (0 for free)" step="0.0001">
+        <label><input type="checkbox" id="contentVisible" checked> Visible in store</label>
+        <button class="btn" onclick="uploadContent()">Upload</button>
       </div>
       <div class="card">
-        <h3>Existing Content</h3>
+        <h3>Your Content</h3>
         <div id="contentList"></div>
         <div id="contentPagination" class="pagination"></div>
       </div>
-    </section>
 
-    <!-- Bundles -->
-    <section id="bundles">
-      <h2>Content Bundles</h2>
       <div class="card">
-        <h3>Create New Bundle</h3>
-        <div id="bundleForm"></div>
+        <h3>Create Bundle</h3>
+        <p class="note">Pick content you have already uploaded to build a bundle.</p>
+        <div id="bundlePickList"></div>
+        <input type="text" id="bundleName" placeholder="Bundle name" style="margin-top: 12px">
+        <textarea id="bundleDesc" placeholder="Bundle description"></textarea>
+        <input type="number" id="bundlePriceTon" placeholder="Price in TON" step="0.0001">
+        <input type="number" id="bundlePriceUsd" placeholder="Price in USD (optional)" step="0.01">
+        <button class="btn" onclick="createBundle()">Create Bundle</button>
       </div>
       <div class="card">
-        <h3>Existing Bundles</h3>
+        <h3>Your Bundles</h3>
         <div id="bundleList"></div>
         <div id="bundlePagination" class="pagination"></div>
+      </div>
+    </section>
+
+    <!-- Analytics -->
+    <section id="analytics">
+      <h2>Analytics</h2>
+      <div id="analyticsBody">
+        <div class="card"><div class="empty">Loading analytics…</div></div>
       </div>
     </section>
 
@@ -677,6 +693,7 @@ window.showSection = function(name) {
     accounts: loadAccounts,
     inbox: loadConversations,
     content: loadContent,
+    analytics: loadAnalytics,
     bundles: loadBundles,
     ai: loadAISettings,
     wallet: loadWallet
@@ -970,34 +987,20 @@ async function loadConversations() {
 }
 
 async function loadContent() {
-  document.getElementById('uploadForm').innerHTML = `
-    <input type="text" id="contentTitle" placeholder="Title">
-    <textarea id="contentDesc" placeholder="Description"></textarea>
-    <select id="contentKind">
-      <option value="image">Image</option>
-      <option value="video">Video</option>
-      <option value="document">Document</option>
-      <option value="audio">Audio</option>
-    </select>
-    <input type="text" id="contentMediaKey" placeholder="Media key (R2 key)">
-    <input type="number" id="contentPriceTon" placeholder="Price in TON (0 for free)">
-    <label><input type="checkbox" id="contentVisible"> Visible in store</label>
-    <button class="btn" onclick="uploadContent()">Add Content</button>
-  `;
-  
   const start = (currentPage.content - 1) * PAGE_SIZE;
   const { data, count } = await sb.from('media_items')
     .select('*', { count: 'exact' })
     .eq('creator_id', currentCreator.id)
     .order('uploaded_at', { ascending: false })
     .range(start, start + PAGE_SIZE - 1);
-  
+
   if (!data?.length) {
-    document.getElementById('contentList').innerHTML = '<div class="empty">No content yet</div>';
+    document.getElementById('contentList').innerHTML = '<div class="empty">No content yet. Upload your first file above.</div>';
     document.getElementById('contentPagination').innerHTML = '';
+    document.getElementById('bundlePickList').innerHTML = '<div class="empty">Upload content first, then it can be added to bundles.</div>';
     return;
   }
-  
+
   document.getElementById('contentList').innerHTML = `
     <div class="table-container">
       <table>
@@ -1019,44 +1022,49 @@ async function loadContent() {
       </table>
     </div>
   `;
-  
+
+  // bundle builder: pick from ALL content (not just this page)
+  const { data: allContent } = await sb.from('media_items')
+    .select('id, title, kind')
+    .eq('creator_id', currentCreator.id)
+    .eq('visible', true)
+    .order('uploaded_at', { ascending: false })
+    .limit(100);
+
+  document.getElementById('bundlePickList').innerHTML = (allContent || []).map(c => `
+    <label style="display:flex; align-items:center; gap:8px; margin-bottom:6px; font-size:13px; font-weight:normal">
+      <input type="checkbox" class="bundle-pick" value="${c.id}">
+      ${c.title || 'Untitled'} <span style="color:var(--muted)">(${c.kind})</span>
+    </label>
+  `).join('');
+
   const totalPages = Math.ceil((count || 0) / PAGE_SIZE);
-  if (totalPages > 1) {
-    document.getElementById('contentPagination').innerHTML = renderPagination(totalPages, currentPage.content, 'content');
-  } else {
-    document.getElementById('contentPagination').innerHTML = '';
-  }
+  document.getElementById('contentPagination').innerHTML = totalPages > 1
+    ? renderPagination(totalPages, currentPage.content, 'content') : '';
 }
 
 async function loadBundles() {
-  document.getElementById('bundleForm').innerHTML = `
-    <input type="text" id="bundleName" placeholder="Bundle name" required>
-    <textarea id="bundleDesc" placeholder="Bundle description"></textarea>
-    <input type="number" id="bundlePriceTon" placeholder="Price in TON" step="0.0001" required>
-    <input type="number" id="bundlePriceUsd" placeholder="Price in USD" step="0.01">
-    <button class="btn" onclick="createBundle()">Create Bundle</button>
-  `;
-  
   const start = (currentPage.bundles - 1) * PAGE_SIZE;
   const { data, count } = await sb.from('content_bundles')
-    .select('*', { count: 'exact' })
+    .select('*, bundle_items(media_id)', { count: 'exact' })
     .eq('creator_id', currentCreator.id)
     .order('created_at', { ascending: false })
     .range(start, start + PAGE_SIZE - 1);
-  
+
   if (!data?.length) {
     document.getElementById('bundleList').innerHTML = '<div class="empty">No bundles yet</div>';
     document.getElementById('bundlePagination').innerHTML = '';
     return;
   }
-  
+
   document.getElementById('bundleList').innerHTML = `
     <div class="table-container">
       <table>
-        <tr><th>Name</th><th>Price (TON)</th><th>Price (USD)</th><th>Active</th><th>Actions</th></tr>
+        <tr><th>Name</th><th>Items</th><th>Price (TON)</th><th>Price (USD)</th><th>Active</th><th>Actions</th></tr>
         ${data.map(b => `
           <tr>
             <td>${b.name}</td>
+            <td>${(b.bundle_items || []).length}</td>
             <td>${parseFloat(b.price_ton || 0).toFixed(4)}</td>
             <td>${b.price_usd ? '$' + parseFloat(b.price_usd).toFixed(2) : '-'}</td>
             <td><span class="status ${b.active ? 'active' : 'inactive'}">${b.active ? 'Active' : 'Inactive'}</span></td>
@@ -1070,13 +1078,10 @@ async function loadBundles() {
       </table>
     </div>
   `;
-  
+
   const totalPages = Math.ceil((count || 0) / PAGE_SIZE);
-  if (totalPages > 1) {
-    document.getElementById('bundlePagination').innerHTML = renderPagination(totalPages, currentPage.bundles, 'bundles');
-  } else {
-    document.getElementById('bundlePagination').innerHTML = '';
-  }
+  document.getElementById('bundlePagination').innerHTML = totalPages > 1
+    ? renderPagination(totalPages, currentPage.bundles, 'bundles') : '';
 }
 
 async function loadAISettings() {
@@ -1110,6 +1115,103 @@ async function loadAISettings() {
 }
 
 async function loadWallet() { loadAISettings(); }
+
+// Helper functions
+async function loadAnalytics() {
+  const cid = currentCreator.id;
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  const [media, bundles, purchases, convs, msgs, customers] = await Promise.all([
+    sb.from('media_items').select('kind, visible, uploaded_at, price_ton').eq('creator_id', cid),
+    sb.from('content_bundles').select('active, price_ton').eq('creator_id', cid),
+    sb.from('bundle_purchases').select('price_paid_ton, purchased_at').eq('creator_id', cid).order('purchased_at', { ascending: false }),
+    sb.from('conversations').select('mode, last_message_at').eq('creator_id', cid),
+    sb.from('messages').select('direction, sent_at').eq('creator_id', cid).gte('sent_at', thirtyDaysAgo),
+    sb.from('customers').select('created_at').eq('creator_id', cid).gte('created_at', thirtyDaysAgo),
+  ]);
+
+  const m = media.data || [], b = bundles.data || [], p = purchases.data || [];
+  const cv = convs.data || [], ms = msgs.data || [], cu = customers.data || [];
+
+  const revenueTotal = p.reduce((s, x) => s + (parseFloat(x.price_paid_ton) || 0), 0);
+  const revenue30 = p.filter(x => x.purchased_at >= thirtyDaysAgo).reduce((s, x) => s + (parseFloat(x.price_paid_ton) || 0), 0);
+  const purchases30 = p.filter(x => x.purchased_at >= thirtyDaysAgo).length;
+
+  const byKind = {};
+  m.forEach(x => byKind[x.kind] = (byKind[x.kind] || 0) + 1);
+  const visibleCount = m.filter(x => x.visible).length;
+
+  const modeCounts = {};
+  cv.forEach(x => modeCounts[x.mode] = (modeCounts[x.mode] || 0) + 1);
+  const inbound = ms.filter(x => x.direction === 'in').length;
+  const outbound = ms.filter(x => x.direction === 'out').length;
+
+  // last 7 days message volume for a simple bar chart
+  const days = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+    const key = d.toISOString().slice(0, 10);
+    days.push({ key, label: d.toLocaleDateString(undefined, { weekday: 'short' }), count: 0 });
+  }
+  const dayMap = Object.fromEntries(days.map(d => [d.key, d]));
+  ms.forEach(x => { const k = (x.sent_at || '').slice(0, 10); if (dayMap[k]) dayMap[k].count++; });
+  const maxCount = Math.max(1, ...days.map(d => d.count));
+
+  const recentPurchases = p.slice(0, 8);
+
+  document.getElementById('analyticsBody').innerHTML = `
+    <div class="stats">
+      <div class="stat"><span class="label">Revenue (all time)</span><span class="value">${revenueTotal.toFixed(4)} TON</span><span class="sub">${p.length} purchases</span></div>
+      <div class="stat"><span class="label">Revenue (30 days)</span><span class="value">${revenue30.toFixed(4)} TON</span><span class="sub">${purchases30} purchases</span></div>
+      <div class="stat"><span class="label">Messages (30 days)</span><span class="value">${ms.length}</span><span class="sub">${inbound} in / ${outbound} out</span></div>
+      <div class="stat"><span class="label">New customers (30 days)</span><span class="value">${cu.length}</span><span class="sub">${cv.length} conversations total</span></div>
+    </div>
+
+    <div class="card">
+      <h3>Message volume (last 7 days)</h3>
+      <div style="display:flex; align-items:flex-end; gap:10px; height:120px; padding:8px 0">
+        ${days.map(d => `
+          <div style="flex:1; text-align:center">
+            <div style="background:var(--accent); border-radius:4px 4px 0 0; height:${Math.round(d.count / maxCount * 90)}px; min-height:2px; margin:0 auto; width:60%"></div>
+            <div style="font-size:10.5px; color:var(--muted); margin-top:6px">${d.label}</div>
+            <div style="font-size:11px">${d.count}</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Content</h3>
+      <div class="stats">
+        <div class="stat"><span class="label">Total items</span><span class="value">${m.length}</span><span class="sub">${visibleCount} visible</span></div>
+        <div class="stat"><span class="label">Bundles</span><span class="value">${b.length}</span><span class="sub">${b.filter(x => x.active).length} active</span></div>
+      </div>
+      ${Object.keys(byKind).length ? `
+      <table>
+        <tr><th>Type</th><th>Items</th></tr>
+        ${Object.entries(byKind).map(([k, n]) => `<tr><td>${k}</td><td>${n}</td></tr>`).join('')}
+      </table>` : '<div class="empty">No content yet</div>'}
+    </div>
+
+    <div class="card">
+      <h3>Conversations by mode</h3>
+      ${Object.keys(modeCounts).length ? `
+      <table>
+        <tr><th>Mode</th><th>Conversations</th></tr>
+        ${Object.entries(modeCounts).map(([k, n]) => `<tr><td>${k}</td><td>${n}</td></tr>`).join('')}
+      </table>` : '<div class="empty">No conversations yet</div>'}
+    </div>
+
+    <div class="card">
+      <h3>Recent purchases</h3>
+      ${recentPurchases.length ? `
+      <table>
+        <tr><th>When</th><th>Amount</th></tr>
+        ${recentPurchases.map(x => `<tr><td>${new Date(x.purchased_at).toLocaleString()}</td><td>${parseFloat(x.price_paid_ton || 0).toFixed(4)} TON</td></tr>`).join('')}
+      </table>` : '<div class="empty">No purchases yet</div>'}
+    </div>
+  `;
+}
 
 // Helper functions
 function renderPagination(totalPages, currentPage, type) {
@@ -1207,29 +1309,53 @@ window.updateMode = async function(convId, mode) {
 };
 
 window.uploadContent = async function() {
-  const title = document.getElementById('contentTitle').value;
-  const desc = document.getElementById('contentDesc').value;
-  const kind = document.getElementById('contentKind').value;
-  const mediaKey = document.getElementById('contentMediaKey').value;
+  const title = document.getElementById('contentTitle').value.trim();
+  const desc = document.getElementById('contentDesc').value.trim();
   const priceTon = document.getElementById('contentPriceTon').value;
   const visible = document.getElementById('contentVisible').checked;
-  
-  if (!title || !mediaKey) {
-    showToast('Title and media key are required');
-    return;
-  }
-  
-  await sb.from('media_items').insert({
+  const file = document.getElementById('contentFile').files[0];
+
+  if (!title) { showToast('Title is required'); return; }
+  if (!file) { showToast('Choose a file to upload'); return; }
+
+  showToast('Uploading…');
+
+  // figure out kind from file type
+  const t = file.type || '';
+  const kind = t.startsWith('video/') ? 'video'
+    : t.startsWith('image/') ? 'image'
+    : t.startsWith('audio/') ? 'audio'
+    : 'document';
+
+  // upload to storage: content-store/<creator_id>/<timestamp>-<filename>
+  const safeName = file.name.replace(/[^\w.\-]/g, '_');
+  const path = `${currentCreator.id}/${Date.now()}-${safeName}`;
+
+  const { error: upErr } = await sb.storage
+    .from('content-store')
+    .upload(path, file, { contentType: file.type || 'application/octet-stream' });
+
+  if (upErr) { showToast('Upload failed: ' + upErr.message); return; }
+
+  const { error } = await sb.from('media_items').insert({
     creator_id: currentCreator.id,
     title,
-    description: desc,
+    description: desc || null,
     kind,
-    media_key: mediaKey,
-    price_ton: priceTon || null,
-    visible: visible,
+    media_key: path,
+    media_type: file.type || 'application/octet-stream',
+    media_size: file.size,
+    price_ton: priceTon ? parseFloat(priceTon) : null,
+    visible,
   });
-  
-  showToast('Content added');
+
+  if (error) { showToast('Save failed: ' + error.message); return; }
+
+  showToast('Content uploaded');
+  document.getElementById('contentTitle').value = '';
+  document.getElementById('contentDesc').value = '';
+  document.getElementById('contentPriceTon').value = '';
+  document.getElementById('contentFile').value = '';
   loadContent();
 };
 
@@ -1241,32 +1367,49 @@ window.toggleContentVisibility = async function(id, visible) {
 
 window.deleteContent = async function(id) {
   if (!confirm('Delete this content?')) return;
+  const { data: item } = await sb.from('media_items').select('media_key').eq('id', id).single();
+  if (item?.media_key) {
+    await sb.storage.from('content-store').remove([item.media_key]).catch(() => {});
+  }
   await sb.from('media_items').delete().eq('id', id);
   showToast('Content deleted');
   loadContent();
 };
 
 window.createBundle = async function() {
-  const name = document.getElementById('bundleName').value;
-  const desc = document.getElementById('bundleDesc').value;
+  const name = document.getElementById('bundleName').value.trim();
+  const desc = document.getElementById('bundleDesc').value.trim();
   const priceTon = document.getElementById('bundlePriceTon').value;
   const priceUsd = document.getElementById('bundlePriceUsd').value;
-  
-  if (!name || !priceTon) {
-    showToast('Name and price are required');
-    return;
-  }
-  
-  await sb.from('content_bundles').insert({
+
+  const picked = Array.from(document.querySelectorAll('.bundle-pick:checked')).map(cb => cb.value);
+
+  if (!name || !priceTon) { showToast('Name and price are required'); return; }
+  if (!picked.length) { showToast('Pick at least one content item'); return; }
+
+  const { data: bundle, error } = await sb.from('content_bundles').insert({
     creator_id: currentCreator.id,
     name,
-    description: desc,
+    description: desc || null,
     price_ton: parseFloat(priceTon),
     price_usd: priceUsd ? parseFloat(priceUsd) : null,
-  });
-  
+    active: true,
+  }).select('id').single();
+
+  if (error || !bundle) { showToast('Save failed: ' + (error?.message || 'unknown')); return; }
+
+  const rows = picked.map((mediaId, i) => ({ bundle_id: bundle.id, media_id: mediaId, position: i + 1 }));
+  const { error: itemsErr } = await sb.from('bundle_items').insert(rows);
+  if (itemsErr) { showToast('Bundle created but items failed: ' + itemsErr.message); return; }
+
   showToast('Bundle created');
+  document.getElementById('bundleName').value = '';
+  document.getElementById('bundleDesc').value = '';
+  document.getElementById('bundlePriceTon').value = '';
+  document.getElementById('bundlePriceUsd').value = '';
+  document.querySelectorAll('.bundle-pick').forEach(cb => cb.checked = false);
   loadBundles();
+  loadContent();
 };
 
 window.toggleBundle = async function(id, active) {
