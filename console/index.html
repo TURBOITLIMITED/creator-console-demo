@@ -845,66 +845,103 @@ function revenueChart(days){
 /* ---------- Accounts ---------- */
 async function renderAccounts(){
   setView(`
-    ${secHead('Telegram accounts linked through Telegram Business. Disable an account to pause the AI and stop syncing its chats.')}
+    ${secHead('Each Telegram account runs one creator\'s bot. Open an account to configure everything: persona, connection, status.')}
     ${ownerPicker()}
-    <div class="split">
-      <section class="panel"><div class="panel-head"><h2>Connected accounts</h2><span class="muted" id="acc-count"></span></div>
-        <div class="table-wrap" id="acc-table">${spinner('Loading accounts…')}</div></section>
-      <aside class="panel form-panel"><div class="panel-head form-title"><h2>Connect an account</h2></div>
-        <form class="form panel-body" data-form="account" autocomplete="off">
-          <div class="field"><label for="acc-bc">Bot token <span class="muted">(from @BotFather)</span></label>
-            <input class="input mono" id="acc-bc" name="connection" placeholder="123456789:ABCdefGhIjKlMnOpQrStUvWxYz">
-            <span class="hint">Create a bot with @BotFather, then add it under her Telegram Settings → Business → Chatbots.</span></div>
-          <label class="switch" for="acc-enabled"><input type="checkbox" id="acc-enabled" name="is_enabled" checked><span class="track"></span><span>Enabled<small>Sync chats and allow AI replies</small></span></label>
-          <div class="form-actions"><button class="btn primary" type="submit">${ic('plus')}Connect account</button></div>
-        </form></aside>
-    </div>
-    <div id="acc-personality">${spinner('Loading personality…')}</div>`);
+    <div class="panel"><div class="panel-head"><h2>Accounts</h2>
+      <span class="end"><button class="btn primary" data-act="acc-connect">${ic('plus')}Connect account</button></span></div>
+      <div class="table-wrap" id="acc-table">${spinner('Loading accounts…')}</div></div>
+    <div id="acc-detail"></div>`);
   loadAccounts();
-  loadAIPanel('#acc-personality');
- }
-/* Setup stepper shown right after connecting a bot: what to do next, one panel. */
-function showSetupSteps(me){
-  const old = $('#setup-steps'); if(old) old.remove();
-  const bot = me?.result ? `@${me.result.username}` : 'the bot';
-  const who = state.aiCreators?.find(c => c.id === ownerTarget());
-  const girl = who ? (who.name || who.id) : 'this creator';
-  const wrap = document.createElement('div');
-  wrap.id = 'setup-steps';
-  wrap.innerHTML = `<div class="panel" style="margin-top:16px;border-color:var(--accent)">
-    <div class="panel-head"><h2>Account connected — finish setup</h2><span class="end"><button class="act" data-act="setup-close" title="Close">${ic('x')}</button></span></div>
-    <div class="panel-body">
-      <ol style="margin:0;padding-left:20px;line-height:2">
-        <li>Bot <b>${esc(bot)}</b> is linked to <b>${esc(girl)}</b>. She must add the bot in her Telegram: <b>Settings → Business → Chatbots</b>, and allow replies.</li>
-        <li>Set her personality below on this page — name, tone, and what the bot may promise.</li>
-        <li>Price her content in <a href="#library">Library</a> and group offers in <a href="#bundles">Bundles</a>. She cannot set prices herself.</li>
-        <li>Send her the content link from <a href="#links">Creator Links</a> so she can upload clips and photos.</li>
-      </ol>
-    </div>
-  </div>`;
-  $('#view').insertBefore(wrap, $('#view').firstChild.nextSibling);
 }
 async function loadAccounts(){
   const el = $('#acc-table'); if(!el) return;
   el.innerHTML = spinner('Loading accounts…');
   try{
     const { rows, count } = await Data.list('telegram_accounts', { select:'*, business_connections(*)', size:50, scopeOwner:true });
-    $('#acc-count').textContent = count ? `${count} account${count===1?'':'s'}` : '';
-    el.innerHTML = rows.length ? `<table><thead><tr><th>Account</th><th>Business connection</th><th>Can reply</th><th>Status</th><th>Connected</th><th class="num">Actions</th></tr></thead><tbody>
-      ${rows.map(a => { const bc = (a.business_connections||[])[0]; return `<tr>
-        <td><div class="cell-main"><div class="avatar">${esc((a.username||'?')[0].toUpperCase())}</div><div><b class="tg-handle"><span>@</span>${esc(a.username)}</b><small>${esc(a.first_name||'Telegram account')}</small></div></div></td>
-        <td>${bc?`<div class="conn"><code>${esc(bc.connection_id)}</code></div>`:'<span class="muted">Not linked</span>'}</td>
-        <td>${bc?(bc.can_reply?'<span class="pill accent">Yes</span>':'<span class="pill draft">Read only</span>'):'<span class="muted">—</span>'}</td>
+    $('#acc-count') && ($('#acc-count').textContent = count ? `${count} account${count===1?'':'s'}` : '');
+    el.innerHTML = rows.length ? `<table><thead><tr><th>Account</th><th>Bot</th><th>Status</th><th>Connected</th><th class="num">Actions</th></tr></thead><tbody>
+      ${rows.map(a => `<tr>
+        <td><div class="cell-main"><div class="avatar">${esc((a.first_name||a.username||'?')[0].toUpperCase())}</div><div><b>${esc(a.first_name||a.username||'Account')}</b><small>@${esc(a.username||'—')}</small></div></div></td>
+        <td class="muted">${esc(a.username ? '@'+a.username : '—')}</td>
         <td>${pill(a.connected,'Enabled','Disabled','off')}</td>
         <td class="muted">${fmtDate(a.created_at)}</td>
         <td><div class="row-actions">
-          <button class="act" data-act="acc-toggle" data-id="${a.id}" data-on="${a.connected?1:0}" title="${a.connected?'Disable':'Enable'}">${ic('power')}${a.connected?'Disable':'Enable'}</button>
+          <button class="act" data-act="acc-open" data-id="${a.id}" title="Open">${ic('edit')}Open</button>
           <button class="act danger" data-act="acc-del" data-id="${a.id}" title="Remove">${ic('trash')}</button>
-        </div></td></tr>`; }).join('')}</tbody></table>`
-      : empty('send','No Telegram accounts yet','Connect your first account to start syncing chats and selling content in DMs.', `<button class="btn sm primary" data-act="focus" data-target="acc-bc">${ic('plus')}Connect account</button>`);
+        </div></td></tr>`).join('')}</tbody></table>`
+      : empty('send','No accounts yet','Connect a Telegram bot account to start chatting and selling in DMs.', `<button class="btn sm primary" data-act="acc-connect">${ic('plus')}Connect account</button>`);
   }catch(e){ el.innerHTML = errorState(e,'accounts'); }
 }
-
+/* Open an account: tabbed detail (Persona / Connection). */
+async function openAccount(id){
+  state.accOpenId = id;
+  const slot = $('#acc-detail'); if(!slot) return;
+  const { data:a, error } = await state.sb.from('telegram_accounts').select('*, business_connections(*)').eq('id', id).maybeSingle();
+  if(error || !a){ slot.innerHTML = errorState(error||'missing','accounts'); return; }
+  const tab = state.accTab || 'persona';
+  slot.innerHTML = `<div class="panel" style="margin-top:16px" id="acc-open">
+    <div class="panel-head">
+      <h2>@${esc(a.username||a.first_name||'account')}</h2>
+      <span class="end">
+        <div class="tabs" role="tablist">
+          <button type="button" role="tab" data-act="acc-tab" data-tab="persona" aria-selected="${tab==='persona'}">Persona</button>
+          <button type="button" role="tab" data-act="acc-tab" data-tab="connection" aria-selected="${tab==='connection'}">Connection</button>
+        </div>
+        <button class="act" data-act="acc-close" title="Close">${ic('x')}</button>
+      </span>
+    </div>
+    <div class="panel-body" id="acc-tab-body"></div>
+  </div>`;
+  if(tab === 'persona'){
+    const body = $('#acc-tab-body');
+    body.innerHTML = spinner('Loading personality…');
+    const holder = document.createElement('div'); holder.id = 'acc-personality';
+    body.appendChild(holder);
+    loadAIPanel('#acc-personality');
+  } else {
+    renderAccConnection(a);
+  }
+  slot.scrollIntoView({ behavior:'smooth', block:'start' });
+}
+function renderAccConnection(a){
+  const bc = (a.business_connections||[])[0];
+  $('#acc-tab-body').innerHTML = `
+    <div class="field"><label>Bot username</label><div class="input mono" style="background:var(--sunk)">@${esc(a.username||'—')}</div></div>
+    <div class="field"><label>Telegram user id</label><div class="input mono" style="background:var(--sunk)">${esc(a.tg_user_id||'—')}</div></div>
+    <div class="field"><label>Business connection</label><div class="input mono" style="background:var(--sunk)">${bc ? esc(bc.connection_id) : 'Not linked yet — she must add the bot in Telegram Settings → Business → Chatbots'}</div></div>
+    <label class="switch" for="acc-open-enabled"><input type="checkbox" id="acc-open-enabled" ${a.connected?'checked':''}><span class="track"></span><span>Enabled<small>Sync chats and allow AI replies</small></span></label>`;
+  $('#acc-open-enabled').addEventListener('change', async e => {
+    const ok = await Data.update('telegram_accounts', a.id, { connected:e.target.checked });
+    toast(ok ? (e.target.checked?'Account enabled':'Account disabled') : 'Update failed', ok?'success':'error');
+    loadAccounts();
+  });
+}
+/* Connect wizard: first thing shown when Connect account is pressed. */
+function showConnectWizard(){
+  const old = $('#connect-wizard'); if(old) old.remove();
+  const w = document.createElement('div');
+  w.id = 'connect-wizard';
+  w.innerHTML = `<div class="panel" style="margin-top:16px;border-color:var(--accent)">
+    <div class="panel-head"><h2>Connect an account</h2><span class="end"><button class="act" data-act="wiz-close" title="Close">${ic('x')}</button></span></div>
+    <div class="panel-body">
+      <form class="form" data-form="account" autocomplete="off">
+        <div class="field"><label for="wiz-bc">Bot token <span class="muted">(from @BotFather)</span></label>
+          <input class="input mono" id="wiz-bc" name="connection" placeholder="123456789:ABCdefGhIjKlMnOpQrStUvWxYz">
+          <span class="hint">Create a bot with @BotFather for this creator, then paste its token here. We verify it with Telegram before saving.</span></div>
+        <label class="switch" for="wiz-enabled"><input type="checkbox" id="wiz-enabled" name="is_enabled" checked><span class="track"></span><span>Enabled<small>Sync chats and allow AI replies</small></span></label>
+        <div class="form-actions"><button class="btn primary" type="submit">${ic('plus')}Connect account</button></div>
+      </form>
+      <ol class="wiz-steps" style="margin:14px 0 0;padding-left:20px;color:var(--dim);line-height:2;font-size:13px">
+        <li>Paste the bot token — we check it live with Telegram.</li>
+        <li>She adds the bot in her Telegram: <b>Settings → Business → Chatbots</b>.</li>
+        <li>Set her persona in the account after connecting.</li>
+      </ol>
+    </div>
+  </div>`;
+  const view = $('#view');
+  view.insertBefore(w, view.firstChild.nextSibling);
+  $('#wiz-bc')?.focus();
+}
 /* ---------- Inbox ---------- */
 async function renderInbox(){
   setView(`
@@ -1213,7 +1250,11 @@ view.addEventListener('click', async e => {
       ({ inbox:loadConversations, library:loadLibrary, bundles:loadBundles })[k]?.();
       break; }
     /* accounts */
-    case 'acc-toggle': if(await withBusy(a, () => Data.update('telegram_accounts', id, { connected: a.dataset.on!=='1' }), a.dataset.on==='1'?'Account disabled':'Account enabled')) loadAccounts(); break;
+    case 'acc-open': openAccount(id); break;
+    case 'acc-close': $('#acc-detail').innerHTML = ''; state.accTab = null; break;
+    case 'acc-tab': state.accTab = a.dataset.tab; if(state.accOpenId) openAccount(state.accOpenId); break;
+    case 'acc-connect': showConnectWizard(); break;
+    case 'wiz-close': $('#connect-wizard')?.remove(); break;
     case 'acc-del': if(armed(a) && await withBusy(a, () => Data.remove('telegram_accounts', id), 'Account removed')) loadAccounts(); break;
     /* inbox */
     case 'inbox-filter': state.inboxFilter = a.dataset.f || ''; state.pages.inbox = 1;
@@ -1288,9 +1329,15 @@ view.addEventListener('submit', async e => {
       }
       return Data.saveAccount({ tg_user_id: me.result.id, username: me.result.username, first_name: me.result.first_name, connected:true }, null, t);
     };
-    if(await withBusy(btn, run, 'Account connected')){
-      f.reset(); f.is_enabled.checked = true; loadAccounts();
-      showSetupSteps(me);
+    // stash result row for opening the detail after submit
+    const saved = await withBusy(btn, run, 'Account connected');
+    if(saved){
+      f.reset();
+      const wiz = $('#wiz-enabled'); if(wiz) wiz.checked = true;
+      $('#connect-wizard')?.remove();
+      loadAccounts();
+      toast('Account connected','success','Opening it now — set her persona.');
+      if(saved.id) openAccount(saved.id);
     }
   }
   if(kind === 'media'){
