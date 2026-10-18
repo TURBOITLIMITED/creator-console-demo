@@ -273,7 +273,8 @@ async function loadAccount(){
         const { data: { session } } = await sb.auth.getSession();
         if (!session?.access_token) throw new Error('Not signed in. Please login first.');
         
-        const res = await fetch('/api/bots/hook', {
+        const apiBase = 'https://api-telebotcreator.turboit.uk';
+        const res = await fetch(apiBase + '/api/bots/hook', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
           body: JSON.stringify({ persona: botUsername, unhook: false })
@@ -285,7 +286,7 @@ async function loadAccount(){
         const hookData = JSON.parse(text);
         
         if (hookData.webhook === 'set') {
-          const connRes = await fetch('/api/bots/connection?username=' + encodeURIComponent(botUsername), {
+          const connRes = await fetch(apiBase + '/api/bots/connection?username=' + encodeURIComponent(botUsername), {
             headers: { 'Authorization': 'Bearer ' + session.access_token }
           });
           if (connRes.ok) {
@@ -314,7 +315,8 @@ async function loadAccount(){
         const { data: { session } } = await sb.auth.getSession();
         if (!session?.access_token) throw new Error('Not signed in. Please login first.');
         
-        const res = await fetch('/api/bots/connection', {
+        const apiBase = 'https://api-telebotcreator.turboit.uk';
+        const res = await fetch(apiBase + '/api/bots/connection', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
           body: JSON.stringify({ username: botUsername, connection_id: bcId })
