@@ -4,11 +4,9 @@
   "main": "src/index.js",
   "compatibility_date": "2026-01-01",
   "observability": { "enabled": true },
-
-  // RECONSTRUCTED from the live deployment's binding list on 2026-10-16.
-  // The original wrangler config was never committed anywhere; this file was
-  // rebuilt by reading the Cloudflare API, so treat it as a best-effort
-  // reconstruction and diff it against the dashboard before any deploy.
+  "routes": [
+    { "pattern": "api-telebotcreator.turboit.uk/*", "zone_name": "turboit.uk" }
+  ],
   "r2_buckets": [
     { "binding": "MEDIA", "bucket_name": "creator-media" }
   ],
