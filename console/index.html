@@ -1,1468 +1,1508 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Creator Console</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
 <style>
-  :root { 
-    --paper: #faf6f0; 
-    --panel: #ffffff; 
-    --ink: #1a1a1a; 
-    --ink-soft: #4a4a4a; 
-    --muted: #8b8b8b; 
-    --rule: #e8e4de; 
-    --primary: #1276ce; 
-    --primary-soft: #e8f1f9; 
-    --ok: #16a34a; 
-    --warn: #f59e0b; 
-    --danger: #dc2626;
-  }
-  * { box-sizing: border-box }
-  body { 
-    margin: 0; 
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
-    font-size: 13px; 
-    background: var(--paper); 
-    color: var(--ink);
-    line-height: 1.5;
-  }
-  
-  /* Top bar */
-  .bar { 
-    position: sticky; 
-    top: 0; 
-    z-index: 50; 
-    background: var(--panel); 
-    border-bottom: 1px solid var(--rule); 
-    padding: 12px 20px; 
-    display: flex; 
-    align-items: center; 
-    gap: 16px;
-    height: 56px;
-  }
-  .bar h1 { 
-    margin: 0; 
-    font-size: 16px; 
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .bar h1::before {
-    content: "";
-    width: 24px;
-    height: 24px;
-    background: linear-gradient(135deg, #1276ce 0%, #0d5a9e 100%);
-    border-radius: 6px;
-  }
-  
-  /* Layout */
-  .shell { 
-    display: grid; 
-    grid-template-columns: 240px 1fr; 
-    min-height: calc(100vh - 56px);
-  }
-  
-  /* Sidebar */
-  .side { 
-    background: var(--panel); 
-    border-right: 1px solid var(--rule); 
-    padding: 16px;
-    overflow-y: auto;
-    max-height: calc(100vh - 56px);
-  }
-  .side-nav { display: flex; flex-direction: column; gap: 2px }
-  .side-nav button { 
-    display: flex; 
-    align-items: center; 
-    gap: 10px;
-    width: 100%; 
-    text-align: left; 
-    padding: 10px 12px; 
-    border: 0; 
-    background: none; 
-    cursor: pointer; 
-    border-radius: 8px; 
-    color: var(--ink-soft); 
-    font-size: 13px;
-    transition: all 0.15s ease;
-  }
-  .side-nav button:hover { 
-    background: var(--primary-soft); 
-    color: var(--primary);
-  }
-  .side-nav button.active { 
-    background: var(--primary); 
-    color: #fff; 
-    font-weight: 500;
-  }
-  .side-nav button .icon { 
-    width: 18px; 
-    text-align: center;
-    opacity: 0.8;
-  }
-  .side .section { 
-    font-size: 11px; 
-    letter-spacing: 0.06em; 
-    text-transform: uppercase; 
-    color: var(--muted); 
-    margin: 20px 12px 8px; 
-    font-weight: 600;
-    padding-left: 2px;
-  }
-  .side .section:first-of-type { margin-top: 8px }
-  
-  /* Main content */
-  main { 
-    padding: 24px 32px; 
-    max-width: 1200px;
-    overflow-y: auto;
-  }
-  section { display: none }
-  section.active { display: block }
-  
-  h2 { 
-    font-size: 18px; 
-    font-weight: 600; 
-    margin: 0 0 20px; 
-    padding-bottom: 14px; 
-    border-bottom: 1px solid var(--rule);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-  
-  /* Cards */
-  .card { 
-    background: var(--panel); 
-    border: 1px solid var(--rule); 
-    border-radius: 12px; 
-    padding: 20px; 
-    margin-bottom: 20px;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
-  }
-  .card h3 { 
-    margin: 0 0 16px; 
-    font-size: 14px; 
-    font-weight: 600;
-  }
-  
-  /* Stats */
-  .stats { 
-    display: grid; 
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); 
-    gap: 16px; 
-    margin-bottom: 24px;
-  }
-  .stat { 
-    background: var(--panel); 
-    border: 1px solid var(--rule); 
-    border-radius: 12px; 
-    padding: 20px;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
-  }
-  .stat .label { 
-    display: block; 
-    color: var(--muted); 
-    font-size: 12px; 
-    margin-bottom: 8px;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-  }
-  .stat .value { 
-    display: block; 
-    font-size: 28px; 
-    font-weight: 700; 
-    letter-spacing: -0.5px;
-    color: var(--ink);
-  }
-  .stat .sub { 
-    display: block; 
-    color: var(--muted); 
-    font-size: 12px; 
-    margin-top: 6px;
-  }
-  .stat .trend {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 11px;
-    padding: 2px 8px;
-    border-radius: 10px;
-    margin-left: 8px;
-  }
-  .stat .trend.up { background: #dcfce7; color: #166534 }
-  .stat .trend.down { background: #fee2e2; color: #991b1b }
-  
-  /* Forms */
-  label { 
-    display: block; 
-    margin-bottom: 6px; 
-    font-size: 12px; 
-    color: var(--ink-soft); 
-    font-weight: 500;
-  }
-  input, select, textarea { 
-    width: 100%; 
-    padding: 10px 12px; 
-    border: 1px solid var(--rule); 
-    border-radius: 8px; 
-    font-size: 13px; 
-    margin-bottom: 14px; 
-    font-family: inherit;
-    background: var(--panel);
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
-  }
-  input:focus, select:focus, textarea:focus { 
-    outline: none; 
-    border-color: var(--primary);
-    box-shadow: 0 0 0 3px var(--primary-soft);
-  }
-  textarea { resize: vertical; min-height: 80px }
-  
-  /* Buttons */
-  button.btn { 
-    background: var(--primary); 
-    color: #fff; 
-    border: 0; 
-    padding: 10px 18px; 
-    border-radius: 8px; 
-    cursor: pointer; 
-    font-size: 13px;
-    font-weight: 500;
-    transition: all 0.15s ease;
-  }
-  button.btn:hover { 
-    background: #0d5a9e;
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(18,118,206,0.25);
-  }
-  button.btn-secondary { 
-    background: var(--panel); 
-    color: var(--ink);
-    border: 1px solid var(--rule);
-  }
-  button.btn-secondary:hover { background: var(--paper) }
-  button.btn-small { 
-    padding: 6px 12px; 
-    font-size: 12px;
-    margin-right: 4px;
-  }
-  button.btn-danger { background: var(--danger) }
-  button.btn-danger:hover { background: #b91c1c }
-  
-  /* Tables */
-  .table-container {
-    overflow-x: auto;
-    border-radius: 8px;
-    border: 1px solid var(--rule);
-  }
-  table { 
-    width: 100%; 
-    border-collapse: collapse; 
-    font-size: 13px;
-    background: var(--panel);
-  }
-  th { 
-    text-align: left; 
-    padding: 12px 16px; 
-    border-bottom: 2px solid var(--rule); 
-    color: var(--muted); 
-    font-weight: 600; 
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    background: var(--paper);
-  }
-  td { 
-    padding: 14px 16px; 
-    border-bottom: 1px solid var(--rule);
-    background: var(--panel);
-  }
-  tr:hover td { background: var(--paper) }
-  tr:last-child td { border-bottom: 0 }
-  
-  /* Status badges */
-  .status { 
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 10px; 
-    border-radius: 100px; 
-    font-size: 11px; 
-    font-weight: 600;
-  }
-  .status::before {
-    content: "";
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: currentColor;
-  }
-  .status.active { background: #dcfce7; color: #166534 }
-  .status.pending { background: #fef3c7; color: #92400e }
-  .status.setup { background: #fef3c7; color: #92400e }
-  .status.inactive { background: #f3f4f6; color: #6b7280 }
-  .status.error { background: #fee2e2; color: #991b1b }
-  
-  /* Empty state */
-  .empty { 
-    color: var(--muted); 
-    padding: 40px; 
-    text-align: center; 
-    font-size: 13px;
-    background: var(--panel);
-    border: 2px dashed var(--rule);
-    border-radius: 12px;
-  }
-  
-  /* Flex utilities */
-  .flex { display: flex; gap: 12px; align-items: center }
-  .flex-right { justify-content: flex-end }
-  .flex-between { justify-content: space-between }
-  .flex-wrap { flex-wrap: wrap }
-  .mt { margin-top: 16px }
-  .mb { margin-bottom: 16px }
-  .gap-2 { gap: 8px }
-  .gap-4 { gap: 16px }
-  
-  /* Note/help text */
-  .note { 
-    font-size: 12px; 
-    color: var(--muted); 
-    margin-top: 10px;
-    line-height: 1.6;
-  }
-  
-  /* Pagination */
-  .pagination {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    margin-top: 20px;
-    padding-top: 16px;
-    border-top: 1px solid var(--rule);
-  }
-  .pagination button {
-    padding: 6px 12px;
-    border: 1px solid var(--rule);
-    background: var(--panel);
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 12px;
-    transition: all 0.15s ease;
-  }
-  .pagination button:hover:not(:disabled) {
-    border-color: var(--primary);
-    color: var(--primary);
-  }
-  .pagination button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  .pagination button.active {
-    background: var(--primary);
-    color: #fff;
-    border-color: var(--primary);
-  }
-  .pagination span {
-    font-size: 12px;
-    color: var(--muted);
-  }
-  
-  /* Toast */
-  #toast { 
-    position: fixed; 
-    bottom: 24px; 
-    right: 24px; 
-    background: var(--ink); 
-    color: #fff; 
-    padding: 14px 20px; 
-    border-radius: 10px; 
-    display: none; 
-    font-size: 13px;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-    z-index: 100;
-    animation: slideIn 0.3s ease;
-  }
-  @keyframes slideIn {
-    from { transform: translateY(100%); opacity: 0; }
-    to { transform: translateY(0); opacity: 1; }
-  }
-  /* Connect wizard */
-  .steps { display:flex; align-items:center; margin:4px 0 20px }
-  .step-marker { text-align:center }
-  .step-dot { display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px; border-radius:50%; background:#e5e5e2; color:var(--muted); font-weight:600; font-size:14px }
-  .step-dot.active { background:var(--accent); color:#fff }
-  .step-line { flex:1; height:2px; background:var(--rule); margin:0 12px 22px }
-  .step-label { font-size:11.5px; color:var(--muted); margin-top:6px }
-  .status.revoked { background:#fdecea; color:#a33 }
-  /* Messages */
-  .msg { 
-    padding: 12px 16px; 
-    border-radius: 12px; 
-    margin-bottom: 10px; 
-    max-width: 75%;
-    font-size: 13px;
-  }
-  .msg.in { 
-    background: var(--panel); 
-    margin-right: auto;
-    border: 1px solid var(--rule);
-  }
-  .msg.out { 
-    background: var(--primary-soft); 
-    margin-left: auto;
-    border: 1px solid var(--primary);
-  }
-  .msg .meta { 
-    font-size: 11px; 
-    color: var(--muted); 
-    margin-top: 6px;
-    display: block;
-  }
-  
-  /* Loading */
-  .loading {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 40px;
-    color: var(--muted);
-  }
-  .spinner {
-    width: 20px;
-    height: 20px;
-    border: 2px solid var(--rule);
-    border-top-color: var(--primary);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-    margin-right: 10px;
-  }
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
-  
-  /* User menu */
-  .user-menu {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 6px 12px;
-    background: var(--paper);
-    border-radius: 8px;
-    cursor: pointer;
-    transition: background 0.15s ease;
-  }
-  .user-menu:hover { background: var(--rule) }
-  .user-avatar {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    background: var(--primary);
-    color: #fff;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 600;
-    font-size: 12px;
-  }
-  
-  /* Responsive */
-  @media (max-width: 768px) {
-    .shell { grid-template-columns: 1fr }
-    .side { display: none }
-    main { padding: 16px }
-  }
+/* Layout: collapsible icon rail on the left, sticky header, work area = table panel + sticky form panel */
+:root{
+  --paper:#f7f7f6; --panel:#ffffff; --sunk:#f1f1ef;
+  --ink:#141519; --ink-2:#55585f; --ink-3:#8a8d95;
+  --rule:#e6e6e3; --rule-2:#efefec;
+  --accent:#3346ff; --accent-hi:#2233ee; --accent-ink:#ffffff; --accent-soft:#eceeff; --accent-line:#c9cfff;
+  --ok:#11804a; --ok-soft:#e2f3e9; --warn:#9a5c00; --warn-soft:#fbefd9; --bad:#c42f37; --bad-soft:#fbe5e6;
+  --shadow:0 1px 2px rgba(20,21,25,.04),0 8px 24px -12px rgba(20,21,25,.12);
+  --f-ui:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"Geist Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --r:8px; --side-w:244px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --paper:#111215; --panel:#18191d; --sunk:#141518;
+  --ink:#ececef; --ink-2:#a6a9b1; --ink-3:#73767e;
+  --rule:#2a2c32; --rule-2:#212328;
+  --accent:#6876ff; --accent-hi:#8792ff; --accent-ink:#0b0c10; --accent-soft:#1f2347; --accent-line:#363e86;
+  --ok:#4fc58b; --ok-soft:#14301f; --warn:#e3a84d; --warn-soft:#33270f; --bad:#ff6e75; --bad-soft:#3a1a1d;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px -12px rgba(0,0,0,.6); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#111215; --panel:#18191d; --sunk:#141518;
+  --ink:#ececef; --ink-2:#a6a9b1; --ink-3:#73767e;
+  --rule:#2a2c32; --rule-2:#212328;
+  --accent:#6876ff; --accent-hi:#8792ff; --accent-ink:#0b0c10; --accent-soft:#1f2347; --accent-line:#363e86;
+  --ok:#4fc58b; --ok-soft:#14301f; --warn:#e3a84d; --warn-soft:#33270f; --bad:#ff6e75; --bad-soft:#3a1a1d;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px -12px rgba(0,0,0,.6); color-scheme:dark}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 var(--f-ui);-webkit-font-smoothing:antialiased}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:40;background:var(--paper)}
+button,input,select,textarea{font:inherit;color:inherit}
+.i{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.muted{color:var(--ink-3)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+
+/* ---------- shell ---------- */
+.app{display:grid;grid-template-columns:var(--side-w) minmax(0,1fr);min-height:100%;transition:grid-template-columns .22s ease}
+.app[data-collapsed="true"]{--side-w:68px}
+.side{position:sticky;top:0;height:100dvh;align-self:start;display:flex;flex-direction:column;gap:6px;
+  background:var(--panel);border-right:1px solid var(--rule);padding:14px 12px;padding-top:calc(14px + env(safe-area-inset-top,0px));
+  padding-left:max(12px,env(safe-area-inset-left,0px));overflow:hidden;z-index:30}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 6px 14px;white-space:nowrap}
+.mark{width:30px;height:30px;border-radius:8px;background:var(--accent);display:grid;place-items:center;flex:none;color:var(--accent-ink)}
+.mark svg{width:18px;height:18px}
+.brand b{font-weight:650;letter-spacing:-.01em;font-size:15px}
+.brand small{display:block;font:500 10.5px var(--f-mono);color:var(--ink-3);letter-spacing:.04em}
+.nav{display:flex;flex-direction:column;gap:2px;flex:1;overflow-y:auto;overflow-x:hidden}
+.nav-group{font:600 10.5px var(--f-mono);letter-spacing:.12em;color:var(--ink-3);padding:16px 10px 6px;white-space:nowrap;height:36px}
+.nav a{display:flex;align-items:center;gap:11px;height:36px;padding:0 10px;border-radius:7px;color:var(--ink-2);text-decoration:none;white-space:nowrap;position:relative;font-weight:500}
+.nav a:hover{background:var(--sunk);color:var(--ink)}
+.nav a[aria-current="page"]{background:var(--accent-soft);color:var(--accent)}
+.nav a[aria-current="page"] .i{stroke-width:2.1}
+.nav .count{margin-left:auto;font:600 11px var(--f-mono);background:var(--accent);color:var(--accent-ink);border-radius:999px;padding:1px 7px}
+.app[data-collapsed="true"] .nav-label,.app[data-collapsed="true"] .brand-text,.app[data-collapsed="true"] .plan-card .pc-body{display:none}
+.app[data-collapsed="true"] .nav-group{color:transparent;position:relative}
+.app[data-collapsed="true"] .nav-group::after{content:"";position:absolute;left:14px;right:14px;top:22px;height:1px;background:var(--rule)}
+.app[data-collapsed="true"] .nav .count{position:absolute;top:4px;right:4px;padding:0 5px;font-size:9.5px}
+.side-foot{display:flex;flex-direction:column;gap:8px;padding-top:8px;border-top:1px solid var(--rule-2)}
+.plan-card{display:flex;gap:10px;align-items:center;padding:10px;border-radius:var(--r);background:var(--sunk);white-space:nowrap}
+.plan-card .pc-ico{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;background:var(--panel);border:1px solid var(--rule);color:var(--accent);flex:none}
+.plan-card b{font-size:12.5px;display:block}
+.plan-card span{font:500 11px var(--f-mono);color:var(--ink-3)}
+.collapse-btn{display:flex;align-items:center;gap:11px;height:34px;padding:0 10px;border:0;background:none;border-radius:7px;color:var(--ink-3);cursor:pointer;white-space:nowrap}
+.collapse-btn:hover{background:var(--sunk);color:var(--ink)}
+.app[data-collapsed="true"] .collapse-btn .i{transform:scaleX(-1)}
+
+.main{min-width:0;display:flex;flex-direction:column;padding-left:max(28px,env(safe-area-inset-left,0px));padding-right:max(28px,env(safe-area-inset-right,0px));padding-bottom:48px}
+.demo{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:14px;padding:10px 14px;border-radius:var(--r);
+  background:var(--accent-soft);border:1px solid var(--accent-line);color:var(--ink)}
+.demo .tag{font:600 10.5px var(--f-mono);letter-spacing:.1em;background:var(--accent);color:var(--accent-ink);padding:3px 7px;border-radius:5px}
+.demo p{margin:0;flex:1;min-width:200px;color:var(--ink-2)}
+.demo p b{color:var(--ink);font-weight:600}
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;display:flex;align-items:center;gap:14px;padding:14px 0;background:color-mix(in srgb,var(--paper) 88%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--rule);margin-bottom:24px}
+.crumb{display:flex;flex-direction:column;min-width:0}
+.crumb small{font:500 11px var(--f-mono);letter-spacing:.08em;color:var(--ink-3);text-transform:uppercase}
+.crumb h1{margin:0;font-size:20px;font-weight:650;letter-spacing:-.02em;line-height:1.25}
+.top-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.badge-admin{font:600 10.5px var(--f-mono);letter-spacing:.1em;color:var(--warn);background:var(--warn-soft);padding:4px 8px;border-radius:5px}
+.user{display:flex;align-items:center;gap:10px;padding:4px 4px 4px 4px;border-radius:999px;border:1px solid var(--rule);background:var(--panel)}
+.avatar{width:30px;height:30px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-weight:650;font-size:13px;flex:none}
+.user .email{font-size:13px;color:var(--ink-2);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:4px}
+.icon-btn{width:34px;height:34px;display:grid;place-items:center;border-radius:8px;border:1px solid var(--rule);background:var(--panel);color:var(--ink-2);cursor:pointer;flex:none}
+.icon-btn:hover{color:var(--ink);border-color:var(--ink-3)}
+.menu-btn{display:none}
+
+/* ---------- common ---------- */
+.view{display:flex;flex-direction:column;gap:20px;min-width:0}
+.sec-head{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap}
+.sec-head p{margin:0;color:var(--ink-2);max-width:62ch;flex:1;min-width:220px}
+.panel{background:var(--panel);border:1px solid var(--rule);border-radius:var(--r);min-width:0}
+.panel-head{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--rule-2);flex-wrap:wrap}
+.panel-head h2{margin:0;font-size:14px;font-weight:600;letter-spacing:-.005em}
+.panel-head .muted{font-size:12.5px}
+.panel-head .end{margin-left:auto;display:flex;gap:8px;align-items:center}
+.panel-body{padding:16px}
+.split{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:20px;align-items:start}
+.split > .form-panel{position:sticky;top:calc(env(safe-area-inset-top,0px) + 88px)}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:36px;padding:0 14px;border-radius:8px;border:1px solid var(--rule);background:var(--panel);color:var(--ink);font-weight:550;cursor:pointer;white-space:nowrap;transition:background .15s,border-color .15s,transform .05s}
+.btn:hover{border-color:var(--ink-3)}
+.btn:active{transform:translateY(1px)}
+.btn .i{width:16px;height:16px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.primary:hover{background:var(--accent-hi);border-color:var(--accent-hi)}
+.btn.ghost{border-color:transparent;background:none;color:var(--ink-2)}
+.btn.ghost:hover{background:var(--sunk);color:var(--ink)}
+.btn.sm{height:30px;padding:0 10px;font-size:13px}
+.btn[disabled]{opacity:.6;cursor:not-allowed}
+.btn.busy{position:relative;color:transparent!important}
+.btn.busy::after{content:"";position:absolute;width:15px;height:15px;border-radius:50%;border:2px solid currentColor;border-color:var(--accent-ink) transparent var(--accent-ink) transparent;animation:spin .7s linear infinite}
+.btn:not(.primary).busy::after{border-color:var(--ink) transparent var(--ink) transparent}
+
+/* tabs */
+.tabs{display:flex;gap:2px;background:var(--sunk);padding:3px;border-radius:8px;flex-wrap:wrap}
+.tabs button{border:0;background:none;padding:5px 11px;border-radius:6px;color:var(--ink-2);font-size:13px;font-weight:500;cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--panel);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+
+/* table */
+.table-wrap{overflow-x:auto;min-height:120px;position:relative}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th{text-align:left;font:600 10.5px var(--f-mono);letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);padding:10px 16px;border-bottom:1px solid var(--rule-2);white-space:nowrap;background:var(--panel)}
+td{padding:11px 16px;border-bottom:1px solid var(--rule-2);vertical-align:middle;white-space:nowrap}
+tbody tr{transition:background .12s}
+tbody tr:hover{background:var(--sunk)}
+tbody tr:last-child td{border-bottom:0}
+td.num,th.num{text-align:right}
+.cell-main{display:flex;align-items:center;gap:12px;min-width:220px}
+.cell-main b{font-weight:550;display:block;max-width:300px;overflow:hidden;text-overflow:ellipsis}
+.cell-main small{font:12px var(--f-mono);color:var(--ink-3)}
+.thumb{width:36px;height:36px;border-radius:7px;display:grid;place-items:center;flex:none;border:1px solid var(--rule)}
+.thumb.video{background:var(--accent-soft);color:var(--accent);border-color:var(--accent-line)}
+.thumb.image{background:var(--ok-soft);color:var(--ok)}
+.thumb.document{background:var(--warn-soft);color:var(--warn)}
+.row-actions{display:flex;gap:4px;justify-content:flex-end}
+.act{height:30px;min-width:30px;padding:0 8px;display:inline-flex;align-items:center;justify-content:center;gap:6px;border-radius:7px;border:1px solid transparent;background:none;color:var(--ink-3);cursor:pointer;font-size:12.5px;font-weight:550}
+.act:hover{background:var(--panel);border-color:var(--rule);color:var(--ink)}
+.act .i{width:15px;height:15px}
+.act.danger:hover{color:var(--bad)}
+.act.armed{background:var(--bad);color:#fff;border-color:var(--bad)}
+.price{font-family:var(--f-mono);font-weight:500}
+.price small{color:var(--ink-3);font-size:11px;margin-left:3px}
+
+/* pills */
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:550;padding:3px 9px 3px 8px;border-radius:999px;white-space:nowrap}
+.pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.pill.ok{background:var(--ok-soft);color:var(--ok)}
+.pill.draft{background:var(--sunk);color:var(--ink-2);box-shadow:inset 0 0 0 1px var(--rule)}
+.pill.off{background:var(--bad-soft);color:var(--bad)}
+.pill.warn{background:var(--warn-soft);color:var(--warn)}
+.pill.accent{background:var(--accent-soft);color:var(--accent)}
+
+/* pager */
+.pager{display:flex;align-items:center;gap:10px;padding:10px 16px;border-top:1px solid var(--rule-2);flex-wrap:wrap}
+.pager .info{font-size:12.5px;color:var(--ink-3)}
+.pager .pages{margin-left:auto;display:flex;gap:4px}
+.pager button{min-width:30px;height:30px;border-radius:7px;border:1px solid var(--rule);background:var(--panel);color:var(--ink-2);cursor:pointer;font:500 12.5px var(--f-mono);display:grid;place-items:center;padding:0 8px}
+.pager button:hover:not([disabled]){border-color:var(--ink-3);color:var(--ink)}
+.pager button[aria-current="page"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+.pager button[disabled]{opacity:.4;cursor:default}
+.pager .i{width:14px;height:14px}
+
+/* forms */
+.form{display:flex;flex-direction:column;gap:14px}
+.field{display:flex;flex-direction:column;gap:6px}
+.field label,.flabel{font-size:12.5px;font-weight:550;color:var(--ink-2)}
+.field .hint{font-size:12px;color:var(--ink-3)}
+.input,select.input,textarea.input{width:100%;height:38px;padding:0 11px;border-radius:8px;border:1px solid var(--rule);background:var(--panel);transition:border-color .15s,box-shadow .15s}
+textarea.input{height:auto;min-height:110px;padding:10px 11px;resize:vertical;line-height:1.5}
+.input:hover{border-color:var(--ink-3)}
+.input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.input.invalid{border-color:var(--bad);box-shadow:0 0 0 3px var(--bad-soft)}
+.input-affix{position:relative}
+.input-affix .input{padding-right:52px}
+.input-affix span{position:absolute;right:11px;top:50%;transform:translateY(-50%);font:600 11px var(--f-mono);color:var(--ink-3);letter-spacing:.06em}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:4px;background:var(--sunk);padding:3px;border-radius:8px}
+.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg label{display:flex;align-items:center;justify-content:center;gap:6px;height:32px;border-radius:6px;font-size:13px;font-weight:500;color:var(--ink-2);cursor:pointer}
+.seg label .i{width:15px;height:15px}
+.seg input:checked + label{background:var(--panel);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.seg input:focus-visible + label{outline:2px solid var(--accent)}
+.switch{display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13.5px;user-select:none}
+.switch input{position:absolute;opacity:0;pointer-events:none}
+.switch .track{width:36px;height:20px;border-radius:999px;background:var(--rule);position:relative;transition:background .18s;flex:none}
+.switch .track::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--panel);box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .18s}
+.switch input:checked + .track{background:var(--accent)}
+.switch input:checked + .track::after{transform:translateX(16px)}
+.switch input:focus-visible + .track{outline:2px solid var(--accent);outline-offset:2px}
+.switch small{display:block;color:var(--ink-3);font-size:12px}
+.form-actions{display:flex;gap:8px;padding-top:4px}
+.form-actions .btn.primary{flex:1}
+.form-title{display:flex;align-items:center;gap:8px}
+.form-title .pill{margin-left:auto}
+.checklist{max-height:210px;overflow:auto;border:1px solid var(--rule);border-radius:8px}
+.checklist label{display:flex;align-items:center;gap:10px;padding:8px 11px;border-bottom:1px solid var(--rule-2);font-size:13px;cursor:pointer}
+.checklist label:last-child{border-bottom:0}
+.checklist label:hover{background:var(--sunk)}
+.checklist input{accent-color:var(--accent);width:15px;height:15px}
+.checklist .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.checklist .p{font:12px var(--f-mono);color:var(--ink-3)}
+input[type=range]{accent-color:var(--accent);width:100%}
+
+/* spinner / empty */
+.loading{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:48px 16px;color:var(--ink-3);font-size:13px}
+.spinner{width:24px;height:24px;border-radius:50%;border:2.5px solid var(--rule);border-top-color:var(--accent);animation:spin .75s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.empty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding:44px 20px}
+.empty .e-ico{width:52px;height:52px;border-radius:14px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);margin-bottom:6px}
+.empty .e-ico .i{width:24px;height:24px}
+.empty h3{margin:0;font-size:15px;font-weight:600}
+.empty p{margin:0 0 8px;color:var(--ink-2);max-width:40ch;text-wrap:balance}
+.err{color:var(--bad)}
+.err .e-ico{background:var(--bad-soft);color:var(--bad)}
+
+/* overview */
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+.stat{background:var(--panel);border:1px solid var(--rule);border-radius:var(--r);padding:16px 16px 14px;display:flex;flex-direction:column;gap:8px;min-width:0;transition:border-color .15s,box-shadow .15s}
+.stat:hover{border-color:var(--accent-line);box-shadow:var(--shadow)}
+.stat-top{display:flex;align-items:center;gap:8px;color:var(--ink-2);font-size:13px;font-weight:500}
+.stat-top .i{width:16px;height:16px;color:var(--ink-3)}
+.stat-num{font:600 30px/1.1 var(--f-mono);letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.stat-num small{font-size:13px;color:var(--ink-3);letter-spacing:.04em;margin-left:6px;font-weight:500}
+.stat.hero{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.stat.hero .stat-top,.stat.hero .stat-top .i,.stat.hero .stat-num small,.stat.hero .stat-foot{color:color-mix(in srgb,var(--accent-ink) 78%,transparent)}
+.stat.hero .trend{background:color-mix(in srgb,var(--accent-ink) 16%,transparent);color:var(--accent-ink)}
+.trend{margin-left:auto;display:inline-flex;align-items:center;gap:3px;font:600 11.5px var(--f-mono);padding:2px 7px;border-radius:999px}
+.trend .i{width:12px;height:12px;stroke-width:2.4}
+.trend.up{background:var(--ok-soft);color:var(--ok)}
+.trend.down{background:var(--bad-soft);color:var(--bad)}
+.trend.flat{background:var(--sunk);color:var(--ink-3)}
+.stat-foot{font-size:12px;color:var(--ink-3)}
+.ov-grid{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(0,1fr);gap:20px;align-items:start}
+.chart svg{display:block;width:100%;height:auto}
+.chart .grid{stroke:var(--rule-2)}
+.chart .base{stroke:var(--rule)}
+.chart .lbl{fill:var(--ink-3);font:500 10.5px var(--f-mono)}
+.chart .bar{fill:var(--accent);opacity:.32;transition:opacity .15s}
+.chart .bar.last{opacity:1}
+.chart .bar:hover{opacity:.85}
+.chart .val{fill:var(--accent);font:600 11px var(--f-mono)}
+.chart-sum{display:flex;gap:28px;padding:14px 16px 0;flex-wrap:wrap}
+.chart-sum div{display:flex;flex-direction:column}
+.chart-sum b{font:600 18px var(--f-mono);letter-spacing:-.02em}
+.chart-sum span{font-size:12px;color:var(--ink-3)}
+.feed{list-style:none;margin:0;padding:6px 0}
+.feed li{display:flex;gap:12px;padding:10px 16px;align-items:flex-start}
+.feed li + li{border-top:1px solid var(--rule-2)}
+.feed .f-ico{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;flex:none;background:var(--sunk);color:var(--ink-2)}
+.feed .f-ico .i{width:15px;height:15px}
+.feed .f-ico.sale{background:var(--ok-soft);color:var(--ok)}
+.feed .f-ico.msg{background:var(--accent-soft);color:var(--accent)}
+.feed .f-body{flex:1;min-width:0}
+.feed .f-body p{margin:0;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.feed .f-body p b{font-weight:600}
+.feed .f-body span{font-size:12px;color:var(--ink-3)}
+.feed .f-amt{font:600 12.5px var(--f-mono);color:var(--ok);white-space:nowrap}
+.top-list{list-style:none;margin:0;padding:6px 0}
+.top-list li{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 16px}
+.top-list .rank{font:600 11px var(--f-mono);color:var(--ink-3)}
+.top-list .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.top-list .meter{grid-column:2/4;height:4px;border-radius:2px;background:var(--sunk);overflow:hidden}
+.top-list .meter i{display:block;height:100%;background:var(--accent);border-radius:2px}
+
+/* inbox */
+.inbox{display:grid;grid-template-columns:minmax(280px,380px) minmax(0,1fr);min-height:560px}
+.conv-list{border-right:1px solid var(--rule-2);display:flex;flex-direction:column;min-width:0}
+.conv-list .list{flex:1;min-height:300px}
+.conv{display:flex;gap:11px;padding:12px 14px;border-bottom:1px solid var(--rule-2);cursor:pointer;width:100%;text-align:left;background:none;border-left:0;border-right:0;border-top:0;position:relative}
+.conv:hover{background:var(--sunk)}
+.conv[aria-current="true"]{background:var(--accent-soft)}
+.conv[aria-current="true"]::before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:0 3px 3px 0;background:var(--accent)}
+.conv .avatar{width:36px;height:36px;font-size:14px;background:var(--sunk);color:var(--ink-2);border:1px solid var(--rule)}
+.conv .c-body{flex:1;min-width:0}
+.conv .c-top{display:flex;gap:8px;align-items:baseline}
+.conv .c-top b{font-weight:600;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.conv .c-top span{margin-left:auto;font:11px var(--f-mono);color:var(--ink-3);white-space:nowrap}
+.conv p{margin:2px 0 0;font-size:13px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.conv .unread{min-width:18px;height:18px;border-radius:999px;background:var(--accent);color:var(--accent-ink);font:600 10.5px/18px var(--f-mono);text-align:center;padding:0 5px;align-self:center}
+.conv.is-unread .c-top b{color:var(--ink)}
+.conv.is-unread p{color:var(--ink);font-weight:500}
+.thread{display:flex;flex-direction:column;min-width:0}
+.thread-head{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule-2);flex-wrap:wrap}
+.thread-head .avatar{width:34px;height:34px}
+.thread-head b{display:block;font-weight:600}
+.thread-head small{font:12px var(--f-mono);color:var(--ink-3)}
+.thread-head .end{margin-left:auto;display:flex;gap:6px;align-items:center}
+.msgs{flex:1;overflow-y:auto;padding:20px 16px;display:flex;flex-direction:column;gap:8px;background:var(--sunk);max-height:520px;min-height:320px}
+.day-sep{align-self:center;font:500 11px var(--f-mono);color:var(--ink-3);padding:3px 10px;border-radius:999px;background:var(--panel);border:1px solid var(--rule);margin:6px 0}
+.bubble{max-width:min(78%,460px);padding:8px 12px 6px;border-radius:12px;font-size:13.5px;line-height:1.45;box-shadow:0 1px 1px rgba(0,0,0,.05);overflow-wrap:anywhere}
+.bubble.in{align-self:flex-start;background:var(--panel);border-bottom-left-radius:4px}
+.bubble.out{align-self:flex-end;background:var(--accent);color:var(--accent-ink);border-bottom-right-radius:4px}
+.bubble time{display:block;text-align:right;font:10.5px var(--f-mono);opacity:.6;margin-top:2px}
+.bubble .ai{font:600 9.5px var(--f-mono);letter-spacing:.08em;opacity:.75;margin-right:6px}
+.composer{display:flex;gap:8px;padding:12px;border-top:1px solid var(--rule-2)}
+.composer .input{flex:1}
+.thread-empty{flex:1;display:grid;place-items:center}
+
+/* accounts */
+.conn{display:flex;align-items:center;gap:8px}
+.conn code{font:12px var(--f-mono);color:var(--ink-2);background:var(--sunk);padding:2px 6px;border-radius:5px}
+.tg-handle{font-weight:550}
+.tg-handle span{color:var(--ink-3);font-weight:400}
+
+/* ai */
+.ai-wrap{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:20px;align-items:start}
+.preview{position:sticky;top:calc(env(safe-area-inset-top,0px) + 88px)}
+.phone{background:var(--sunk);border-radius:0 0 var(--r) var(--r);padding:16px;display:flex;flex-direction:column;gap:8px;min-height:300px}
+.range-row{display:flex;align-items:center;gap:12px}
+.range-row output{font:600 12.5px var(--f-mono);min-width:34px;text-align:right}
+.tone-list{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tone-list input{position:absolute;opacity:0;pointer-events:none}
+.tone-list label{border:1px solid var(--rule);border-radius:8px;padding:10px 12px;cursor:pointer;display:flex;flex-direction:column;gap:2px}
+.tone-list label b{font-size:13px;font-weight:600}
+.tone-list label span{font-size:12px;color:var(--ink-3)}
+.tone-list input:checked + label{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 1px var(--accent)}
+.tone-list input:focus-visible + label{outline:2px solid var(--accent);outline-offset:2px}
+.counter{font:11px var(--f-mono);color:var(--ink-3);text-align:right}
+
+/* wallet */
+.wallet-grid{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:20px;align-items:start}
+.addr{display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:8px;background:var(--sunk);border:1px dashed var(--rule);font:500 13px var(--f-mono);overflow-wrap:anywhere}
+.addr span{flex:1;min-width:0}
+.split-bar{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--sunk);margin:10px 0 8px}
+.split-bar i{background:var(--accent)}
+.split-bar em{background:var(--ink-3);opacity:.35}
+.split-legend{display:flex;justify-content:space-between;font-size:12.5px;color:var(--ink-2)}
+.split-legend b{font-family:var(--f-mono)}
+.earn{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--rule-2);border-top:1px solid var(--rule-2)}
+.earn div{background:var(--panel);padding:14px 16px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.earn span{font-size:12px;color:var(--ink-3)}
+.earn b{font:600 17px var(--f-mono);letter-spacing:-.02em;overflow:hidden;text-overflow:ellipsis}
+.earn div.yours b{color:var(--accent)}
+
+/* toasts */
+.toasts{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:8px;z-index:60;pointer-events:none;width:min(360px,calc(100vw - 32px))}
+.toast{pointer-events:auto;display:flex;gap:11px;align-items:flex-start;padding:12px 12px 12px 14px;border-radius:var(--r);background:var(--ink);color:var(--panel);box-shadow:0 12px 32px -8px rgba(0,0,0,.35);animation:tin .32s cubic-bezier(.2,.9,.3,1.2) both}
+.toast.out{animation:tout .25s ease forwards}
+.toast .t-ico{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;flex:none}
+.toast .t-ico .i{width:14px;height:14px;stroke-width:2.4}
+.toast.success .t-ico{background:var(--ok);color:#fff}
+.toast.error .t-ico{background:var(--bad);color:#fff}
+.toast.info .t-ico{background:var(--accent);color:#fff}
+.toast b{display:block;font-weight:600;font-size:13.5px}
+.toast span{font-size:12.5px;opacity:.7}
+.toast button{margin-left:auto;background:none;border:0;color:inherit;opacity:.5;cursor:pointer;padding:2px}
+.toast button:hover{opacity:1}
+@keyframes tin{from{transform:translateX(calc(100% + 24px));opacity:0}to{transform:none;opacity:1}}
+@keyframes tout{to{transform:translateX(calc(100% + 24px));opacity:0}}
+
+.fade-in{animation:fade .28s ease both}
+@keyframes fade{from{opacity:.4;transform:translateY(4px)}to{opacity:1;transform:none}}
+.scrim{position:fixed;inset:0;background:rgba(10,10,14,.4);z-index:25}
+
+/* responsive */
+@media (max-width:1180px){
+  .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .split,.ai-wrap,.wallet-grid,.ov-grid{grid-template-columns:minmax(0,1fr)}
+  .split > .form-panel,.preview{position:static}
+}
+@media (max-width:860px){
+  .app,.app[data-collapsed="true"]{grid-template-columns:minmax(0,1fr);--side-w:264px}
+  .side{position:fixed;left:0;top:0;bottom:0;width:264px;transform:translateX(-100%);transition:transform .25s ease;box-shadow:var(--shadow)}
+  .app[data-drawer="open"] .side{transform:none}
+  .app .nav-label,.app .brand-text,.app .plan-card .pc-body{display:revert!important}
+  .app .nav-group{color:var(--ink-3)!important}.app .nav-group::after{display:none}
+  .collapse-btn{display:none}
+  .menu-btn{display:grid}
+  .main{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+  .user .email{display:none}
+  .user{padding:2px;border:0;background:none}
+  .inbox{grid-template-columns:minmax(0,1fr)}
+  .conv-list{border-right:0;border-bottom:1px solid var(--rule-2)}
+  .inbox[data-open="true"] .conv-list{display:none}
+  .inbox:not([data-open="true"]) .thread{display:none}
+  .back-btn{display:grid!important}
+}
+@media (max-width:520px){
+  .stats{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+  .stat-num{font-size:24px}
+  .row2,.tone-list{grid-template-columns:1fr}
+  .earn{grid-template-columns:1fr}
+  .crumb h1{font-size:18px}
+}
+.back-btn{display:none!important}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important;transition-duration:.001ms!important}}
 </style>
 </head>
 <body>
 
-<div class="bar">
-  <h1>Creator Console</h1>
-  <div class="user-menu" id="userInfo">
-    <div class="user-avatar" id="userAvatar">?</div>
-    <span id="userEmail" style="font-size: 13px; font-weight: 500">Loading...</span>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></symbol>
+    <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></symbol>
+    <symbol id="i-package" viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5"/><path d="M12 13v8"/><path d="m7.5 5.5 9 5"/></symbol>
+    <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M11 3l1.9 5.1L18 10l-5.1 1.9L11 17l-1.9-5.1L4 10l5.1-1.9z"/><path d="M19 14v6M16 17h6"/></symbol>
+    <symbol id="i-wallet" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="14" rx="2"/><path d="M2 10h20"/><path d="M16 15h2"/><path d="M6 6V5a2 2 0 0 1 2-2h10"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></symbol>
+    <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="m15 10-2 2 2 2"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+    <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></symbol>
+    <symbol id="i-video" viewBox="0 0 24 24"><rect x="2" y="6" width="14" height="12" rx="2"/><path d="m22 8-6 4 6 4z"/></symbol>
+    <symbol id="i-document" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-message" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="M7 17 17 7M8 7h9v9"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M7 7l10 10M17 8v9H8"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+    <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-coin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 9h8l-4 7.5z"/><path d="M12 9v7.5"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></symbol>
+    <symbol id="i-bot" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 8V4M9 14h.01M15 14h.01"/><circle cx="12" cy="3.5" r="1"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  </defs>
+</svg>
+
+<div class="app" id="app" data-collapsed="false">
+  <aside class="side" id="side" aria-label="Main navigation">
+    <div class="brand">
+      <div class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7l5 5-5 5"/><path d="M13 17h6"/></svg></div>
+      <div class="brand-text"><b>Creator Console</b><small>TELEGRAM · TON</small></div>
+    </div>
+    <nav class="nav" id="nav">
+      <a href="#overview" data-sec="overview" title="Overview"><svg class="i"><use href="#i-grid"/></svg><span class="nav-label">Overview</span></a>
+      <div class="nav-group">TELEGRAM</div>
+      <a href="#accounts" data-sec="accounts" title="Accounts"><svg class="i"><use href="#i-send"/></svg><span class="nav-label">Accounts</span></a>
+      <a href="#inbox" data-sec="inbox" title="Inbox"><svg class="i"><use href="#i-inbox"/></svg><span class="nav-label">Inbox</span><span class="count" id="nav-unread" hidden>0</span></a>
+      <div class="nav-group">CONTENT</div>
+      <a href="#library" data-sec="library" title="Library"><svg class="i"><use href="#i-layers"/></svg><span class="nav-label">Library</span></a>
+      <a href="#bundles" data-sec="bundles" title="Bundles"><svg class="i"><use href="#i-package"/></svg><span class="nav-label">Bundles</span></a>
+      <div class="nav-group">SETTINGS</div>
+      <a href="#ai" data-sec="ai" title="AI Personality"><svg class="i"><use href="#i-sparkles"/></svg><span class="nav-label">AI Personality</span></a>
+      <a href="#wallet" data-sec="wallet" title="TON Wallet"><svg class="i"><use href="#i-wallet"/></svg><span class="nav-label">TON Wallet</span></a>
+    </nav>
+    <div class="side-foot">
+      <div class="plan-card" title="Plan">
+        <div class="pc-ico"><svg class="i"><use href="#i-coin"/></svg></div>
+        <div class="pc-body"><b id="plan-name">Plan</b><span id="plan-split">— split</span></div>
+      </div>
+      <button class="collapse-btn" id="collapse" type="button" aria-label="Collapse sidebar"><svg class="i"><use href="#i-panel"/></svg><span class="nav-label">Collapse</span></button>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="demo" id="demo" hidden>
+      <span class="tag">DEMO MODE</span>
+      <p><b>You're not signed in.</b> Everything here is read-only. <span id="demo-note">Showing sample data so you can explore.</span></p>
+      <label class="switch" for="sample-toggle"><input type="checkbox" id="sample-toggle" checked><span class="track"></span>Sample data</label>
+      <a class="btn sm primary" href="login.html">Sign in</a>
+    </div>
+    <header class="top">
+      <button class="icon-btn menu-btn" id="menu" type="button" aria-label="Open navigation"><svg class="i"><use href="#i-menu"/></svg></button>
+      <div class="crumb"><small id="crumb-group">Dashboard</small><h1 id="crumb-title">Overview</h1></div>
+      <div class="top-right">
+        <span class="badge-admin" id="admin-badge" hidden>ADMIN</span>
+        <div class="user"><div class="avatar" id="avatar">?</div><span class="email" id="user-email">…</span></div>
+        <button class="icon-btn" id="logout" type="button" aria-label="Log out" title="Log out"><svg class="i"><use href="#i-logout"/></svg></button>
+      </div>
+    </header>
+    <main class="view" id="view" aria-live="polite"></main>
   </div>
-  <button class="btn btn-small" onclick="logout()" style="margin-left: auto">Logout</button>
 </div>
-
-<div class="shell">
-  <div class="side">
-    <div class="side-nav">
-      <button onclick="showSection('overview')" class="active" id="btn-overview">
-        <span class="icon">📊</span> Overview
-      </button>
-    </div>
-    
-    <div class="section">Telegram</div>
-    <div class="side-nav">
-      <button onclick="showSection('accounts')" id="btn-accounts">
-        <span class="icon">🤖</span> Accounts &amp; Setup
-      </button>
-      <button onclick="showSection('inbox')" id="btn-inbox">
-        <span class="icon">📥</span> Inbox
-      </button>
-    </div>
-    
-    <div class="section">Content</div>
-    <div class="side-nav">
-      <button onclick="showSection('content')" id="btn-content">
-        <span class="icon">📚</span> Content
-      </button>
-      <button onclick="showSection('analytics')" id="btn-analytics">
-        <span class="icon">📈</span> Analytics
-      </button>
-    </div>
-  </div>
-
-  <main>
-    <!-- Overview -->
-    <section id="overview" class="active">
-      <h2>Dashboard</h2>
-      <div class="stats" id="overviewStats">
-        <div class="loading"><div class="spinner"></div>Loading...</div>
-      </div>
-      
-      <div class="card">
-        <h3>Recent Activity</h3>
-        <div id="recentActivity">
-          <div class="loading"><div class="spinner"></div>Loading...</div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Accounts -->
-    <section id="accounts">
-      <h2>Telegram Accounts &amp; Setup</h2>
-      <div class="card" id="connectWizard">
-        <h3>Set Up New Account</h3>
-        <div class="steps">
-          <div class="step-marker">
-            <span class="step-dot active" id="stepDot1">1</span>
-            <div class="step-label">Connect</div>
-          </div>
-          <div class="step-line"></div>
-          <div class="step-marker">
-            <span class="step-dot" id="stepDot2">2</span>
-            <div class="step-label">Configure</div>
-          </div>
-          <div class="step-line"></div>
-          <div class="step-marker">
-            <span class="step-dot" id="stepDot3">3</span>
-            <div class="step-label">Personality &amp; Wallet</div>
-          </div>
-        </div>
-
-        <!-- STEP 1 -->
-        <div id="wizardStep1">
-          <p class="note" style="margin-bottom: 8px">Create a bot with @BotFather and connect it to your Telegram Business:</p>
-          <ol class="note" style="margin: 8px 0 16px; padding-left: 20px">
-            <li>Message @BotFather → /newbot (or use an existing bot)</li>
-            <li>On your personal account: Settings → Business → Chatbots → add the bot</li>
-            <li>Grant reply permission when Telegram prompts you</li>
-          </ol>
-          <label>Bot token (from BotFather)</label>
-          <input type="text" id="botToken" placeholder="123456789:ABCdefGhIjKlMnOpQrStUvWxYz">
-          <button class="btn" onclick="connectBot()">Connect Account</button>
-        </div>
-
-        <!-- STEP 2 -->
-        <div id="wizardStep2" style="display: none">
-          <p class="note" style="margin-bottom: 8px">Account connected. Now configure it so it can start chatting:</p>
-          <label>Display name</label>
-          <input type="text" id="cfgDisplayName" placeholder="e.g. Ava">
-          <label>Reply mode</label>
-          <select id="cfgMode">
-            <option value="ai">AI Mode (bot answers customers for you)</option>
-            <option value="assisted">Assisted (AI drafts, you approve)</option>
-            <option value="human">Human Only (you answer everything)</option>
-          </select>
-          <button class="btn" onclick="configureBot()">Continue</button>
-        </div>
-
-        <!-- STEP 3 -->
-        <div id="wizardStep3" style="display: none">
-          <p class="note" style="margin-bottom: 8px">Last step: give the bot its personality and where it sends your earnings.</p>
-          <div id="wizardAIForm"></div>
-          <button class="btn" onclick="finishSetup()">Finish Setup</button>
-        </div>
-      </div>
-
-      <div class="card">
-        <h3>Your Accounts</h3>
-        <div id="accountList"></div>
-      </div>
-    </section>
-
-    <!-- Inbox -->
-    <section id="inbox">
-      <h2>Inbox</h2>
-      <div class="card">
-        <div class="flex flex-wrap">
-          <select id="inboxFilter" onchange="loadConversations()" style="margin-bottom: 0; width: 180px">
-            <option value="all">All conversations</option>
-            <option value="ai">AI Mode</option>
-            <option value="assisted">Assisted</option>
-            <option value="human">Human Only</option>
-          </select>
-          <input type="text" id="inboxSearch" placeholder="Search conversations..." style="margin-bottom: 0; flex: 1" oninput="loadConversations()">
-        </div>
-        <div id="conversationList" class="mt"></div>
-        <div id="pagination" class="pagination"></div>
-      </div>
-      <div id="conversationView" class="card" style="display: none"></div>
-    </section>
-
-    <!-- Content (library + bundles combined) -->
-    <section id="content">
-      <h2>Content</h2>
-      <div class="card">
-        <h3>Upload New Content</h3>
-        <input type="text" id="contentTitle" placeholder="Title">
-        <textarea id="contentDesc" placeholder="Description"></textarea>
-        <label>File (image / video / audio / document)</label>
-        <input type="file" id="contentFile">
-        <input type="number" id="contentPriceTon" placeholder="Price in TON (0 for free)" step="0.0001">
-        <label><input type="checkbox" id="contentVisible" checked> Visible in store</label>
-        <button class="btn" onclick="uploadContent()">Upload</button>
-      </div>
-      <div class="card">
-        <h3>Your Content</h3>
-        <div id="contentList"></div>
-        <div id="contentPagination" class="pagination"></div>
-      </div>
-
-      <div class="card">
-        <h3>Create Bundle</h3>
-        <p class="note">Pick content you have already uploaded to build a bundle.</p>
-        <div id="bundlePickList"></div>
-        <input type="text" id="bundleName" placeholder="Bundle name" style="margin-top: 12px">
-        <textarea id="bundleDesc" placeholder="Bundle description"></textarea>
-        <input type="number" id="bundlePriceTon" placeholder="Price in TON" step="0.0001">
-        <input type="number" id="bundlePriceUsd" placeholder="Price in USD (optional)" step="0.01">
-        <button class="btn" onclick="createBundle()">Create Bundle</button>
-      </div>
-      <div class="card">
-        <h3>Your Bundles</h3>
-        <div id="bundleList"></div>
-        <div id="bundlePagination" class="pagination"></div>
-      </div>
-    </section>
-
-    <!-- Analytics -->
-    <section id="analytics">
-      <h2>Analytics</h2>
-      <div id="analyticsBody">
-        <div class="card"><div class="empty">Loading analytics…</div></div>
-      </div>
-    </section>
-
-  </main>
-</div>
-
-<div id="toast"></div>
+<div class="toasts" id="toasts" role="status"></div>
 
 <script type="module">
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
-
+/* ============================================================
+   CONFIG — paste your Supabase project URL + anon key.
+   Only the anon key belongs in the browser; RLS does the rest.
+   ============================================================ */
 const SUPABASE_URL = 'https://xsgvdlgmhuxozjlbjzxy.supabase.co';
-const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzZ3ZkbGdtaHV4b3pqbGJqenh5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNjIxNTcsImV4cCI6MjEwNzYzODE1N30.eTDJH5Xm7LZGEdcQy94X61E7EqFx9S3iWsxEpS20BZ0';
-
-const sb = createClient(SUPABASE_URL, SUPABASE_ANON);
-
-// State
-let currentUser = null;
-let currentCreator = null;
-let currentPage = { conversations: 1, content: 1, bundles: 1 };
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzZ3ZkbGdtaHV4b3pqbGJqenh5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNjIxNTcsImV4cCI6MjEwNzYzODE1N30.eTDJH5Xm7LZGEdcQy94X61E7EqFx9S3iWsxEpS20BZ0';
+const SUPABASE_ESM = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
 const PAGE_SIZE = 10;
 
-// Initialize
-window.showSection = function(name) {
-  document.querySelectorAll('section').forEach(s => s.classList.remove('active'));
-  document.querySelectorAll('.side-nav button').forEach(b => b.classList.remove('active'));
-  document.getElementById(name).classList.add('active');
-  const btn = document.getElementById('btn-' + name);
-  if (btn) btn.classList.add('active');
-  
-  // Load section data
-  const loaders = {
-    overview: loadOverview,
-    accounts: loadAccounts,
-    inbox: loadConversations,
-    content: loadContent,
-    analytics: loadAnalytics,
-    bundles: loadBundles,
-    ai: loadAISettings,
-    wallet: loadWallet
+const state = { sb:null, session:null, creator:null, demo:true, sample:true, isAdmin:false,
+  section:'overview', pages:{}, libType:'', editing:{}, inbox:{ active:null } };
+
+/* ---------- utils ---------- */
+const $ = (s, el=document) => el.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ic = (n, cls='') => `<svg class="i ${cls}" aria-hidden="true"><use href="#i-${n}"/></svg>`;
+const D = 864e5;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const fmtNum = n => Number(n||0).toLocaleString('en-GB');
+const fmtTon = (n, unit=true) => Number(n||0).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2}) + (unit ? ' TON' : '');
+const fmtDate = iso => iso ? new Date(iso).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) : '—';
+const fmtTime = iso => new Date(iso).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+function ago(iso){ if(!iso) return '—'; const s=(Date.now()-new Date(iso))/1000;
+  if(s<60) return 'just now'; if(s<3600) return Math.floor(s/60)+'m ago'; if(s<86400) return Math.floor(s/3600)+'h ago';
+  if(s<172800) return 'Yesterday'; if(s<7*86400) return Math.floor(s/86400)+'d ago';
+  return new Date(iso).toLocaleDateString('en-GB',{day:'numeric',month:'short'}); }
+const uid = () => state.session?.user?.id;
+const configured = () => !/YOUR-/.test(SUPABASE_URL + SUPABASE_ANON_KEY);
+const store = { get(k){ try{ return localStorage.getItem(k) }catch{ return null } }, set(k,v){ try{ localStorage.setItem(k,v) }catch{} } };
+const nameOf = c => c ? (c.first_name || c.username || 'Customer') : 'Customer';
+const TON_RE = /^(EQ|UQ|kQ|0Q)[A-Za-z0-9_-]{46}$/;
+
+/* ---------- toasts ---------- */
+function toast(title, type='success', sub=''){
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.innerHTML = `<div class="t-ico">${ic(type==='error'?'alert':type==='info'?'alert':'check')}</div>
+    <div><b>${esc(title)}</b>${sub?`<span>${esc(sub)}</span>`:''}</div>
+    <button type="button" aria-label="Dismiss">${ic('x')}</button>`;
+  const kill = () => { el.classList.add('out'); setTimeout(()=>el.remove(), 260); };
+  el.querySelector('button').onclick = kill;
+  $('#toasts').appendChild(el);
+  setTimeout(kill, type==='error' ? 6000 : 3800);
+}
+
+/* ---------- Supabase client ---------- */
+async function getClient(){
+  if(!configured()) return null;
+  try{
+    const { createClient } = await import(SUPABASE_ESM);
+    return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth:{ persistSession:true, autoRefreshToken:true, detectSessionInUrl:true } });
+  }catch(e){ console.error('Supabase failed to load', e); toast('Could not load Supabase', 'error', 'Check your network and the CDN URL.'); return null; }
+}
+
+/* ---------- auth ---------- */
+async function checkAuth(){
+  state.sb = await getClient();
+  if(state.sb){
+    const { data:{ session } } = await state.sb.auth.getSession();
+    if(session){
+      state.session = session; state.demo = false;
+      const id = session.user.id;
+      let { data:creator, error } = await state.sb.from('creators').select('*').eq('id', id).maybeSingle();
+      if(error) throw error;
+      if(!creator){
+        const ins = await state.sb.from('creators').insert({
+          id, name:(session.user.email||'creator').split('@')[0]
+        }).select().single();
+        if(ins.error) throw ins.error;
+        creator = ins.data;
+        toast('Welcome aboard', 'success', 'Your creator profile has been created.');
+      }
+      state.creator = creator;
+      try{ const { data } = await state.sb.rpc('is_console_admin'); state.isAdmin = !!data; }catch{}
+      state.sb.auth.onAuthStateChange(ev => { if(ev === 'SIGNED_OUT') location.href = 'login.html'; });
+      return;
+    }
+  }
+  state.demo = true;
+  state.sample = store.get('cc-sample') !== 'off';
+  buildDemo();
+}
+
+/* ---------- demo data ---------- */
+let DEMO = {};
+function rng(seed){ return () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; }; }
+function buildDemo(){
+  const now = Date.now();
+  const empty = { creators:[], telegram_accounts:[], conversations:[], media_items:[], content_bundles:[], bundle_purchases:[], customers:[], messages:{}, ai_profile:null };
+  const baseCreator = { display_name:'Demo creator', email:'demo@creator.console', plan:'Free', split:80, ton_wallet:'' };
+  if(!state.sample){ DEMO = empty; state.creator = baseCreator; return; }
+
+  const r = rng(7), pick = a => a[Math.floor(r()*a.length)], iso = t => new Date(t).toISOString();
+  const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-';
+  const wallet = 'UQ' + Array.from({length:46}, () => B64[Math.floor(r()*64)]).join('');
+  state.creator = { display_name:'Mara Vale', email:'mara@maravale.studio', plan:'Pro', split:80, ton_wallet:wallet, created_at:iso(now-210*D) };
+
+  const firsts = ['Ava','Leo','Noor','Kai','Mila','Theo','Yara','Finn','Iris','Omar','Zoe','Jonas','Lena','Ravi','Sofia','Elio','Hana','Max','Priya','Tomas','Ines','Ezra','Nia','Lucas','Freya','Sami','Ada','Bruno'];
+  const tails = ['_shoots','.raw','_travels','','_frames','.ph','_lens'];
+  const customers = firsts.map((f,i) => ({ id:'cu_'+(i+1), first_name:f, username:f.toLowerCase()+pick(tails)+(i%3?'':Math.floor(r()*90+10)) }));
+
+  const titles = [
+    ['Lisbon golden hour — raw set','image'],['Preset pack vol. 3 (Lightroom)','document'],['Night street edit walkthrough','video'],['Iceland drone b-roll','video'],
+    ['Portrait lighting cheat sheet','document'],['Porto rooftops — 24 frames','image'],['Colour grading in 10 minutes','video'],['Film emulation LUTs','document'],
+    ['Alfama alleys — raw set','image'],['Behind the shoot: Sintra','video'],['Gear list 2026','document'],['Sunrise timelapse — Madeira','video'],
+    ['Moody interiors preset','document'],['Street portraits — Porto','image'],['How I pitch brands','video'],['Phone editing workflow','video'],
+    ['Blue hour — Lisbon bridge','image'],['Composition field guide','document'],['Drone basics for travel','video'],['Market colours — 18 frames','image'],
+    ['Skin tone retouch guide','document'],['Coastal road b-roll','video'],['Monthly raw files — Sept','image'],['Monthly raw files — Oct','image'],
+    ['Lens comparison 35 vs 50','video'],['Black & white preset','document'],['Faroe cliffs — raw set','image'],['Editing livestream replay','video'],
+    ['Client contract template','document'],['Tram 28 series','image'],['Light painting tutorial','video'],['Fog & mist pack','image'],
+    ['Travel shot list','document'],['Q&A: building an audience','video']
+  ];
+  const media = titles.map(([t,type],i) => ({
+    id:'md_'+(i+1), creator_id:'demo', title:t, kind:type,
+    price_ton: Math.round((type==='video'?6+r()*30:type==='image'?3+r()*14:2+r()*10)*2)/2,
+    visible: r() > .2, media_key:`demo/${i+1}`, media_size: 1048576 * Math.round(type==='video'?80+r()*900:type==='image'?20+r()*200:1+r()*12),
+    created_at: iso(now - i*1.6*D - r()*D)
+  }));
+
+  const bundleNames = [
+    ['Lisbon Light — complete set','Every Lisbon raw set plus the matching preset.'],['Preset Vault','All four preset packs in one download.'],
+    ['Night Street Starter','Edit walkthrough, raw files and LUTs for night work.'],['Iceland B-roll Pro','4K drone and handheld clips, licence included.'],
+    ['Portrait Lighting Course','Video lessons, cheat sheet and retouch guide.'],['Film Emulation Kit','LUTs and presets tuned to classic stocks.'],
+    ['Behind the Shoot: Portugal','Three behind-the-scenes films from the road.'],['Drone Basics Bundle','Beginner drone lessons and the shot list.'],
+    ['Monthly Raw Files — Autumn','September and October raw drops.'],['Editing Masterclass','Grading, retouching and the full livestream replay.'],
+    ['Phone Photography Pack','Phone workflow, presets and a field guide.'],['Creator Business Kit','Pitch video, contract template and Q&A.']
+  ];
+  const bundles = bundleNames.map(([name,description],i) => {
+    const n = 2 + Math.floor(r()*5), items = new Set();
+    while(items.size < n) items.add(media[Math.floor(r()*media.length)].id);
+    return { id:'bu_'+(i+1), creator_id:'demo', name, description, price_ton: Math.round((12+r()*58)*2)/2,
+      is_active: i!==5 && i!==10, created_at: iso(now - (8+i*4.5)*D - r()*D),
+      bundle_items:[...items].map(id => ({ media_item_id:id })), bundle_purchases:[] };
+  });
+
+  const purchases = [];
+  for(let i=0;i<104;i++){
+    const b = bundles[Math.min(bundles.length-1, Math.floor(Math.pow(r(),1.6)*bundles.length))];
+    if(!b.is_active && r()<.7) continue;
+    const t = now - Math.pow(r(),1.35)*60*D;
+    if(t < new Date(b.created_at).getTime()) continue;
+    const c = pick(customers);
+    const p = { id:'pu_'+i, creator_id:'demo', bundle_id:b.id, customer_id:c.id, amount_ton:b.price_ton, created_at:iso(t),
+      content_bundles:{ name:b.name }, customers:{ username:c.username, first_name:c.first_name } };
+    purchases.push(p); b.bundle_purchases.push({ amount_ton:p.amount_ton });
+  }
+
+  const previews = ['Does the preset work on phone too?','Just bought the Lisbon set, the blues are unreal','Any chance of a Porto night pack?','Can I use the b-roll in a client video?',
+    'Thanks! Download worked fine','What camera did you use for the Sintra shoot?','Is the masterclass still on offer?','Sent the TON, can you check?',
+    'Loved the livestream replay','Which lens for street portraits?','Do you do 1:1 edit reviews?','Is there a student discount?'];
+  const conversations = customers.slice(0,23).map((c,i) => {
+    const last = now - Math.pow(r(),2.2)*16*D - r()*3600e3;
+    return { id:'cv_'+(i+1), creator_id:'demo', customer_id:c.id, customers:{ username:c.username, first_name:c.first_name },
+      status: r()<.22 ? 'closed' : 'open', unread_count: r()<.3 ? 1+Math.floor(r()*3) : 0, ai_handled: r()<.45,
+      last_message_preview: pick(previews), last_message_at: iso(last), created_at: iso(last - (2+r()*40)*D) };
+  });
+
+  DEMO = {
+    customers, media_items:media, content_bundles:bundles, bundle_purchases:purchases, conversations, messages:{},
+    telegram_accounts:[
+      { id:'ta_1', creator_id:'demo', username:'maravale', label:'Main DMs', is_enabled:true, created_at:iso(now-180*D),
+        business_connections:[{ id:'bc_1', connection_id:'7Hq2-vK9x-ML04', is_enabled:true, can_reply:true }] },
+      { id:'ta_2', creator_id:'demo', username:'maravale_presets', label:'Preset shop', is_enabled:true, created_at:iso(now-64*D),
+        business_connections:[{ id:'bc_2', connection_id:'Qe81-pZ3a-77Ts', is_enabled:true, can_reply:false }] },
+      { id:'ta_3', creator_id:'demo', username:'mara_backup', label:'Backup', is_enabled:false, created_at:iso(now-20*D), business_connections:[] }
+    ],
+    ai_profile:{ persona_name:'Mara', tone:'warm', language:'English', creativity:0.6, reply_delay:20, enabled:true, auto_reply:true, upsell:true,
+      system_prompt:'You are Mara, a travel photographer from Lisbon. Answer fans warmly and briefly. Recommend a bundle only when it genuinely fits what they asked about. Never promise custom work or refunds — hand those to Mara.' }
   };
-  if (loaders[name]) loaders[name]();
-};
-
-window.logout = async function() {
-  await sb.auth.signOut();
-  location.reload();
-};
-
-window.showToast = function(msg) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.style.display = 'block';
-  setTimeout(() => t.style.display = 'none', 3000);
-};
-
-async function checkAuth() {
-  const { data: { session } } = await sb.auth.getSession();
-  if (session) {
-    currentUser = session.user;
-    document.getElementById('userEmail').textContent = session.user.email;
-    document.getElementById('userAvatar').textContent = session.user.email[0].toUpperCase();
-    
-    // Get or create creator record
-    let { data: creators } = await sb.from('creators').select('*').eq('id', session.user.id).single();
-    if (!creators) {
-      const name = session.user.email.split('@')[0];
-      const { data } = await sb.from('creators').insert({ id: session.user.id, name }).select().single();
-      currentCreator = data;
-    } else {
-      currentCreator = creators;
-    }
-  } else {
-    document.getElementById('userEmail').textContent = 'Demo Mode';
-    document.getElementById('userAvatar').textContent = 'D';
-    currentCreator = { id: 'demo', name: 'Demo Creator' };
-  }
-  
-  loadOverview();
+}
+function demoMessages(conv){
+  if(DEMO.messages[conv.id]) return DEMO.messages[conv.id];
+  const r = rng(conv.id.length * 97 + parseInt(conv.id.slice(3)) * 13), end = new Date(conv.last_message_at).getTime();
+  const script = [
+    ['in','Hey Mara! Love your work from Portugal 🙌'],
+    ['out','Thank you so much! Anything I can help with?', true],
+    ['in','I\'m looking for presets that match your Lisbon blue hour shots'],
+    ['out','The Lisbon Light bundle has the exact preset plus 40 raw files to practise on. It\'s 32 TON right now.', true],
+    ['in','Perfect. Does it work in Lightroom mobile?'],
+    ['out','Yes — the pack includes .dng versions for mobile.', false],
+    ['in', conv.last_message_preview]
+  ];
+  const n = 3 + Math.floor(r()*4);
+  const lines = script.slice(script.length - n);
+  const msgs = lines.map(([dir,text,ai],i) => ({ id:conv.id+'_m'+i, direction:dir, text, ai:!!ai && conv.ai_handled,
+    created_at:new Date(end - (lines.length-1-i)*(40+r()*500)*60e3).toISOString() }));
+  return DEMO.messages[conv.id] = msgs;
 }
 
-async function loadOverview() {
-  try {
-    const [convs, content, bundles, purchases] = await Promise.all([
-      sb.from('conversations').select('*', { count: 'exact' }).eq('creator_id', currentCreator.id),
-      sb.from('media_items').select('*', { count: 'exact' }).eq('creator_id', currentCreator.id),
-      sb.from('content_bundles').select('*', { count: 'exact' }).eq('creator_id', currentCreator.id),
-      sb.from('bundle_purchases').select('*', { count: 'exact' }).eq('creator_id', currentCreator.id)
-    ]);
-    
-    const totalRevenue = (purchases.data || []).reduce((sum, p) => sum + (parseFloat(p.price_paid_ton) || 0), 0);
-    
-    document.getElementById('overviewStats').innerHTML = `
-      <div class="stat">
-        <span class="label">Conversations</span>
-        <span class="value">${convs.count || 0}</span>
-        <span class="sub">Active chats</span>
-      </div>
-      <div class="stat">
-        <span class="label">Content Items</span>
-        <span class="value">${content.count || 0}</span>
-        <span class="sub">In library</span>
-      </div>
-      <div class="stat">
-        <span class="label">Bundles</span>
-        <span class="value">${bundles.count || 0}</span>
-        <span class="sub">Available for sale</span>
-      </div>
-      <div class="stat">
-        <span class="label">Revenue</span>
-        <span class="value">${totalRevenue.toFixed(4)} TON</span>
-        <span class="sub">Total earnings</span>
-      </div>
-    `;
-    
-    // Recent activity
-    const { data: recent } = await sb.from('bundle_purchases')
-      .select('*,content_bundles(name)')
-      .eq('creator_id', currentCreator.id)
-      .order('purchased_at', { ascending: false })
-      .limit(5);
-    
-    if (recent && recent.length > 0) {
-      document.getElementById('recentActivity').innerHTML = `
-        <table>
-          <tr><th>Bundle</th><th>Customer</th><th>Amount</th><th>Date</th></tr>
-          ${recent.map(r => `
-            <tr>
-              <td>${r.content_bundles?.name || 'Unknown'}</td>
-              <td>Telegram ${r.tg_user_id}</td>
-              <td>${parseFloat(r.price_paid_ton).toFixed(4)} TON</td>
-              <td>${new Date(r.purchased_at).toLocaleDateString()}</td>
-            </tr>
-          `).join('')}
-        </table>
-      `;
-    } else {
-      document.getElementById('recentActivity').innerHTML = '<div class="empty">No recent activity</div>';
-    }
-  } catch (e) {
-    console.error('Overview error:', e);
-    document.getElementById('overviewStats').innerHTML = '<div class="empty">Error loading data</div>';
-  }
+/* ---------- data layer: anon key + RLS (live) or local demo ---------- */
+function demoGuard(){
+  if(!state.sample){ const e = new Error('Demo mode is read-only'); e.sub = 'Sign in to make changes.'; e.kind='info'; throw e; }
 }
-
-async function loadAccounts() {
-  const { data } = await sb.from('business_connections')
-    .select('*,telegram_accounts(*)')
-    .eq('creator_id', currentCreator.id);
-
-  // also count bare telegram_accounts with no connection yet (step 1 done, step 2 pending)
-  const { data: orphans } = await sb.from('telegram_accounts')
-    .select('*')
-    .eq('creator_id', currentCreator.id);
-
-  const connectedIds = new Set((data || []).map(c => c.telegram_account_id).filter(Boolean));
-  const pending = (orphans || []).filter(a => !connectedIds.has(a.id));
-
-  if ((!data || data.length === 0) && pending.length === 0) {
-    document.getElementById('accountList').innerHTML = '<div class="empty">No accounts yet. Use the wizard above: step 1 connect, step 2 configure.</div>';
-    return;
-  }
-
-  let html = '';
-
-  if (pending.length) {
-    html += `
-      <div class="empty" style="text-align:left; margin-bottom:12px; color:var(--warn, #8a5a12)">
-        <strong>${pending.length} account${pending.length > 1 ? 's' : ''} awaiting configuration</strong> (step 1 done, step 2 pending):
-        ${pending.map(a => `@${a.username || a.first_name || 'unknown'}`).join(', ')}
-      </div>`;
-  }
-
-  html += `
-    <div class="table-container">
-      <table>
-        <tr><th>Status</th><th>Username</th><th>Can Reply</th><th>Mode</th><th>Connected</th></tr>
-        ${(data || []).map(c => {
-          const configured = c.is_enabled && c.can_reply_cached;
-          const status = c.revoked_at ? 'revoked'
-            : configured ? 'active'
-            : c.is_enabled ? 'setup'
-            : 'setup';
-          const label = c.revoked_at ? 'Revoked' : configured ? 'Live' : c.is_enabled ? 'Awaiting config' : 'Setup incomplete';
-          return `
-          <tr>
-            <td><span class="status ${status}">${label}</span></td>
-            <td>@${c.telegram_accounts?.username || 'N/A'}</td>
-            <td>${c.can_reply_cached ? '✓ Yes' : '✗ No'}</td>
-            <td>${c.rights?.mode || '—'}</td>
-            <td>${new Date(c.connected_at).toLocaleDateString()}</td>
-          </tr>`;
-        }).join('')}
-      </table>
-    </div>
-  `;
-  document.getElementById('accountList').innerHTML = html;
-}
-
-window.connectBot = async function() {
-  const token = document.getElementById('botToken').value.trim();
-  if (!token || !/^\d+:[\w-]+$/.test(token)) {
-    showToast('Enter a valid bot token (from @BotFather)');
-    return;
-  }
-  showToast('Connecting…');
-  try {
-    const me = await fetch(`https://api.telegram.org/bot${token}/getMe`).then(r => r.json());
-    if (!me.ok) { showToast('Telegram rejected that token'); return; }
-
-    const existing = await sb.from('telegram_accounts')
-      .select('id, connected')
-      .eq('creator_id', currentCreator.id)
-      .eq('tg_user_id', me.result.id)
-      .maybeSingle();
-
-    if (existing.data) {
-      await sb.from('telegram_accounts').update({ connected: true, updated_at: new Date().toISOString() }).eq('id', existing.data.id);
-    } else {
-      await sb.from('telegram_accounts').insert({
-        creator_id: currentCreator.id,
-        tg_user_id: me.result.id,
-        username: me.result.username,
-        first_name: me.result.first_name,
-        connected: true,
-      });
+const Data = {
+  async list(table, { page=1, select='*', order='created_at', asc=false, match=null, size=PAGE_SIZE }={}){
+    const from = (page-1)*size, to = from + size - 1;
+    if(!state.demo){
+      let q = state.sb.from(table).select(select, { count:'exact' }).eq('creator_id', uid());
+      if(match) q = q.match(match);
+      const { data, count, error } = await q.order(order, { ascending:asc }).range(from, to);
+      if(error) throw error;
+      const remap = r => r;
+      return { rows:(data || []), count:count || 0 };
     }
-    showToast('Connected. Now configure it (step 2).');
-    document.getElementById('wizardStep1').style.display = 'none';
-    document.getElementById('wizardStep2').style.display = 'block';
-    document.getElementById('stepDot1').classList.remove('active');
-    document.getElementById('stepDot2').classList.add('active');
-    document.getElementById('cfgDisplayName').value = me.result.first_name || '';
-    loadAccounts();
-  } catch (e) {
-    showToast('Could not reach Telegram. Check the token.');
+    await sleep(280 + Math.random()*220);
+    let rows = [...(DEMO[table] || [])];
+    if(match) rows = rows.filter(r => Object.entries(match).every(([k,v]) => r[k] === v));
+    rows.sort((a,b) => (asc?1:-1) * (new Date(a[order]) - new Date(b[order])));
+    return { rows: rows.slice(from, to+1), count: rows.length };
+  },
+  async insert(table, obj){
+    if(!state.demo){
+      const { data, error } = await state.sb.from(table).insert({ ...obj, creator_id:uid() }).select().single();
+      if(error) throw error; return data;
+    }
+    demoGuard(); await sleep(260);
+    const row = { id: table.slice(0,2)+'_'+Math.random().toString(36).slice(2,8), creator_id:'demo', created_at:new Date().toISOString(), ...obj };
+    (DEMO[table] ||= []).unshift(row); return row;
+  },
+  async update(table, id, patch){
+    if(!state.demo){
+      const { data, error } = await state.sb.from(table).update(patch).eq('id', id).eq('creator_id', uid()).select().single();
+      if(error) throw error; return data;
+    }
+    demoGuard(); await sleep(220);
+    const row = (DEMO[table]||[]).find(r => r.id === id); Object.assign(row || {}, patch); return row;
+  },
+  async remove(table, id){
+    if(!state.demo){
+      const { error } = await state.sb.from(table).delete().eq('id', id).eq('creator_id', uid());
+      if(error) throw error; return;
+    }
+    demoGuard(); await sleep(220);
+    const arr = DEMO[table] || []; const i = arr.findIndex(r => r.id === id); if(i > -1) arr.splice(i,1);
+  },
+
+  async stats(){
+    const d30 = Date.now()-30*D, d60 = Date.now()-60*D;
+    if(!state.demo){
+      const sb = state.sb, u = uid(), i30 = new Date(d30).toISOString(), i60 = new Date(d60).toISOString();
+      const cnt = async (t, from, to, extra) => {
+        let q = sb.from(t).select('id', { count:'exact', head:true }).eq('creator_id', u);
+        if(from) q = q.gte('created_at', from); if(to) q = q.lt('created_at', to); if(extra) q = extra(q);
+        const { count, error } = await q; if(error) throw error; return count || 0;
+      };
+      const tabs = ['conversations','media_items','content_bundles'];
+      const res = await Promise.all(tabs.flatMap(t => [cnt(t), cnt(t,i30), cnt(t,i60,i30)]));
+      const unread = 0;
+      const { data:pur, error } = await sb.from('bundle_purchases').select('price_paid_ton,purchased_at').eq('creator_id', u).order('purchased_at',{ascending:false}).limit(5000);
+      if(error) throw error;
+      return shapeStats(tabs.map((t,k) => res.slice(k*3, k*3+3)), (pur || []).map(p => ({ amount_ton:p.price_paid_ton, created_at:p.purchased_at })), unread);
+    }
+    await sleep(380);
+    const c = arr => { const t=arr.map(x=>new Date(x.created_at).getTime()); return [t.length, t.filter(x=>x>=d30).length, t.filter(x=>x>=d60&&x<d30).length]; };
+    return shapeStats([c(DEMO.conversations), c(DEMO.media_items), c(DEMO.content_bundles)], DEMO.bundle_purchases, DEMO.conversations.filter(c=>c.unread_count>0).length);
+  },
+
+  async activity(){
+    if(!state.demo){
+      const sb = state.sb, u = uid();
+      const [m, p, c] = await Promise.all([
+        sb.from('messages').select('id,text,created_at,conversation_id,conversations(customers(username,first_name))').eq('creator_id',u).eq('direction','in').order('created_at',{ascending:false}).limit(5),
+        sb.from('bundle_purchases').select('id,amount_ton,created_at,content_bundles(name),customers(username,first_name)').eq('creator_id',u).order('created_at',{ascending:false}).limit(5),
+        sb.from('media_items').select('id,title,type,created_at').eq('creator_id',u).order('created_at',{ascending:false}).limit(4)
+      ]);
+      return mergeActivity((m.data||[]).map(x=>({...x, customer:x.conversations?.customers})), p.data||[], c.data||[]);
+    }
+    await sleep(300);
+    const msgs = [...DEMO.conversations].sort((a,b)=>new Date(b.last_message_at)-new Date(a.last_message_at)).slice(0,5)
+      .map(c => ({ id:c.id, text:c.last_message_preview, created_at:c.last_message_at, customer:c.customers }));
+    const pur = [...DEMO.bundle_purchases].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)).slice(0,5);
+    return mergeActivity(msgs, pur, DEMO.media_items.slice(0,4));
+  },
+
+  async messages(convId){
+    if(!state.demo){
+      const { data, error } = await state.sb.from('messages').select('*').eq('creator_id', uid()).eq('conversation_id', convId).order('sent_at',{ascending:true}).limit(100);
+      if(error) throw error; return data || [];
+    }
+    await sleep(240);
+    return demoMessages(DEMO.conversations.find(c => c.id === convId));
+  },
+  async sendMessage(conv, text){
+    if(!state.demo){
+      const { data, error } = await state.sb.from('messages').insert({ creator_id:uid(), conversation_id:conv.id, direction:'out', body_preview:text, sent_at:new Date().toISOString() }).select().single();
+      if(error) throw error;
+      await state.sb.from('conversations').update({ last_message_at:data.sent_at }).eq('id', conv.id).eq('creator_id', uid());
+      return data;
+    }
+    demoGuard(); await sleep(260);
+    const m = { id:'m_'+Date.now(), direction:'out', text, created_at:new Date().toISOString() };
+    demoMessages(conv).push(m);
+    Object.assign(conv, { last_message_at:m.created_at, last_message_preview:text, unread_count:0 });
+    return m;
+  },
+
+  async mediaOptions(){
+    if(!state.demo){
+      const { data, error } = await state.sb.from('media_items').select('id,title,kind,price_ton,visible').eq('creator_id', uid()).order('uploaded_at',{ascending:false}).limit(300);
+      if(error) throw error; return data || [];
+    }
+    return DEMO.media_items;
+  },
+  async saveBundle(id, fields, itemIds){
+    let bundle;
+    if(!state.demo){
+      bundle = id ? await Data.update('content_bundles', id, fields) : await Data.insert('content_bundles', fields);
+      const del = await state.sb.from('bundle_items').delete().eq('bundle_id', bundle.id);
+      if(del.error) throw del.error;
+      if(itemIds.length){
+        const ins = await state.sb.from('bundle_items').insert(itemIds.map((m, i) => ({ bundle_id:bundle.id, media_id:m, position:i+1 })));
+        if(ins.error) throw ins.error;
+      }
+      return bundle;
+    }
+    demoGuard();
+    bundle = id ? await Data.update('content_bundles', id, fields) : await Data.insert('content_bundles', { ...fields, bundle_purchases:[] });
+    bundle.bundle_items = itemIds.map(m => ({ media_item_id:m }));
+    return bundle;
+  },
+
+  async saveAccount(fields, connectionId){
+    if(!state.demo){
+      const acc = await Data.insert('telegram_accounts', fields);
+      return acc;
+    }
+    demoGuard();
+    return Data.insert('telegram_accounts', { ...fields, business_connections: connectionId ? [{ id:'bc_'+Date.now(), connection_id:connectionId, is_enabled:true, can_reply:true }] : [] });
+  },
+
+  async getAI(){
+    if(!state.demo){
+      const { data, error } = await state.sb.from('ai_profiles').select('*').eq('creator_id', uid()).maybeSingle();
+      if(error) throw error; return data;
+    }
+    await sleep(300); return DEMO.ai_profile;
+  },
+  async saveAI(fields){
+    if(!state.demo){
+      const { data, error } = await state.sb.from('ai_profiles').upsert({ ...fields, creator_id:uid() }, { onConflict:'creator_id' }).select().single();
+      if(error) throw error; return data;
+    }
+    demoGuard(); await sleep(300); return DEMO.ai_profile = { ...DEMO.ai_profile, ...fields };
+  },
+  async updateCreator(patch){
+    if(!state.demo){
+      const { data, error } = await state.sb.from('creators').update(patch).eq('id', uid()).select().single();
+      if(error) throw error; return state.creator = data;
+    }
+    demoGuard(); await sleep(260); return Object.assign(state.creator, patch);
+  },
+  async earnings(){
+    if(!state.demo){
+      const { data, error } = await state.sb.from('bundle_purchases').select('id,price_paid_ton,purchased_at,content_bundles(name)').eq('creator_id', uid()).order('purchased_at',{ascending:false}).limit(5000);
+      if(error) throw error; return (data || []).map(p => ({ ...p, amount_ton:p.price_paid_ton, created_at:p.purchased_at }));
+    }
+    await sleep(320); return [...DEMO.bundle_purchases].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
   }
 };
 
-window.configureBot = async function() {
-  const displayName = document.getElementById('cfgDisplayName').value.trim();
-  const mode = document.getElementById('cfgMode').value;
-  if (!displayName) { showToast('Display name required'); return; }
+function shapeStats([conv, media, bund], purchases, unread){
+  const d30 = Date.now()-30*D, d60 = Date.now()-60*D;
+  const sum = arr => arr.reduce((s,p)=>s+Number(p.amount_ton||0),0);
+  const t = p => new Date(p.created_at).getTime();
+  const days = Array.from({length:14}, (_,i) => { const d=new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()-13+i); return { date:d, total:0, n:0 }; });
+  purchases.forEach(p => { const d=new Date(p.created_at); d.setHours(0,0,0,0); const slot=days.find(x=>x.date.getTime()===d.getTime()); if(slot){ slot.total+=Number(p.amount_ton||0); slot.n++; } });
+  return {
+    conversations:{ total:conv[0], now:conv[1], prev:conv[2] },
+    media:{ total:media[0], now:media[1], prev:media[2] },
+    bundles:{ total:bund[0], now:bund[1], prev:bund[2] },
+    revenue:{ total:sum(purchases), now:sum(purchases.filter(p=>t(p)>=d30)), prev:sum(purchases.filter(p=>t(p)>=d60&&t(p)<d30)), sales:purchases.length },
+    days, unread
+  };
+}
+function mergeActivity(msgs, pur, media){
+  return [
+    ...msgs.map(m => ({ kind:'msg', at:m.created_at, html:`<b>${esc(nameOf(m.customer))}</b> sent “${esc(m.text)}”` })),
+    ...pur.map(p => ({ kind:'sale', at:p.created_at, amt:p.amount_ton, html:`<b>${esc(nameOf(p.customers))}</b> bought ${esc(p.content_bundles?.name || 'a bundle')}` })),
+    ...media.map(m => ({ kind:'media', type:m.type, at:m.created_at, html:`Added <b>${esc(m.title)}</b> to the library` }))
+  ].sort((a,b) => new Date(b.at) - new Date(a.at)).slice(0,8);
+}
 
-  const { data: acct } = await sb.from('telegram_accounts')
-    .select('id, tg_user_id').eq('creator_id', currentCreator.id)
-    .eq('connected', true).order('created_at', { ascending: false }).limit(1).maybeSingle();
+/* ---------- UI pieces ---------- */
+const spinner = (label='Loading…') => `<div class="loading"><div class="spinner" role="progressbar" aria-label="${esc(label)}"></div>${esc(label)}</div>`;
+const empty = (icon, title, text, cta='') => `<div class="empty"><div class="e-ico">${ic(icon)}</div><h3>${esc(title)}</h3><p>${esc(text)}</p>${cta}</div>`;
+const errorState = (e, retry) => `<div class="empty err"><div class="e-ico">${ic('alert')}</div><h3>Couldn't load this</h3><p>${esc(e?.message || 'Unknown error')}. Check your connection or your RLS policies, then try again.</p><button class="btn sm" data-act="retry" data-retry="${retry}">${ic('refresh')}Try again</button></div>`;
+const pill = (on, onTxt='Active', offTxt='Draft', offCls='draft') => `<span class="pill ${on?'ok':offCls}">${on?onTxt:offTxt}</span>`;
+const typeIcon = t => t==='video'?'video':t==='image'?'image':'document';
+function pager(key, page, count){
+  const pages = Math.max(1, Math.ceil(count / PAGE_SIZE));
+  if(count === 0) return '';
+  const from = (page-1)*PAGE_SIZE + 1, to = Math.min(count, page*PAGE_SIZE);
+  let nums = [];
+  for(let p=1;p<=pages;p++){ if(p===1||p===pages||Math.abs(p-page)<=1) nums.push(p); else if(nums[nums.length-1]!=='…') nums.push('…'); }
+  return `<div class="pager"><span class="info">Showing <span class="mono">${from}–${to}</span> of <span class="mono">${fmtNum(count)}</span></span>
+    <div class="pages">
+      <button type="button" data-act="page" data-key="${key}" data-page="${page-1}" ${page<=1?'disabled':''} aria-label="Previous page">${ic('left')}</button>
+      ${nums.map(n => n==='…' ? `<button type="button" disabled>…</button>` : `<button type="button" data-act="page" data-key="${key}" data-page="${n}" ${n===page?'aria-current="page"':''}>${n}</button>`).join('')}
+      <button type="button" data-act="page" data-key="${key}" data-page="${page+1}" ${page>=pages?'disabled':''} aria-label="Next page">${ic('right')}</button>
+    </div></div>`;
+}
+const secHead = (text, action='') => `<div class="sec-head"><p>${esc(text)}</p>${action}</div>`;
+const setView = html => { const v = $('#view'); v.innerHTML = html; v.classList.remove('fade-in'); void v.offsetWidth; v.classList.add('fade-in'); };
+function trend(now, prev){
+  if(!prev && !now) return `<span class="trend flat">—</span>`;
+  if(!prev) return `<span class="trend up">${ic('up')}New</span>`;
+  const pct = Math.round((now - prev) / prev * 100);
+  if(pct === 0) return `<span class="trend flat">0%</span>`;
+  return `<span class="trend ${pct>0?'up':'down'}">${ic(pct>0?'up':'down')}${Math.abs(pct)}%</span>`;
+}
+async function withBusy(btn, fn, okTitle, okSub){
+  if(btn){ btn.disabled = true; btn.classList.add('busy'); }
+  try{
+    const r = await fn();
+    if(okTitle) toast(okTitle, 'success', okSub ?? (state.demo ? 'Sample data — resets when you reload.' : ''));
+    return r ?? true;
+  }catch(e){
+    toast(e.message || 'Something went wrong', e.kind || 'error', e.sub || (e.details || e.hint || ''));
+    return false;
+  }finally{ if(btn){ btn.disabled = false; btn.classList.remove('busy'); } }
+}
+/* two-tap delete: first tap arms, second tap within 3s confirms */
+function armed(btn){
+  if(btn.classList.contains('armed')) return true;
+  btn.classList.add('armed'); const old = btn.innerHTML; btn.innerHTML = `${ic('trash')}Confirm`;
+  setTimeout(() => { if(btn.isConnected){ btn.classList.remove('armed'); btn.innerHTML = old; } }, 3000);
+  return false;
+}
 
-  if (!acct) { showToast('Connect an account first (step 1)'); return; }
+/* ============================================================
+   SECTIONS
+   ============================================================ */
+const SECTIONS = {
+  overview:{ title:'Overview', group:'Dashboard', render:renderOverview },
+  accounts:{ title:'Accounts', group:'Telegram', render:renderAccounts },
+  inbox:{ title:'Inbox', group:'Telegram', render:renderInbox },
+  library:{ title:'Library', group:'Content', render:renderLibrary },
+  bundles:{ title:'Bundles', group:'Content', render:renderBundles },
+  ai:{ title:'AI Personality', group:'Settings', render:renderAI },
+  wallet:{ title:'TON Wallet', group:'Settings', render:renderWallet }
+};
 
-  const { error } = await sb.from('business_connections').insert({
-    id: 'bc-' + crypto.randomUUID(),
-    creator_id: currentCreator.id,
-    telegram_account_id: acct.id,
-    tg_user_id: acct.tg_user_id,
-    is_enabled: true,
-    rights: { mode },
-    connected_at: new Date().toISOString(),
-    last_verified_at: new Date().toISOString(),
+/* ---------- Overview ---------- */
+async function renderOverview(){
+  const hr = new Date().getHours(), hello = hr<12?'Good morning':hr<18?'Good afternoon':'Good evening';
+  const first = (state.creator?.name || 'there').split(' ')[0];
+  setView(`
+    ${secHead(`${hello}, ${first}. Here's how your Telegram storefront is doing over the last 30 days.`, `<a class="btn" href="#library">${ic('plus')}Add content</a>`)}
+    <div class="stats" id="ov-stats">${[0,1,2,3].map(()=>`<div class="stat">${spinner('')}</div>`).join('')}</div>
+    <div class="ov-grid">
+      <div style="display:flex;flex-direction:column;gap:20px;min-width:0">
+        <section class="panel chart"><div class="panel-head"><h2>Revenue, last 14 days</h2><span class="muted end mono">TON</span></div><div id="ov-chart">${spinner()}</div></section>
+        <section class="panel"><div class="panel-head"><h2>Top bundles</h2><a class="end btn ghost sm" href="#bundles">View all${ic('arrow')}</a></div><div id="ov-top">${spinner()}</div></section>
+      </div>
+      <section class="panel"><div class="panel-head"><h2>Recent activity</h2><span class="end muted">Live feed</span></div><div id="ov-feed">${spinner()}</div></section>
+    </div>`);
+
+  Data.stats().then(s => {
+    setUnread(s.unread);
+    const card = (icon, label, num, now, prev, foot, hero=false, unit='') => `
+      <div class="stat ${hero?'hero':''}"><div class="stat-top">${ic(icon)}${label}${trend(now,prev)}</div>
+      <div class="stat-num">${num}${unit?`<small>${unit}</small>`:''}</div><div class="stat-foot">${foot}</div></div>`;
+    $('#ov-stats').innerHTML =
+      card('message','Conversations', fmtNum(s.conversations.total), s.conversations.now, s.conversations.prev, `${s.unread} waiting for a reply`) +
+      card('layers','Content items', fmtNum(s.media.total), s.media.now, s.media.prev, `+${s.media.now} added in 30 days`) +
+      card('package','Bundles', fmtNum(s.bundles.total), s.bundles.now, s.bundles.prev, `+${s.bundles.now} created in 30 days`) +
+      card('coin','Revenue', fmtTon(s.revenue.total,false), s.revenue.now, s.revenue.prev, `${fmtTon(s.revenue.now)} in the last 30 days`, true, 'TON');
+    $('#ov-chart').innerHTML = s.revenue.sales ? revenueChart(s.days) : empty('coin','No sales yet','Revenue appears here as soon as a fan buys a bundle in Telegram.', `<a class="btn sm primary" href="#bundles">${ic('plus')}Create a bundle</a>`);
+  }).catch(e => { $('#ov-stats').innerHTML = `<div class="panel" style="grid-column:1/-1">${errorState(e,'overview')}</div>`; $('#ov-chart').innerHTML=''; });
+
+  Data.activity().then(items => {
+    $('#ov-feed').innerHTML = items.length ? `<ul class="feed">${items.map(a => `
+      <li><div class="f-ico ${a.kind}">${ic(a.kind==='msg'?'message':a.kind==='sale'?'coin':typeIcon(a.type))}</div>
+      <div class="f-body"><p>${a.html}</p><span>${ago(a.at)}</span></div>${a.kind==='sale'?`<span class="f-amt">+${fmtTon(a.amt)}</span>`:''}</li>`).join('')}</ul>`
+      : empty('inbox','Nothing yet','Messages, sales and new uploads will show up here as they happen.');
+  }).catch(e => $('#ov-feed').innerHTML = errorState(e,'overview'));
+
+  Data.list('content_bundles', { select:'*, bundle_purchases(price_paid_ton)', size:100 }).then(({rows}) => {
+    const ranked = rows.map(b => ({ name:b.name, rev:(b.bundle_purchases||[]).reduce((s,p)=>s+Number(p.price_paid_ton||0),0), n:(b.bundle_purchases||[]).length }))
+      .filter(b=>b.n).sort((a,b)=>b.rev-a.rev).slice(0,5);
+    const max = ranked[0]?.rev || 1;
+    $('#ov-top').innerHTML = ranked.length ? `<ul class="top-list">${ranked.map((b,i)=>`
+      <li><span class="rank">${String(i+1).padStart(2,'0')}</span><span class="nm">${esc(b.name)}</span><span class="price">${fmtTon(b.rev,false)}<small>TON · ${b.n} sold</small></span>
+      <span></span><div class="meter"><i style="width:${(b.rev/max*100).toFixed(1)}%"></i></div></li>`).join('')}</ul>`
+      : empty('package','No bundle sales yet','Your best sellers will be ranked here.');
+  }).catch(e => $('#ov-top').innerHTML = errorState(e,'overview'));
+}
+function niceMax(v){ const p = 10 ** Math.floor(Math.log10(v)); const n = v / p; return (n<=1?1:n<=2?2:n<=2.5?2.5:n<=5?5:10) * p; }
+function revenueChart(days){
+  const W=640, H=230, pl=46, pr=10, pt=22, pb=30, iw=W-pl-pr, ih=H-pt-pb;
+  const max = niceMax(Math.max(...days.map(d=>d.total), 1)), bw = iw / days.length;
+  const total = days.reduce((s,d)=>s+d.total,0), sales = days.reduce((s,d)=>s+d.n,0);
+  const best = days.reduce((a,b)=>b.total>a.total?b:a, days[0]);
+  const y = v => pt + ih - (v/max)*ih;
+  let g = '';
+  [0,.25,.5,.75,1].forEach(f => { const v=max*f; g += `<line class="${f===0?'base':'grid'}" x1="${pl}" x2="${W-pr}" y1="${y(v)}" y2="${y(v)}"/><text class="lbl" x="${pl-8}" y="${y(v)+3.5}" text-anchor="end">${v%1?v.toFixed(1):v}</text>`; });
+  days.forEach((d,i) => {
+    const h = Math.max(d.total ? 2 : 0, (d.total/max)*ih), x = pl + i*bw + bw*.18, last = i===days.length-1;
+    g += `<rect class="bar ${last?'last':''}" x="${x.toFixed(1)}" y="${(pt+ih-h).toFixed(1)}" width="${(bw*.64).toFixed(1)}" height="${h.toFixed(1)}" rx="3"><title>${d.date.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})}: ${fmtTon(d.total)} · ${d.n} sale${d.n===1?'':'s'}</title></rect>`;
+    if(i%2===1 || last) g += `<text class="lbl" x="${(x+bw*.32).toFixed(1)}" y="${H-10}" text-anchor="middle">${last?'Today':d.date.getDate()}</text>`;
+    if(last && d.total) g += `<text class="val" x="${(x+bw*.32).toFixed(1)}" y="${(pt+ih-h-7).toFixed(1)}" text-anchor="middle">${fmtTon(d.total,false)}</text>`;
   });
+  return `<div class="chart-sum"><div><b>${fmtTon(total,false)}</b><span>TON in 14 days</span></div><div><b>${sales}</b><span>sales</span></div><div><b>${fmtTon(sales?total/sales:0,false)}</b><span>avg. order, TON</span></div><div><b>${best.total?best.date.toLocaleDateString('en-GB',{day:'numeric',month:'short'}):'—'}</b><span>best day</span></div></div>
+    <div style="padding:6px 8px 4px"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Bar chart of daily revenue in TON over the last 14 days">${g}</svg></div>`;
+}
 
-  if (error) { showToast('Save failed: ' + error.message); return; }
-  showToast('Saved. One step left.');
-  document.getElementById('wizardStep2').style.display = 'none';
-  document.getElementById('wizardStep3').style.display = 'block';
-  document.getElementById('stepDot2').classList.remove('active');
-  document.getElementById('stepDot3').classList.add('active');
-  await loadAISettings();
+/* ---------- Accounts ---------- */
+async function renderAccounts(){
+  setView(`
+    ${secHead('Telegram accounts linked through Telegram Business. Disable an account to pause the AI and stop syncing its chats.')}
+    <div class="split">
+      <section class="panel"><div class="panel-head"><h2>Connected accounts</h2><span class="muted" id="acc-count"></span></div>
+        <div class="table-wrap" id="acc-table">${spinner('Loading accounts…')}</div></section>
+      <aside class="panel form-panel"><div class="panel-head form-title"><h2>Connect an account</h2></div>
+        <form class="form panel-body" data-form="account" autocomplete="off">
+          <div class="field"><label for="acc-user">Telegram username</label>
+            <div class="input-affix"><input class="input" id="acc-user" name="username" placeholder="maravale" required pattern="@?[A-Za-z0-9_]{5,32}"><span>@</span></div>
+            <span class="hint">5–32 letters, numbers or underscores.</span></div>
+          <div class="field"><label for="acc-bc">Bot token <span class="muted">(from @BotFather)</span></label>
+            <input class="input mono" id="acc-bc" name="connection" placeholder="123456789:ABCdefGhIjKlMnOpQrStUvWxYz">
+            <span class="hint">Create a bot with @BotFather, then add it under your Telegram Settings → Business → Chatbots.</span></div>
+          <label class="switch" for="acc-enabled"><input type="checkbox" id="acc-enabled" name="is_enabled" checked><span class="track"></span><span>Enabled<small>Sync chats and allow AI replies</small></span></label>
+          <div class="form-actions"><button class="btn primary" type="submit">${ic('plus')}Connect account</button></div>
+        </form></aside>
+    </div>`);
   loadAccounts();
-};
-
-async function loadConversations() {
-  const search = document.getElementById('inboxSearch').value.toLowerCase();
-  const filter = document.getElementById('inboxFilter').value;
-  
-  let query = sb.from('conversations')
-    .select('*,customers(first_name,username)', { count: 'exact' })
-    .eq('creator_id', currentCreator.id)
-    .order('last_message_at', { ascending: false });
-  
-  if (filter !== 'all') {
-    query = query.eq('mode', filter);
-  }
-  
-  const start = (currentPage.conversations - 1) * PAGE_SIZE;
-  const end = start + PAGE_SIZE;
-  
-  query = query.range(start, end - 1);
-  
-  const { data, count } = await query;
-  
-  if (!data || data.length === 0) {
-    document.getElementById('conversationList').innerHTML = '<div class="empty">No conversations found</div>';
-    document.getElementById('pagination').innerHTML = '';
-    return;
-  }
-  
-  // Filter by search
-  const filtered = data.filter(c => {
-    if (!search) return true;
-    const name = (c.customers?.first_name || c.customers?.username || '').toLowerCase();
-    return name.includes(search);
-  });
-  
-  document.getElementById('conversationList').innerHTML = `
-    <div class="table-container">
-      <table>
-        <tr><th>Customer</th><th>Last Message</th><th>Mode</th><th>Messages</th></tr>
-        ${filtered.map(c => `
-          <tr onclick="window.openConversation('${c.id}')">
-            <td>${c.customers?.first_name || c.customers?.username || c.customer_ref}</td>
-            <td>${new Date(c.last_message_at).toLocaleString()}</td>
-            <td><span class="status ${c.mode === 'ai' ? 'active' : 'pending'}">${c.mode}</span></td>
-            <td>${c.message_count || 0}</td>
-          </tr>
-        `).join('')}
-      </table>
-    </div>
-  `;
-  
-  // Pagination
-  const totalPages = Math.ceil((count || 0) / PAGE_SIZE);
-  if (totalPages > 1) {
-    document.getElementById('pagination').innerHTML = renderPagination(totalPages, currentPage.conversations, 'conversations');
-  } else {
-    document.getElementById('pagination').innerHTML = '';
-  }
+}
+async function loadAccounts(){
+  const el = $('#acc-table'); if(!el) return;
+  el.innerHTML = spinner('Loading accounts…');
+  try{
+    const { rows, count } = await Data.list('telegram_accounts', { select:'*, business_connections(*)', size:50 });
+    $('#acc-count').textContent = count ? `${count} account${count===1?'':'s'}` : '';
+    el.innerHTML = rows.length ? `<table><thead><tr><th>Account</th><th>Business connection</th><th>Can reply</th><th>Status</th><th>Connected</th><th class="num">Actions</th></tr></thead><tbody>
+      ${rows.map(a => { const bc = (a.business_connections||[])[0]; return `<tr>
+        <td><div class="cell-main"><div class="avatar">${esc((a.username||'?')[0].toUpperCase())}</div><div><b class="tg-handle"><span>@</span>${esc(a.username)}</b><small>${esc(a.first_name||'Telegram account')}</small></div></div></td>
+        <td>${bc?`<div class="conn"><code>${esc(bc.connection_id)}</code></div>`:'<span class="muted">Not linked</span>'}</td>
+        <td>${bc?(bc.can_reply?'<span class="pill accent">Yes</span>':'<span class="pill draft">Read only</span>'):'<span class="muted">—</span>'}</td>
+        <td>${pill(a.connected,'Enabled','Disabled','off')}</td>
+        <td class="muted">${fmtDate(a.created_at)}</td>
+        <td><div class="row-actions">
+          <button class="act" data-act="acc-toggle" data-id="${a.id}" data-on="${a.connected?1:0}" title="${a.connected?'Disable':'Enable'}">${ic('power')}${a.connected?'Disable':'Enable'}</button>
+          <button class="act danger" data-act="acc-del" data-id="${a.id}" title="Remove">${ic('trash')}</button>
+        </div></td></tr>`; }).join('')}</tbody></table>`
+      : empty('send','No Telegram accounts yet','Connect your first account to start syncing chats and selling content in DMs.', `<button class="btn sm primary" data-act="focus" data-target="acc-user">${ic('plus')}Connect account</button>`);
+  }catch(e){ el.innerHTML = errorState(e,'accounts'); }
 }
 
-async function loadContent() {
-  const start = (currentPage.content - 1) * PAGE_SIZE;
-  const { data, count } = await sb.from('media_items')
-    .select('*', { count: 'exact' })
-    .eq('creator_id', currentCreator.id)
-    .order('uploaded_at', { ascending: false })
-    .range(start, start + PAGE_SIZE - 1);
-
-  if (!data?.length) {
-    document.getElementById('contentList').innerHTML = '<div class="empty">No content yet. Upload your first file above.</div>';
-    document.getElementById('contentPagination').innerHTML = '';
-    document.getElementById('bundlePickList').innerHTML = '<div class="empty">Upload content first, then it can be added to bundles.</div>';
-    return;
-  }
-
-  document.getElementById('contentList').innerHTML = `
-    <div class="table-container">
-      <table>
-        <tr><th>Title</th><th>Type</th><th>Price</th><th>Visible</th><th>Actions</th></tr>
-        ${data.map(c => `
-          <tr>
-            <td>${c.title || 'Untitled'}</td>
-            <td>${c.kind}</td>
-            <td>${c.price_ton ? parseFloat(c.price_ton).toFixed(4) + ' TON' : 'Free'}</td>
-            <td>${c.visible ? '✓ Yes' : '✗ No'}</td>
-            <td>
-              <button class="btn btn-small btn-secondary" onclick="toggleContentVisibility('${c.id}', ${!c.visible})">
-                ${c.visible ? 'Hide' : 'Show'}
-              </button>
-              <button class="btn btn-small btn-danger" onclick="deleteContent('${c.id}')">Delete</button>
-            </td>
-          </tr>
-        `).join('')}
-      </table>
-    </div>
-  `;
-
-  // bundle builder: pick from ALL content (not just this page)
-  const { data: allContent } = await sb.from('media_items')
-    .select('id, title, kind')
-    .eq('creator_id', currentCreator.id)
-    .eq('visible', true)
-    .order('uploaded_at', { ascending: false })
-    .limit(100);
-
-  document.getElementById('bundlePickList').innerHTML = (allContent || []).map(c => `
-    <label style="display:flex; align-items:center; gap:8px; margin-bottom:6px; font-size:13px; font-weight:normal">
-      <input type="checkbox" class="bundle-pick" value="${c.id}">
-      ${c.title || 'Untitled'} <span style="color:var(--muted)">(${c.kind})</span>
-    </label>
-  `).join('');
-
-  const totalPages = Math.ceil((count || 0) / PAGE_SIZE);
-  document.getElementById('contentPagination').innerHTML = totalPages > 1
-    ? renderPagination(totalPages, currentPage.content, 'content') : '';
-}
-
-async function loadBundles() {
-  const start = (currentPage.bundles - 1) * PAGE_SIZE;
-  const { data, count } = await sb.from('content_bundles')
-    .select('*, bundle_items(media_id)', { count: 'exact' })
-    .eq('creator_id', currentCreator.id)
-    .order('created_at', { ascending: false })
-    .range(start, start + PAGE_SIZE - 1);
-
-  if (!data?.length) {
-    document.getElementById('bundleList').innerHTML = '<div class="empty">No bundles yet</div>';
-    document.getElementById('bundlePagination').innerHTML = '';
-    return;
-  }
-
-  document.getElementById('bundleList').innerHTML = `
-    <div class="table-container">
-      <table>
-        <tr><th>Name</th><th>Items</th><th>Price (TON)</th><th>Price (USD)</th><th>Active</th><th>Actions</th></tr>
-        ${data.map(b => `
-          <tr>
-            <td>${b.name}</td>
-            <td>${(b.bundle_items || []).length}</td>
-            <td>${parseFloat(b.price_ton || 0).toFixed(4)}</td>
-            <td>${b.price_usd ? '$' + parseFloat(b.price_usd).toFixed(2) : '-'}</td>
-            <td><span class="status ${b.active ? 'active' : 'inactive'}">${b.active ? 'Active' : 'Inactive'}</span></td>
-            <td>
-              <button class="btn btn-small btn-secondary" onclick="toggleBundle('${b.id}', ${!b.active})">
-                ${b.active ? 'Deactivate' : 'Activate'}
-              </button>
-            </td>
-          </tr>
-        `).join('')}
-      </table>
-    </div>
-  `;
-
-  const totalPages = Math.ceil((count || 0) / PAGE_SIZE);
-  document.getElementById('bundlePagination').innerHTML = totalPages > 1
-    ? renderPagination(totalPages, currentPage.bundles, 'bundles') : '';
-}
-
-async function loadAISettings() {
-  const { data } = await sb.from('ai_profiles')
-    .select('*')
-    .eq('creator_id', currentCreator.id)
-    .maybeSingle();
-
-  const formHtml = `
-    <label>Persona Name</label>
-    <input type="text" id="aiPersona" value="${data?.display_name || ''}">
-
-    <label>Tone</label>
-    <select id="aiTone">
-      <option value="friendly" ${data?.tone === 'friendly' ? 'selected' : ''}>Friendly</option>
-      <option value="professional" ${data?.tone === 'professional' ? 'selected' : ''}>Professional</option>
-      <option value="casual" ${data?.tone === 'casual' ? 'selected' : ''}>Casual</option>
-      <option value="witty" ${data?.tone === 'witty' ? 'selected' : ''}>Witty</option>
-    </select>
-
-    <label>System Prompt (how the bot talks)</label>
-    <textarea id="aiSystemPrompt" rows="4">${data?.system_prompt || ''}</textarea>
-
-    <label>First contact line (optional, sent to new customers)</label>
-    <input type="text" id="aiFirstContact" value="${data?.first_contact_line || ''}" placeholder="e.g. hey, I'm around...">
-
-    <label style="display:flex; align-items:center; gap:8px; font-weight:normal; margin-bottom:12px">
-      <input type="checkbox" id="aiDisclose" ${data?.disclose_on_first_contact ? 'checked' : ''}>
-      Tell customers they're chatting with an AI on first contact
-    </label>
-    <p class="note" style="margin-bottom:12px">Leave this off and the bot replies as you - customers won't know it's automated unless you tell them.</p>
-
-    <label>TON Wallet Address (earnings go here)</label>
-    <input type="text" id="tonWallet" value="${data?.wallet_address || ''}" placeholder="UQ...">
-    <p class="note">All bundle payments will be sent to this address.</p>
-  `;
-  const af = document.getElementById('aiForm');
-  if (af) af.innerHTML = formHtml;
-  document.getElementById('wizardAIForm').innerHTML = formHtml;
-}
-
-async function loadWallet() { loadAISettings(); }
-
-// Helper functions
-async function loadAnalytics() {
-  const cid = currentCreator.id;
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-
-  const [media, bundles, purchases, convs, msgs, customers] = await Promise.all([
-    sb.from('media_items').select('kind, visible, uploaded_at, price_ton').eq('creator_id', cid),
-    sb.from('content_bundles').select('active, price_ton').eq('creator_id', cid),
-    sb.from('bundle_purchases').select('price_paid_ton, purchased_at').eq('creator_id', cid).order('purchased_at', { ascending: false }),
-    sb.from('conversations').select('mode, last_message_at').eq('creator_id', cid),
-    sb.from('messages').select('direction, sent_at').eq('creator_id', cid).gte('sent_at', thirtyDaysAgo),
-    sb.from('customers').select('created_at').eq('creator_id', cid).gte('created_at', thirtyDaysAgo),
-  ]);
-
-  const m = media.data || [], b = bundles.data || [], p = purchases.data || [];
-  const cv = convs.data || [], ms = msgs.data || [], cu = customers.data || [];
-
-  const revenueTotal = p.reduce((s, x) => s + (parseFloat(x.price_paid_ton) || 0), 0);
-  const revenue30 = p.filter(x => x.purchased_at >= thirtyDaysAgo).reduce((s, x) => s + (parseFloat(x.price_paid_ton) || 0), 0);
-  const purchases30 = p.filter(x => x.purchased_at >= thirtyDaysAgo).length;
-
-  const byKind = {};
-  m.forEach(x => byKind[x.kind] = (byKind[x.kind] || 0) + 1);
-  const visibleCount = m.filter(x => x.visible).length;
-
-  const modeCounts = {};
-  cv.forEach(x => modeCounts[x.mode] = (modeCounts[x.mode] || 0) + 1);
-  const inbound = ms.filter(x => x.direction === 'in').length;
-  const outbound = ms.filter(x => x.direction === 'out').length;
-
-  // last 7 days message volume for a simple bar chart
-  const days = [];
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
-    const key = d.toISOString().slice(0, 10);
-    days.push({ key, label: d.toLocaleDateString(undefined, { weekday: 'short' }), count: 0 });
-  }
-  const dayMap = Object.fromEntries(days.map(d => [d.key, d]));
-  ms.forEach(x => { const k = (x.sent_at || '').slice(0, 10); if (dayMap[k]) dayMap[k].count++; });
-  const maxCount = Math.max(1, ...days.map(d => d.count));
-
-  const recentPurchases = p.slice(0, 8);
-
-  document.getElementById('analyticsBody').innerHTML = `
-    <div class="stats">
-      <div class="stat"><span class="label">Revenue (all time)</span><span class="value">${revenueTotal.toFixed(4)} TON</span><span class="sub">${p.length} purchases</span></div>
-      <div class="stat"><span class="label">Revenue (30 days)</span><span class="value">${revenue30.toFixed(4)} TON</span><span class="sub">${purchases30} purchases</span></div>
-      <div class="stat"><span class="label">Messages (30 days)</span><span class="value">${ms.length}</span><span class="sub">${inbound} in / ${outbound} out</span></div>
-      <div class="stat"><span class="label">New customers (30 days)</span><span class="value">${cu.length}</span><span class="sub">${cv.length} conversations total</span></div>
-    </div>
-
-    <div class="card">
-      <h3>Message volume (last 7 days)</h3>
-      <div style="display:flex; align-items:flex-end; gap:10px; height:120px; padding:8px 0">
-        ${days.map(d => `
-          <div style="flex:1; text-align:center">
-            <div style="background:var(--accent); border-radius:4px 4px 0 0; height:${Math.round(d.count / maxCount * 90)}px; min-height:2px; margin:0 auto; width:60%"></div>
-            <div style="font-size:10.5px; color:var(--muted); margin-top:6px">${d.label}</div>
-            <div style="font-size:11px">${d.count}</div>
-          </div>
-        `).join('')}
+/* ---------- Inbox ---------- */
+async function renderInbox(){
+  setView(`
+    ${secHead('Every DM from your connected accounts. Messages tagged AI were answered by your assistant.')}
+    <section class="panel inbox" id="inbox" data-open="false">
+      <div class="conv-list">
+        <div class="panel-head"><div class="tabs" role="tablist" id="inbox-tabs">
+          <button type="button" role="tab" data-act="inbox-filter" data-f="" aria-selected="${!state.inboxFilter}">All</button>
+          <button type="button" role="tab" data-act="inbox-filter" data-f="open" aria-selected="${state.inboxFilter==='open'}">Open</button>
+          <button type="button" role="tab" data-act="inbox-filter" data-f="closed" aria-selected="${state.inboxFilter==='closed'}">Closed</button>
+        </div><span class="end muted" id="conv-count"></span></div>
+        <div class="list" id="conv-list">${spinner('Loading conversations…')}</div>
+        <div id="conv-pager"></div>
       </div>
-    </div>
-
-    <div class="card">
-      <h3>Content</h3>
-      <div class="stats">
-        <div class="stat"><span class="label">Total items</span><span class="value">${m.length}</span><span class="sub">${visibleCount} visible</span></div>
-        <div class="stat"><span class="label">Bundles</span><span class="value">${b.length}</span><span class="sub">${b.filter(x => x.active).length} active</span></div>
-      </div>
-      ${Object.keys(byKind).length ? `
-      <table>
-        <tr><th>Type</th><th>Items</th></tr>
-        ${Object.entries(byKind).map(([k, n]) => `<tr><td>${k}</td><td>${n}</td></tr>`).join('')}
-      </table>` : '<div class="empty">No content yet</div>'}
-    </div>
-
-    <div class="card">
-      <h3>Conversations by mode</h3>
-      ${Object.keys(modeCounts).length ? `
-      <table>
-        <tr><th>Mode</th><th>Conversations</th></tr>
-        ${Object.entries(modeCounts).map(([k, n]) => `<tr><td>${k}</td><td>${n}</td></tr>`).join('')}
-      </table>` : '<div class="empty">No conversations yet</div>'}
-    </div>
-
-    <div class="card">
-      <h3>Recent purchases</h3>
-      ${recentPurchases.length ? `
-      <table>
-        <tr><th>When</th><th>Amount</th></tr>
-        ${recentPurchases.map(x => `<tr><td>${new Date(x.purchased_at).toLocaleString()}</td><td>${parseFloat(x.price_paid_ton || 0).toFixed(4)} TON</td></tr>`).join('')}
-      </table>` : '<div class="empty">No purchases yet</div>'}
-    </div>
-  `;
+      <div class="thread" id="thread"><div class="thread-empty">${empty('message','Pick a conversation','Choose a chat on the left to read the thread and reply.')}</div></div>
+    </section>`);
+  loadConversations();
 }
-
-// Helper functions
-function renderPagination(totalPages, currentPage, type) {
-  let html = `
-    <button onclick="changePage('${type}', ${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>← Prev</button>
-    <span>Page ${currentPage} of ${totalPages}</span>
-    <button onclick="changePage('${type}', ${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}>Next →</button>
-  `;
-  
-  if (totalPages <= 7) {
-    for (let i = 1; i <= totalPages; i++) {
-      html += `<button onclick="changePage('${type}', ${i})" class="${i === currentPage ? 'active' : ''}">${i}</button>`;
+let convCache = [];
+async function loadConversations(){
+  const el = $('#conv-list'); if(!el) return;
+  const page = state.pages.inbox || 1;
+  el.innerHTML = spinner('Loading conversations…'); $('#conv-pager').innerHTML = '';
+  try{
+    const { rows, count } = await Data.list('conversations', { page, select:'*, customers(username, first_name)', order:'last_message_at', match: state.inboxFilter ? { state:state.inboxFilter } : null });
+    convCache = rows;
+    $('#conv-count').textContent = count ? `${count} chat${count===1?'':'s'}` : '';
+    el.innerHTML = rows.length ? rows.map(c => `
+      <button type="button" class="conv" data-act="open-conv" data-id="${c.id}" aria-current="${state.inbox.active===c.id}">
+        <div class="avatar">${esc(nameOf(c.customers)[0].toUpperCase())}</div>
+        <div class="c-body"><div class="c-top"><b>${esc(nameOf(c.customers))}</b><span>${ago(c.last_message_at)}</span></div>
+          <p>${c.state==='closed'?'<span class="muted">Closed · </span>':''}${esc(c.summary || c.customer_ref || 'No messages yet')}</p></div>
+      </button>`).join('')
+      : empty('inbox', state.inboxFilter ? `No ${state.inboxFilter} chats` : 'Your inbox is empty', state.inboxFilter ? 'Try another filter.' : 'When fans message your connected Telegram accounts, their chats land here.');
+    $('#conv-pager').innerHTML = pager('inbox', page, count);
+  }catch(e){ el.innerHTML = errorState(e,'inbox'); }
+}
+async function openConversation(id){
+  const conv = convCache.find(c => c.id === id); if(!conv) return;
+  state.inbox.active = id;
+  document.querySelectorAll('.conv').forEach(b => b.setAttribute('aria-current', b.dataset.id===id));
+  $('#inbox').dataset.open = 'true';
+  const who = nameOf(conv.customers);
+  $('#thread').innerHTML = `
+    <div class="thread-head">
+      <button class="icon-btn back-btn" data-act="close-thread" aria-label="Back to conversations">${ic('left')}</button>
+      <div class="avatar">${esc(who[0].toUpperCase())}</div>
+      <div><b>${esc(who)}</b><small>@${esc(conv.customers?.username||'unknown')}</small></div>
+      <div class="end">${conv.state==='closed'?'<span class="pill draft">Closed</span>':'<span class="pill ok">Open</span>'}
+        <button class="act" data-act="conv-status" data-id="${conv.id}">${ic(conv.state==='closed'?'refresh':'check')}${conv.state==='closed'?'Reopen':'Close'}</button>
+        <button class="act danger" data-act="conv-del" data-id="${conv.id}" title="Delete conversation">${ic('trash')}</button></div>
+    </div>
+    <div class="msgs" id="msgs">${spinner('Loading messages…')}</div>
+    <form class="composer" data-form="reply" data-id="${conv.id}">
+      <label for="reply-text" class="sr" hidden>Reply</label>
+      <input class="input" id="reply-text" name="text" placeholder="Reply as yourself…" autocomplete="off" required maxlength="4096">
+      <button class="btn primary" type="submit">${ic('send')}Send</button>
+    </form>`;
+  try{
+    const msgs = await Data.messages(id);
+    let lastDay = '';
+    $('#msgs').innerHTML = msgs.length ? msgs.map(m => {
+      const day = new Date(m.sent_at).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
+      const sep = day !== lastDay ? `<span class="day-sep">${day}</span>` : ''; lastDay = day;
+      return `${sep}<div class="bubble ${m.direction==='out'?'out':'in'}">${esc(m.body_preview)}<time>${m.sender==='ai'?'<span class="ai">AI</span>':''}${fmtTime(m.sent_at)}</time></div>`;
+    }).join('') : `<div class="thread-empty">${empty('message','No messages','Say hello to start the conversation.')}</div>`;
+    const box = $('#msgs'); box.scrollTop = box.scrollHeight;
+    if(conv.unread_count){
+      conv.unread_count = 0;
+      document.querySelector(`.conv[data-id="${id}"]`)?.classList.remove('is-unread');
+      document.querySelector(`.conv[data-id="${id}"] .unread`)?.remove();
+      if(!state.demo) state.sb.from('conversations').update({ unread_count:0 }).eq('id', id).eq('creator_id', uid());
+      setUnread(Math.max(0, (state.unread||1) - 1));
     }
-  } else {
-    html += `<button onclick="changePage('${type}', 1)" class="${1 === currentPage ? 'active' : ''}">1</button>`;
-    if (currentPage > 3) html += `<span>...</span>`;
-    for (let i = Math.max(2, currentPage - 1); i <= Math.min(totalPages - 1, currentPage + 1); i++) {
-      html += `<button onclick="changePage('${type}', ${i})" class="${i === currentPage ? 'active' : ''}">${i}</button>`;
-    }
-    if (currentPage < totalPages - 2) html += `<span>...</span>`;
-    html += `<button onclick="changePage('${type}', ${totalPages})" class="${totalPages === currentPage ? 'active' : ''}">${totalPages}</button>`;
-  }
-  
-  return html;
+  }catch(e){ $('#msgs').innerHTML = errorState(e,'inbox'); }
 }
 
-window.changePage = function(type, page) {
-  currentPage[type] = page;
-  
-  if (type === 'conversations') loadConversations();
-  else if (type === 'content') loadContent();
-  else if (type === 'bundles') loadBundles();
+/* ---------- Library ---------- */
+async function renderLibrary(){
+  setView(`
+    ${secHead('Everything you can sell in Telegram. Drafts stay hidden from fans and the AI until you activate them.', `<button class="btn primary" data-act="lib-new">${ic('plus')}New item</button>`)}
+    <div class="split">
+      <section class="panel">
+        <div class="panel-head"><div class="tabs" role="tablist">
+          ${[['','All'],['video','Video'],['image','Images'],['document','Documents']].map(([v,l])=>`<button type="button" role="tab" data-act="lib-type" data-type="${v}" aria-selected="${state.libType===v}">${l}</button>`).join('')}
+        </div><span class="end muted" id="lib-count"></span></div>
+        <div class="table-wrap" id="lib-table">${spinner('Loading library…')}</div>
+        <div id="lib-pager"></div>
+      </section>
+      <aside class="panel form-panel" id="lib-form-wrap">${libForm()}</aside>
+    </div>`);
+  loadLibrary();
+}
+function libForm(item=null){
+  const t = item?.kind || 'video';
+  return `<div class="panel-head form-title"><h2>${item?'Edit item':'New content item'}</h2>${item?pill(item.visible,'Live','Hidden','draft'):''}</div>
+  <form class="form panel-body" data-form="media" data-id="${item?.id||''}" autocomplete="off">
+    <div class="field"><label for="md-title">Title</label><input class="input" id="md-title" name="title" required maxlength="120" value="${esc(item?.title||'')}" placeholder="Lisbon golden hour — raw set"></div>
+    <div class="field"><span class="flabel">Type</span><div class="seg" role="radiogroup">
+      ${['video','image','document'].map(v=>`<input type="radio" name="kind" id="md-type-${v}" value="${v}" ${t===v?'checked':''}><label for="md-type-${v}">${ic(typeIcon(v))}${v[0].toUpperCase()+v.slice(1)}</label>`).join('')}
+    </div></div>
+    <div class="field"><label for="md-price">Price</label><div class="input-affix"><input class="input mono" id="md-price" name="price_ton" type="number" min="0" step="0.1" value="${item?.price_ton ?? ''}" placeholder="9.5"><span>TON</span></div></div>
+    <div class="field"><label for="md-file">File</label><input class="input" id="md-file" name="file" type="file" accept="video/*,image/*,audio/*,.zip,.pdf"><span class="hint">${item?'Leave empty to keep the current file.':'Stored in content-store; the bot delivers it after payment.'}</span></div>
+    <div class="field"><label for="md-desc">Description</label><textarea class="input" id="md-desc" name="description" maxlength="280" style="min-height:64px" placeholder="What fans get.">${esc(item?.description||'')}</textarea></div>
+    <label class="switch" for="md-visible"><input type="checkbox" id="md-visible" name="visible" ${item?.visible ?? true ?'checked':''}><span class="track"></span><span>Visible<small>Visible to fans and the AI</small></span></label>
+    <div class="form-actions"><button class="btn primary" type="submit">${ic('check')}${item?'Save changes':'Add to library'}</button>${item?`<button class="btn" type="button" data-act="lib-new">Cancel</button>`:''}</div>
+  </form>`;
+}
+let libCache = [];
+async function loadLibrary(){
+  const el = $('#lib-table'); if(!el) return;
+  const page = state.pages.library || 1;
+  el.innerHTML = spinner('Loading library…'); $('#lib-pager').innerHTML = '';
+  try{
+    const { rows, count } = await Data.list('media_items', { page, match: state.libType ? { type:state.libType } : null });
+    libCache = rows;
+    $('#lib-count').textContent = count ? `${count} item${count===1?'':'s'}` : '';
+    el.innerHTML = rows.length ? `<table><thead><tr><th>Item</th><th>Type</th><th class="num">Price</th><th>Status</th><th>Added</th><th class="num">Actions</th></tr></thead><tbody>
+      ${rows.map(m => `<tr>
+        <td><div class="cell-main"><div class="thumb ${m.type}">${ic(typeIcon(m.type))}</div><div><b>${esc(m.title)}</b><small>${m.size_mb?`${fmtNum(m.size_mb)} MB`:'—'}</small></div></div></td>
+        <td style="text-transform:capitalize">${esc(m.type)}</td>
+        <td class="num"><span class="price">${fmtTon(m.price_ton,false)}<small>TON</small></span></td>
+        <td>${pill(m.visible,'Live','Hidden','draft')}</td>
+        <td class="muted">${ago(m.created_at)}</td>
+        <td><div class="row-actions">
+          <button class="act" data-act="lib-toggle" data-id="${m.id}" data-on="${m.visible?1:0}">${ic('power')}${m.visible?'Hide':'Show'}</button>
+          <button class="act" data-act="lib-edit" data-id="${m.id}" title="Edit">${ic('edit')}</button>
+          <button class="act danger" data-act="lib-del" data-id="${m.id}" title="Delete">${ic('trash')}</button>
+        </div></td></tr>`).join('')}</tbody></table>`
+      : empty('layers', state.libType ? `No ${state.libType} items` : 'Your library is empty', state.libType ? 'Switch filters or add something new.' : 'Upload your first video, image set or guide, then bundle it for sale.', `<button class="btn sm primary" data-act="focus" data-target="md-title">${ic('plus')}Add your first item</button>`);
+    $('#lib-pager').innerHTML = pager('library', page, count);
+  }catch(e){ el.innerHTML = errorState(e,'library'); }
 }
 
-window.openConversation = async function(convId) {
-  const { data: conv } = await sb.from('conversations').select('*').eq('id', convId).single();
-  const { data: msgs } = await sb.from('messages')
-    .select('*')
-    .eq('conversation_id', convId)
-    .order('sent_at', { ascending: true })
-    .limit(50);
-  
-  document.getElementById('conversationView').style.display = 'block';
-  document.getElementById('conversationView').innerHTML = `
-    <h3>Conversation: ${conv.customer_ref}</h3>
-    <div style="max-height: 400px; overflow-y: auto; border: 1px solid var(--rule); padding: 16px; margin-bottom: 16px; background: var(--paper); border-radius: 8px;">
-      ${msgs?.map(m => `
-        <div class="msg ${m.direction === 'in' ? 'in' : 'out'}">
-          <strong>${m.sender || (m.direction === 'in' ? 'Customer' : 'Bot')}</strong>: ${m.body_preview || '(media)'}
-          <span class="meta">${new Date(m.sent_at).toLocaleString()}</span>
+/* ---------- Bundles ---------- */
+async function renderBundles(){
+  setView(`
+    ${secHead('Group library items into one priced offer. Fans pay in TON and receive every item in the bundle.', `<button class="btn primary" data-act="bun-new">${ic('plus')}New bundle</button>`)}
+    <div class="split">
+      <section class="panel"><div class="panel-head"><h2>All bundles</h2><span class="end muted" id="bun-count"></span></div>
+        <div class="table-wrap" id="bun-table">${spinner('Loading bundles…')}</div><div id="bun-pager"></div></section>
+      <aside class="panel form-panel" id="bun-form-wrap">${spinner('Loading library…')}</aside>
+    </div>`);
+  loadBundles(); fillBundleForm();
+}
+let bunCache = [];
+async function fillBundleForm(b=null){
+  const wrap = $('#bun-form-wrap'); if(!wrap) return;
+  let media = [];
+  try{ media = await Data.mediaOptions(); }catch(e){ wrap.innerHTML = errorState(e,'bundles'); return; }
+  const chosen = new Set((b?.bundle_items||[]).map(i => i.media_id));
+  wrap.innerHTML = `<div class="panel-head form-title"><h2>${b?'Edit bundle':'New bundle'}</h2>${b?pill(b.active):''}</div>
+  <form class="form panel-body" data-form="bundle" data-id="${b?.id||''}" autocomplete="off">
+    <div class="field"><label for="bu-name">Name</label><input class="input" id="bu-name" name="name" required maxlength="80" value="${esc(b?.name||'')}" placeholder="Lisbon Light — complete set"></div>
+    <div class="field"><label for="bu-desc">Description</label><textarea class="input" id="bu-desc" name="description" maxlength="280" style="min-height:76px" placeholder="What fans get, in one or two lines.">${esc(b?.description||'')}</textarea></div>
+    <div class="field"><label for="bu-price">Price</label><div class="input-affix"><input class="input mono" id="bu-price" name="price_ton" type="number" min="0" step="0.5" required value="${b?.price_ton ?? ''}" placeholder="32"><span>TON</span></div>
+      <span class="hint" id="bu-sum"></span></div>
+    <div class="field"><span class="flabel">Items <span class="muted" id="bu-n">(${chosen.size} selected)</span></span>
+      ${media.length ? `<div class="checklist" id="bu-items">${media.map(m=>`<label><input type="checkbox" name="items" value="${m.id}" ${chosen.has(m.id)?'checked':''} data-price="${m.price_ton}">${ic(typeIcon(m.kind))}<span class="t">${esc(m.title)}</span><span class="p">${fmtTon(m.price_ton,false)}</span></label>`).join('')}</div>`
+      : `<div class="hint">Add items to your <a href="#library">library</a> first.</div>`}</div>
+    <label class="switch" for="bu-active"><input type="checkbox" id="bu-active" name="active" ${b?.active??true?'checked':''}><span class="track"></span><span>Active<small>Fans can buy it in Telegram</small></span></label>
+    <div class="form-actions"><button class="btn primary" type="submit">${ic('check')}${b?'Save changes':'Create bundle'}</button>${b?`<button class="btn" type="button" data-act="bun-new">Cancel</button>`:''}</div>
+  </form>`;
+  updateBundleSum();
+}
+function updateBundleSum(){
+  const boxes = [...document.querySelectorAll('#bu-items input:checked')];
+  const sum = boxes.reduce((s,b)=>s+Number(b.dataset.price||0),0);
+  const n = $('#bu-n'); if(n) n.textContent = `(${boxes.length} selected)`;
+  const price = Number($('#bu-price')?.value || 0), h = $('#bu-sum'); if(!h) return;
+  h.textContent = boxes.length ? `Items sold separately: ${fmtTon(sum)}${price && sum>price ? ` · fans save ${Math.round((1-price/sum)*100)}%` : ''}` : '';
+}
+async function loadBundles(){
+  const el = $('#bun-table'); if(!el) return;
+  const page = state.pages.bundles || 1;
+  el.innerHTML = spinner('Loading bundles…'); $('#bun-pager').innerHTML = '';
+  try{
+    const { rows, count } = await Data.list('content_bundles', { page, select:'*, bundle_items(media_item_id), bundle_purchases(amount_ton)' });
+    bunCache = rows;
+    $('#bun-count').textContent = count ? `${count} bundle${count===1?'':'s'}` : '';
+    el.innerHTML = rows.length ? `<table><thead><tr><th>Bundle</th><th class="num">Items</th><th class="num">Price</th><th class="num">Sales</th><th class="num">Revenue</th><th>Status</th><th class="num">Actions</th></tr></thead><tbody>
+      ${rows.map(b => { const sales=(b.bundle_purchases||[]); const rev=sales.reduce((s,p)=>s+Number(p.amount_ton||0),0); return `<tr>
+        <td><div class="cell-main"><div class="thumb video">${ic('package')}</div><div><b>${esc(b.name)}</b><small style="font-family:var(--f-ui)">${esc((b.description||'').slice(0,48))}${(b.description||'').length>48?'…':''}</small></div></div></td>
+        <td class="num mono">${(b.bundle_items||[]).length}</td>
+        <td class="num"><span class="price">${fmtTon(b.price_ton,false)}<small>TON</small></span></td>
+        <td class="num mono">${sales.length}</td>
+        <td class="num"><span class="price">${fmtTon(rev,false)}<small>TON</small></span></td>
+        <td>${pill(b.active)}</td>
+        <td><div class="row-actions">
+          <button class="act" data-act="bun-toggle" data-id="${b.id}" data-on="${b.active?1:0}">${ic('power')}${b.active?'Deactivate':'Activate'}</button>
+          <button class="act" data-act="bun-edit" data-id="${b.id}" title="Edit">${ic('edit')}</button>
+          <button class="act danger" data-act="bun-del" data-id="${b.id}" title="Delete">${ic('trash')}</button>
+        </div></td></tr>`; }).join('')}</tbody></table>`
+      : empty('package','No bundles yet','Pick a few library items, set a TON price and start selling in DMs.', `<button class="btn sm primary" data-act="focus" data-target="bu-name">${ic('plus')}Create a bundle</button>`);
+    $('#bun-pager').innerHTML = pager('bundles', page, count);
+  }catch(e){ el.innerHTML = errorState(e,'bundles'); }
+}
+
+/* ---------- AI Personality ---------- */
+const TONES = { warm:['Warm','Friendly, personal, a little chatty'], playful:['Playful','Light jokes, emoji, high energy'], professional:['Professional','Polite, precise, no slang'], concise:['Concise','Short answers, straight to the point'] };
+async function renderAI(){
+  setView(`${secHead('How your assistant talks to fans when you are away. Changes apply to new replies straight away.')}<div id="ai-body">${spinner('Loading personality…')}</div>`);
+  let p;
+  try{ p = await Data.getAI(); }catch(e){ $('#ai-body').innerHTML = `<div class="panel">${errorState(e,'ai')}</div>`; return; }
+  p = p || { display_name:'', tone:'warm', system_prompt:'', first_contact_line:'', disclose_on_first_contact:false, enabled:false };
+  p.persona_name = p.display_name || p.persona_name || '';
+  $('#ai-body').innerHTML = `<div class="ai-wrap">
+    <form class="panel" data-form="ai" autocomplete="off">
+      <div class="panel-head"><h2>Persona</h2><span class="end">${p.enabled?'<span class="pill ok">Enabled</span>':'<span class="pill off">Disabled</span>'}</span></div>
+      <div class="form panel-body">
+        <div class="row2">
+          <div class="field"><label for="ai-name">Assistant name</label><input class="input" id="ai-name" name="persona_name" maxlength="40" value="${esc(p.persona_name)}" placeholder="Mara"></div>
+          <div class="field"><label for="ai-first">First contact line</label><input class="input" id="ai-first" name="first_contact_line" maxlength="120" value="${esc(p.first_contact_line||'')}" placeholder="hey, I'm around…"><span class="hint">Sent to brand-new chats (optional).</span></div>
         </div>
-      `).join('') || '<div class="empty">No messages</div>'}
-    </div>
-    <div class="flex">
-      <input type="text" id="replyText" placeholder="Type a reply..." style="margin-bottom: 0; flex: 1">
-      <button class="btn" onclick="sendReply('${convId}')">Send</button>
-    </div>
-    <div class="mt">
-      <label>Conversation Mode</label>
-      <select id="convMode" onchange="updateMode('${convId}', this.value)">
-        <option value="ai" ${conv.mode === 'ai' ? 'selected' : ''}>AI Auto-reply</option>
-        <option value="assisted" ${conv.mode === 'assisted' ? 'selected' : ''}>Assisted (draft)</option>
-        <option value="human" ${conv.mode === 'human' ? 'selected' : ''}>Human Only</option>
-      </select>
-    </div>
-  `;
-  
-  // Scroll to bottom
-  const msgContainer = document.getElementById('conversationView').querySelector('div[style*="max-height"]');
-  if (msgContainer) msgContainer.scrollTop = msgContainer.scrollHeight;
-};
-
-window.sendReply = async function(convId) {
-  const text = document.getElementById('replyText').value;
-  if (!text) return;
-  
-  await sb.from('messages').insert({
-    conversation_id: convId,
-    creator_id: currentCreator.id,
-    direction: 'out',
-    sender: 'human',
-    kind: 'text',
-    body_preview: text,
-    delivered: true,
-  });
-  
-  document.getElementById('replyText').value = '';
-  window.openConversation(convId);
-  showToast('Reply sent');
-};
-
-window.updateMode = async function(convId, mode) {
-  await sb.from('conversations').update({ mode, mode_changed_at: new Date().toISOString() }).eq('id', convId);
-  showToast('Mode updated');
-};
-
-window.uploadContent = async function() {
-  const title = document.getElementById('contentTitle').value.trim();
-  const desc = document.getElementById('contentDesc').value.trim();
-  const priceTon = document.getElementById('contentPriceTon').value;
-  const visible = document.getElementById('contentVisible').checked;
-  const file = document.getElementById('contentFile').files[0];
-
-  if (!title) { showToast('Title is required'); return; }
-  if (!file) { showToast('Choose a file to upload'); return; }
-
-  showToast('Uploading…');
-
-  // figure out kind from file type
-  const t = file.type || '';
-  const kind = t.startsWith('video/') ? 'video'
-    : t.startsWith('image/') ? 'image'
-    : t.startsWith('audio/') ? 'audio'
-    : 'document';
-
-  // upload to storage: content-store/<creator_id>/<timestamp>-<filename>
-  const safeName = file.name.replace(/[^\w.\-]/g, '_');
-  const path = `${currentCreator.id}/${Date.now()}-${safeName}`;
-
-  const { error: upErr } = await sb.storage
-    .from('content-store')
-    .upload(path, file, { contentType: file.type || 'application/octet-stream' });
-
-  if (upErr) { showToast('Upload failed: ' + upErr.message); return; }
-
-  const { error } = await sb.from('media_items').insert({
-    creator_id: currentCreator.id,
-    title,
-    description: desc || null,
-    kind,
-    media_key: path,
-    media_type: file.type || 'application/octet-stream',
-    media_size: file.size,
-    price_ton: priceTon ? parseFloat(priceTon) : null,
-    visible,
-  });
-
-  if (error) { showToast('Save failed: ' + error.message); return; }
-
-  showToast('Content uploaded');
-  document.getElementById('contentTitle').value = '';
-  document.getElementById('contentDesc').value = '';
-  document.getElementById('contentPriceTon').value = '';
-  document.getElementById('contentFile').value = '';
-  loadContent();
-};
-
-window.toggleContentVisibility = async function(id, visible) {
-  await sb.from('media_items').update({ visible }).eq('id', id);
-  showToast(visible ? 'Content visible' : 'Content hidden');
-  loadContent();
-};
-
-window.deleteContent = async function(id) {
-  if (!confirm('Delete this content?')) return;
-  const { data: item } = await sb.from('media_items').select('media_key').eq('id', id).single();
-  if (item?.media_key) {
-    await sb.storage.from('content-store').remove([item.media_key]).catch(() => {});
-  }
-  await sb.from('media_items').delete().eq('id', id);
-  showToast('Content deleted');
-  loadContent();
-};
-
-window.createBundle = async function() {
-  const name = document.getElementById('bundleName').value.trim();
-  const desc = document.getElementById('bundleDesc').value.trim();
-  const priceTon = document.getElementById('bundlePriceTon').value;
-  const priceUsd = document.getElementById('bundlePriceUsd').value;
-
-  const picked = Array.from(document.querySelectorAll('.bundle-pick:checked')).map(cb => cb.value);
-
-  if (!name || !priceTon) { showToast('Name and price are required'); return; }
-  if (!picked.length) { showToast('Pick at least one content item'); return; }
-
-  const { data: bundle, error } = await sb.from('content_bundles').insert({
-    creator_id: currentCreator.id,
-    name,
-    description: desc || null,
-    price_ton: parseFloat(priceTon),
-    price_usd: priceUsd ? parseFloat(priceUsd) : null,
-    active: true,
-  }).select('id').single();
-
-  if (error || !bundle) { showToast('Save failed: ' + (error?.message || 'unknown')); return; }
-
-  const rows = picked.map((mediaId, i) => ({ bundle_id: bundle.id, media_id: mediaId, position: i + 1 }));
-  const { error: itemsErr } = await sb.from('bundle_items').insert(rows);
-  if (itemsErr) { showToast('Bundle created but items failed: ' + itemsErr.message); return; }
-
-  showToast('Bundle created');
-  document.getElementById('bundleName').value = '';
-  document.getElementById('bundleDesc').value = '';
-  document.getElementById('bundlePriceTon').value = '';
-  document.getElementById('bundlePriceUsd').value = '';
-  document.querySelectorAll('.bundle-pick').forEach(cb => cb.checked = false);
-  loadBundles();
-  loadContent();
-};
-
-window.toggleBundle = async function(id, active) {
-  await sb.from('content_bundles').update({ active }).eq('id', id);
-  showToast(active ? 'Bundle activated' : 'Bundle deactivated');
-  loadBundles();
-};
-
-window.saveAISettings = async function() {
-  const payload = {
-    creator_id: currentCreator.id,
-    display_name: document.getElementById('aiPersona').value,
-    tone: document.getElementById('aiTone').value,
-    system_prompt: document.getElementById('aiSystemPrompt').value,
-    first_contact_line: document.getElementById('aiFirstContact')?.value || null,
-    disclose_on_first_contact: document.getElementById('aiDisclose')?.checked || false,
-    wallet_address: document.getElementById('tonWallet')?.value || null,
-    enabled: true,
+        <div class="field"><span class="flabel">Tone</span><div class="tone-list" role="radiogroup">
+          ${Object.entries(TONES).map(([k,[t,d]])=>`<input type="radio" name="tone" id="ai-tone-${k}" value="${k}" ${p.tone===k?'checked':''}><label for="ai-tone-${k}"><b>${t}</b><span>${d}</span></label>`).join('')}
+        </div></div>
+        <div class="field"><label for="ai-prompt">Instructions</label>
+          <textarea class="input" id="ai-prompt" name="system_prompt" maxlength="2000" rows="6" placeholder="Who you are, what you sell, and what the assistant must never promise.">${esc(p.system_prompt||'')}</textarea>
+          <div class="counter"><span id="ai-chars">${(p.system_prompt||'').length}</span> / 2000</div></div>
+        <label class="switch" for="ai-disclose"><input type="checkbox" id="ai-disclose" name="disclose_on_first_contact" ${p.disclose_on_first_contact?'checked':''}><span class="track"></span><span>Tell fans it's an AI<small>One line on first contact. Off = the bot replies as you, undetectable.</small></span></label>
+        <label class="switch" for="ai-enabled"><input type="checkbox" id="ai-enabled" name="enabled" ${p.enabled?'checked':''}><span class="track"></span><span>Assistant enabled<small>Master switch for every connected account</small></span></label>
+        <div class="form-actions"><button class="btn primary" type="submit">${ic('check')}Save personality</button></div>
+      </div>
+    </form>
+    <aside class="panel preview"><div class="panel-head"><h2>Preview</h2><span class="end muted">Sample reply</span></div>
+      <div class="phone" id="ai-preview"></div></aside>
+  </div>`;
+  updateAIPreview();
+}
+function updateAIPreview(){
+  const f = $('form[data-form="ai"]'), box = $('#ai-preview'); if(!f || !box) return;
+  const name = f.persona_name.value.trim() || 'Your assistant', tone = f.tone.value, on = f.enabled.checked, up = false;
+  const replies = {
+    warm:`Hi! So glad you like the Lisbon shots 💛 The blues come from my Lisbon preset — happy to point you to it.`,
+    playful:`Ahh thank you!! 🌊✨ Those blues are pure Lisbon magic (and one very good preset 😉)`,
+    professional:`Thank you for your message. The colour work in the Lisbon series uses a custom preset, available in the shop.`,
+    concise:`Thanks! It's my Lisbon preset.`
   };
+  const sell = up ? `<div class="bubble out">The <b>Lisbon Light</b> bundle has the preset plus 40 raw files — 32 TON.<time><span class="ai">AI</span>now</time></div>` : '';
+  box.innerHTML = `<span class="day-sep">Today</span>
+    <div class="bubble in">How do you get those blues in your Lisbon photos?<time>${fmtTime(new Date().toISOString())}</time></div>
+    ${on ? `<div class="bubble out">${esc(replies[tone]||replies.warm)}<time><span class="ai">AI · ${esc(name)}</span>now</time></div>${sell}`
+         : `<div class="day-sep">Assistant is off — you'll reply manually</div>`}`;
+}
 
-  const { error } = await sb.from('ai_profiles')
-    .upsert(payload, { onConflict: 'creator_id' });
+/* ---------- TON Wallet ---------- */
+async function renderWallet(){
+  const ai = await Data.getAI().catch(() => null);
+  const c = { ...(state.creator || {}), ton_wallet: ai?.wallet_address || '' };
+  setView(`
+    ${secHead('Where your share of every sale is paid out. Payouts go to this TON address only.')}
+    <div class="wallet-grid">
+      <div style="display:flex;flex-direction:column;gap:20px;min-width:0">
+        <section class="panel"><div class="panel-head"><h2>Payout address</h2><span class="end">${c.ton_wallet?'<span class="pill ok">Verified format</span>':'<span class="pill warn">Not set</span>'}</span></div>
+          <form class="form panel-body" data-form="wallet" autocomplete="off">
+            ${c.ton_wallet?`<div class="addr">${ic('wallet')}<span id="addr-text">${esc(c.ton_wallet)}</span><button type="button" class="act" data-act="copy-addr" title="Copy address">${ic('copy')}Copy</button></div>`:''}
+            <div class="field"><label for="w-addr">${c.ton_wallet?'Change address':'TON address'}</label>
+              <input class="input mono" id="w-addr" name="ton_wallet" spellcheck="false" placeholder="UQ… or EQ… (48 characters)" value="">
+              <span class="hint" id="w-hint">User-friendly format, starting UQ (non-bounceable) or EQ. Check it twice — TON transfers can't be reversed.</span></div>
+            <div class="form-actions"><button class="btn primary" type="submit">${ic('check')}Save address</button></div>
+          </form></section>
+        <section class="panel"><div class="panel-head"><h2>Recent sales</h2><span class="end muted" id="w-count"></span></div>
+          <div class="table-wrap" id="w-sales">${spinner('Loading sales…')}</div></section>
+      </div>
+      <section class="panel"><div class="panel-head"><h2>Plan & revenue split</h2></div>
+        <div class="panel-body">
+          <div style="display:flex;align-items:baseline;gap:10px"><b style="font-size:22px;letter-spacing:-.02em">${esc(c.plan||'Free')}</b><span class="muted">plan</span></div>
+          <div class="split-bar" aria-hidden="true"><i style="width:${Number(c.split_pct??80)}%"></i><em style="width:${100-Number(c.split_pct??80)}%"></em></div>
+          <div class="split-legend"><span>You <b>${Number(c.split_pct??80)}%</b></span><span>Platform <b>${100-Number(c.split_pct??80)}%</b></span></div>
+        </div>
+        <div class="earn" id="w-earn">${spinner('')}</div>
+      </section>
+    </div>`);
+  try{
+    const sales = await Data.earnings();
+    const gross = sales.reduce((s,p)=>s+Number(p.price_paid_ton||0),0), share = Number(c.split_pct??80)/100;
+    $('#w-earn').innerHTML = `<div><span>Gross sales</span><b>${fmtTon(gross,false)}</b></div><div class="yours"><span>Your share</span><b>${fmtTon(gross*share,false)}</b></div><div><span>Platform fee</span><b>${fmtTon(gross*(1-share),false)}</b></div>`;
+    $('#w-count').textContent = sales.length ? `${sales.length} total` : '';
+    const recent = sales.slice(0,10);
+    $('#w-sales').innerHTML = recent.length ? `<table><thead><tr><th>Bundle</th><th class="num">Amount</th><th class="num">Your share</th><th>When</th></tr></thead><tbody>
+      ${recent.map(p=>`<tr><td><b style="font-weight:550">${esc(p.content_bundles?.name||'Bundle')}</b></td>
+        <td class="num"><span class="price">${fmtTon(p.price_paid_ton,false)}<small>TON</small></span></td>
+        <td class="num"><span class="price" style="color:var(--ok)">+${fmtTon(p.price_paid_ton*share,false)}</span></td><td class="muted">${ago(p.purchased_at)}</td></tr>`).join('')}</tbody></table>`
+      : empty('coin','No sales yet','Your share of each bundle sale will be listed here.');
+  }catch(e){ $('#w-sales').innerHTML = errorState(e,'wallet'); $('#w-earn').innerHTML=''; }
+}
 
-  if (error) { showToast('Save failed: ' + error.message); return; }
-  showToast('AI settings saved');
+/* ============================================================
+   EVENTS
+   ============================================================ */
+const view = $('#view');
+view.addEventListener('click', async e => {
+  const a = e.target.closest('[data-act]'); if(!a) return;
+  const id = a.dataset.id, act = a.dataset.act;
+  switch(act){
+    case 'retry': route(true); break;
+    case 'focus': $('#'+a.dataset.target)?.focus(); $('#'+a.dataset.target)?.scrollIntoView({behavior:'smooth',block:'center'}); break;
+    case 'page': {
+      const k = a.dataset.key; state.pages[k] = Number(a.dataset.page);
+      ({ inbox:loadConversations, library:loadLibrary, bundles:loadBundles })[k]?.();
+      break; }
+    /* accounts */
+    case 'acc-toggle': if(await withBusy(a, () => Data.update('telegram_accounts', id, { connected: a.dataset.on!=='1' }), a.dataset.on==='1'?'Account disabled':'Account enabled')) loadAccounts(); break;
+    case 'acc-del': if(armed(a) && await withBusy(a, () => Data.remove('telegram_accounts', id), 'Account removed')) loadAccounts(); break;
+    /* inbox */
+    case 'inbox-filter': state.inboxFilter = a.dataset.f || ''; state.pages.inbox = 1;
+      document.querySelectorAll('#inbox-tabs button').forEach(b=>b.setAttribute('aria-selected', b===a)); loadConversations(); break;
+    case 'open-conv': openConversation(id); break;
+    case 'close-thread': $('#inbox').dataset.open = 'false'; break;
+    case 'conv-status': {
+      const conv = convCache.find(c=>c.id===id); const next = conv.state==='closed'?'open':'closed';
+      if(await withBusy(a, () => Data.update('conversations', id, { state:next }), next==='closed'?'Conversation closed':'Conversation reopened')){ conv.state = next; await loadConversations(); openConversation(id); }
+      break; }
+    case 'conv-del': if(armed(a) && await withBusy(a, () => Data.remove('conversations', id), 'Conversation deleted')){ state.inbox.active=null; renderInbox(); } break;
+    /* library */
+    case 'lib-type': state.libType = a.dataset.type; state.pages.library = 1;
+      a.parentElement.querySelectorAll('button').forEach(b=>b.setAttribute('aria-selected', b===a)); loadLibrary(); break;
+    case 'lib-new': $('#lib-form-wrap').innerHTML = libForm(); $('#md-title').focus(); break;
+    case 'lib-edit': $('#lib-form-wrap').innerHTML = libForm(libCache.find(m=>m.id===id)); $('#md-title').focus(); break;
+    case 'lib-toggle': if(await withBusy(a, () => Data.update('media_items', id, { visible: a.dataset.on!=='1' }), a.dataset.on==='1'?'Hidden from fans':'Item is live')) loadLibrary(); break;
+    case 'lib-del': if(armed(a) && await withBusy(a, () => Data.remove('media_items', id), 'Item deleted')){ loadLibrary(); $('#lib-form-wrap').innerHTML = libForm(); } break;
+    /* bundles */
+    case 'bun-new': fillBundleForm().then(()=>$('#bu-name')?.focus()); break;
+    case 'bun-edit': fillBundleForm(bunCache.find(b=>b.id===id)).then(()=>$('#bu-name')?.focus()); break;
+    case 'bun-toggle': if(await withBusy(a, () => Data.update('content_bundles', id, { active: a.dataset.on!=='1' }), a.dataset.on==='1'?'Bundle deactivated':'Bundle is on sale')) loadBundles(); break;
+    case 'bun-del': if(armed(a) && await withBusy(a, () => Data.remove('content_bundles', id), 'Bundle deleted')){ loadBundles(); fillBundleForm(); } break;
+    /* wallet */
+    case 'copy-addr': {
+      const t = $('#addr-text')?.textContent || '';
+      try{ await navigator.clipboard.writeText(t); toast('Address copied','success'); }
+      catch{ const r=document.createRange(); r.selectNodeContents($('#addr-text')); getSelection().removeAllRanges(); getSelection().addRange(r); toast('Address selected','info','Press ⌘C / Ctrl+C to copy.'); }
+      break; }
+  }
+});
+
+view.addEventListener('input', e => {
+  if(e.target.closest('#bu-items') || e.target.id==='bu-price') updateBundleSum();
+  if(e.target.closest('form[data-form="ai"]')){
+    if(e.target.id==='ai-prompt') $('#ai-chars').textContent = e.target.value.length;
+    updateAIPreview();
+  }
+  if(e.target.id==='w-addr'){ const v=e.target.value.trim(); e.target.classList.toggle('invalid', v.length>4 && !TON_RE.test(v)); }
+  if(e.target.classList.contains('invalid') && e.target.id!=='w-addr') e.target.classList.remove('invalid');
+});
+view.addEventListener('change', e => { if(e.target.closest('form[data-form="ai"]')) updateAIPreview(); });
+
+view.addEventListener('submit', async e => {
+  e.preventDefault();
+  const f = e.target, btn = f.querySelector('button[type="submit"]'), kind = f.dataset.form, id = f.dataset.id;
+  if(kind === 'account'){
+    const token = f.connection.value.trim();
+    const run = async () => {
+      if(!/^\d+:[\w-]+$/.test(token)) throw new Error('Enter a valid bot token from @BotFather');
+      const me = await fetch(`https://api.telegram.org/bot${token}/getMe`).then(r => r.json());
+      if(!me.ok) throw new Error('Telegram rejected that token');
+      const existing = await state.sb.from('telegram_accounts').select('id').eq('creator_id', uid()).eq('tg_user_id', me.result.id).maybeSingle();
+      if(existing.data){
+        return Data.update('telegram_accounts', existing.data.id, { connected:true });
+      }
+      return Data.saveAccount({ tg_user_id: me.result.id, username: me.result.username, first_name: me.result.first_name, connected:true });
+    };
+    if(await withBusy(btn, run, 'Account connected')){ f.reset(); f.is_enabled.checked = true; loadAccounts(); }
+  }
+  if(kind === 'media'){
+    const data = { title:f.title.value.trim(), kind:f.kind.value, price_ton:f.price_ton.value?Number(f.price_ton.value):null, description:f.description.value.trim()||null, visible:f.visible.checked };
+    if(!data.title){ f.title.classList.add('invalid'); return; }
+    const file = f.file?.files?.[0];
+    const run = async () => {
+      let media_key = null;
+      if(file){
+        const safe = file.name.replace(/[^\w.\-]/g,'_');
+        const path = `${uid()}/${Date.now()}-${safe}`;
+        const { error: upErr } = await state.sb.storage.from('content-store').upload(path, file, { contentType: file.type || 'application/octet-stream' });
+        if(upErr) throw upErr;
+        media_key = path;
+      }
+      const fields = { ...data, ...(media_key ? { media_key, media_type: file.type || 'application/octet-stream', media_size: file.size } : {}) };
+      return id ? Data.update('media_items', id, fields) : Data.insert('media_items', fields);
+    };
+    if(await withBusy(btn, run, id ? 'Changes saved' : 'Added to library')){
+      if(!id) state.pages.library = 1;
+      $('#lib-form-wrap').innerHTML = libForm(); loadLibrary();
+    }
+  }
+  if(kind === 'bundle'){
+    const items = [...f.querySelectorAll('input[name="items"]:checked')].map(i=>i.value);
+    if(!items.length){ toast('Pick at least one item','error','A bundle needs something inside it.'); return; }
+    const data = { name:f.name.value.trim(), description:f.description.value.trim()||null, price_ton:Number(f.price_ton.value), active:f.active.checked };
+    if(await withBusy(btn, () => Data.saveBundle(id||null, data, items), id ? 'Bundle updated' : 'Bundle created')){
+      if(!id) state.pages.bundles = 1;
+      fillBundleForm(); loadBundles();
+    }
+  }
+  if(kind === 'ai'){
+    const data = { display_name:f.persona_name.value.trim()||null, tone:f.tone.value, system_prompt:f.system_prompt.value.trim(),
+      first_contact_line:f.first_contact_line?.value.trim()||null, disclose_on_first_contact:f.disclose_on_first_contact?.checked||false, enabled:f.enabled.checked };
+    if(await withBusy(btn, () => Data.saveAI(data), 'Personality saved')) renderAI();
+  }
+  if(kind === 'wallet'){
+    const v = f.ton_wallet.value.trim();
+    if(!TON_RE.test(v)){ f.ton_wallet.classList.add('invalid'); toast("That isn't a valid TON address", 'error', 'Expect 48 characters starting with UQ or EQ.'); return; }
+    if(await withBusy(btn, async () => { await Data.saveAI({ wallet_address:v }); state.creator = { ...state.creator, ton_wallet:v }; }, 'Payout address saved')) renderWallet();
+  }
+  if(kind === 'reply'){
+    const conv = convCache.find(c=>c.id===id), text = f.text.value.trim(); if(!text) return;
+    const m = await withBusy(btn, () => Data.sendMessage(conv, text), null);
+    if(m){
+      f.reset();
+      const box = $('#msgs'); box.querySelector('.thread-empty')?.remove();
+      box.insertAdjacentHTML('beforeend', `<div class="bubble out fade-in">${esc(text)}<time>${fmtTime(new Date().toISOString())}</time></div>`);
+      box.scrollTop = box.scrollHeight;
+      const row = document.querySelector(`.conv[data-id="${id}"] p`); if(row) row.textContent = text;
+      if(state.demo) toast('Reply sent', 'success', 'Sample data — resets when you reload.');
+    }
+  }
+});
+
+/* ---------- shell: routing, sidebar, header ---------- */
+function setUnread(n){ state.unread = n; const b = $('#nav-unread'); b.hidden = !n; b.textContent = n; }
+function route(force=false){
+  const sec = (location.hash || '#overview').slice(1);
+  const key = SECTIONS[sec] ? sec : 'overview';
+  if(!force && key === state.section && $('#view').children.length) return;
+  state.section = key;
+  document.querySelectorAll('#nav a').forEach(a => a.dataset.sec === key ? a.setAttribute('aria-current','page') : a.removeAttribute('aria-current'));
+  $('#crumb-title').textContent = SECTIONS[key].title;
+  $('#crumb-group').textContent = SECTIONS[key].group;
+  document.title = `${SECTIONS[key].title} · Creator Console`;
+  $('#app').dataset.drawer = 'closed'; document.querySelector('.scrim')?.remove();
+  SECTIONS[key].render();
+}
+function paintHeader(){
+  const c = state.creator || {}, email = state.session?.user?.email || c.email || 'demo';
+  $('#avatar').textContent = (c.name || email)[0].toUpperCase();
+  $('#user-email').textContent = email;
+  $('#plan-name').textContent = `${c.plan || 'Free'} plan`;
+  const sp = Number(c.split_pct ?? 80); $('#plan-split').textContent = `${sp} / ${100-sp} split`;
+  $('#admin-badge').hidden = !state.isAdmin;
+  $('#demo').hidden = !state.demo;
+  $('#sample-toggle').checked = state.sample;
+  $('#demo-note').textContent = state.sample ? 'Showing sample data so you can explore — edits stay in this tab.' : 'Showing an empty account.';
+}
+
+$('#collapse').onclick = () => { const app=$('#app'); const v = app.dataset.collapsed !== 'true'; app.dataset.collapsed = v; store.set('cc-collapsed', v); };
+$('#menu').onclick = () => {
+  const app = $('#app'); app.dataset.drawer = 'open';
+  const s = document.createElement('div'); s.className = 'scrim'; s.onclick = () => { app.dataset.drawer='closed'; s.remove(); }; document.body.appendChild(s);
 };
-
-window.finishSetup = async function() {
-  // step 3: save persona + wallet, mark wizard done
-  await window.saveAISettings();
-  showToast('Setup complete. Account is live.');
-  document.getElementById('wizardStep3').style.display = 'none';
-  document.getElementById('wizardStep1').style.display = 'block';
-  ['stepDot2', 'stepDot3'].forEach(id => document.getElementById(id).classList.remove('active'));
-  document.getElementById('stepDot1').classList.add('active');
-  document.getElementById('botToken').value = '';
-  loadAccounts();
+$('#logout').onclick = async () => {
+  if(state.sb && state.session){ await state.sb.auth.signOut(); }
+  toast('Signed out', 'info'); setTimeout(() => location.href = 'login.html', 400);
 };
+$('#sample-toggle').onchange = e => {
+  state.sample = e.target.checked; store.set('cc-sample', state.sample ? 'on' : 'off');
+  buildDemo(); paintHeader(); setUnread(DEMO.conversations.filter(c=>c.unread_count>0).length); state.pages = {}; route(true);
+  toast(state.sample ? 'Sample data on' : 'Showing an empty account', 'info');
+};
+window.addEventListener('hashchange', () => route());
+document.addEventListener('keydown', e => { if(e.key==='Escape' && $('#app').dataset.drawer==='open'){ $('#app').dataset.drawer='closed'; document.querySelector('.scrim')?.remove(); } });
 
-// wallet now saved as part of ai_profiles
-window.saveWallet = async function() { await window.saveAISettings(); };
-
-// Start
-checkAuth();
+/* ---------- boot ---------- */
+(async function boot(){
+  if(store.get('cc-collapsed') === 'true') $('#app').dataset.collapsed = 'true';
+  $('#view').innerHTML = spinner('Restoring your session…');
+  try{ await checkAuth(); }
+  catch(e){ console.error(e); toast('Could not load your profile', 'error', e.message); state.demo = true; buildDemo(); }
+  paintHeader();
+  if(state.demo) setUnread(DEMO.conversations.filter(c=>c.unread_count>0).length);
+  route(true);
+})();
 </script>
 </body>
 </html>
