@@ -1278,8 +1278,6 @@ function paintHeader(){
   $('#avatar').textContent = (c.name || email)[0].toUpperCase();
   $('#user-email').textContent = email;
   $('#admin-badge').hidden = !state.isAdmin;
-  $('#sample-toggle').checked = state.sample;
-  $('#demo-note').textContent = state.sample ? 'Showing sample data so you can explore — edits stay in this tab.' : 'Showing an empty account.';
 }
 
 $('#collapse').onclick = () => { const app=$('#app'); const v = app.dataset.collapsed !== 'true'; app.dataset.collapsed = v; store.set('cc-collapsed', v); };
@@ -1290,10 +1288,6 @@ $('#menu').onclick = () => {
 $('#logout').onclick = async () => {
   if(state.sb && state.session){ await state.sb.auth.signOut(); }
   toast('Signed out', 'info'); setTimeout(() => location.href = 'login.html', 400);
-};
-$('#sample-toggle').onchange = e => {
-  state.sample = e.target.checked; store.set('cc-sample', state.sample ? 'on' : 'off');
-  toast(state.sample ? 'Sample data on' : 'Showing an empty account', 'info');
 };
 window.addEventListener('hashchange', () => route());
 document.addEventListener('keydown', e => { if(e.key==='Escape' && $('#app').dataset.drawer==='open'){ $('#app').dataset.drawer='closed'; document.querySelector('.scrim')?.remove(); } });
