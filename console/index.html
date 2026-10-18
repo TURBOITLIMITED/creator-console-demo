@@ -452,6 +452,7 @@ input[type=range]{accent-color:var(--accent);width:100%}
       <div class="nav-group">SETTINGS</div>
       <a href="#ai" data-sec="ai" title="AI Personality"><svg class="i"><use href="#i-sparkles"/></svg><span class="nav-label">AI Personality</span></a>
       <a href="#wallet" data-sec="wallet" title="TON Wallet"><svg class="i"><use href="#i-wallet"/></svg><span class="nav-label">TON Wallet</span></a>
+      <a href="#links" data-sec="links" title="Creator Links"><svg class="i"><use href="#i-copy"/></svg><span class="nav-label">Creator Links</span></a>
     </nav>
     <div class="side-foot">
       <button class="collapse-btn" id="collapse" type="button" aria-label="Collapse sidebar"><svg class="i"><use href="#i-panel"/></svg><span class="nav-label">Collapse</span></button>
@@ -740,7 +741,8 @@ const SECTIONS = {
   library:{ title:'Library', group:'Content', render:renderLibrary },
   bundles:{ title:'Bundles', group:'Content', render:renderBundles },
   ai:{ title:'AI Personality', group:'Settings', render:renderAI },
-  wallet:{ title:'TON Wallet', group:'Settings', render:renderWallet }
+  wallet:{ title:'TON Wallet', group:'Settings', render:renderWallet },
+  links:{ title:'Creator Links', group:'Settings', render:renderLinks }
 };
 
 /* ---------- Overview ---------- */
@@ -1170,6 +1172,16 @@ view.addEventListener('click', async e => {
     case 'bun-toggle': if(await withBusy(a, () => Data.update('content_bundles', id, { active: a.dataset.on!=='1' }), a.dataset.on==='1'?'Bundle deactivated':'Bundle is on sale')) loadBundles(); break;
     case 'bun-del': if(armed(a) && await withBusy(a, () => Data.remove('content_bundles', id), 'Bundle deleted')){ loadBundles(); fillBundleForm(); } break;
     /* wallet */
+    case 'ln-copy': {
+      const { data: c } = await state.sb.from('creators').select('dashboard_token').eq('id', id).single();
+      const link = `${location.origin}/creator.html#t=${c.dashboard_token}`;
+      try{ await navigator.clipboard.writeText(link); toast('Link copied','success','Paste it into a chat with the creator.'); }
+      catch{ prompt('Copy this link:', link); }
+      break; }
+    case 'ln-new': {
+      const tok = 'ct-' + crypto.randomUUID();
+      if(await withBusy(a, () => Data.update('creators', id, { dashboard_token: tok }), 'New link created')) renderLinks();
+      break; }
     case 'copy-addr': {
       const t = $('#addr-text')?.textContent || '';
       try{ await navigator.clipboard.writeText(t); toast('Address copied','success'); }
@@ -1258,6 +1270,30 @@ view.addEventListener('submit', async e => {
     }
   }
 });
+
+/* ---------- Creator Links ---------- */
+async function renderLinks(){
+  setView(`
+    ${secHead('Each creator gets their own private link to add and remove their content. Nothing else. Regenerate a link to invalidate the old one.')}
+    <section class="panel"><div class="panel-head"><h2>Creators</h2><span class="end muted" id="ln-count"></span></div>
+      <div class="table-wrap" id="ln-table">${spinner('Loading creators…')}</div></section>`);
+  const el = $('#ln-table'); if(!el) return;
+  try{
+    const { data: rows, error } = await state.sb.from('creators').select('id, name, dashboard_token, items_total').order('created_at', { ascending: true });
+    if(error) throw error;
+    $('#ln-count').textContent = rows.length ? `${rows.length} creator${rows.length===1?'':'s'}` : '';
+    el.innerHTML = rows.length ? `<table><thead><tr><th>Creator</th><th>Content link</th><th class="num">Items</th><th class="num">Actions</th></tr></thead><tbody>
+      ${rows.map(c => `<tr>
+        <td><div class="cell-main"><div class="avatar">${esc((c.name||'?')[0].toUpperCase())}</div><div><b>${esc(c.name||c.id)}</b><small>${esc(c.id)}</small></div></div></td>
+        <td>${c.dashboard_token ? `<code style="font:12px var(--f-mono);background:var(--sunk);padding:2px 6px;border-radius:5px">…${esc(c.dashboard_token.slice(-8))}</code>` : '<span class="muted">None yet</span>'}</td>
+        <td class="num mono">${fmtNum(c.items_total||0)}</td>
+        <td><div class="row-actions">
+          ${c.dashboard_token ? `<button class="act" data-act="ln-copy" data-id="${c.id}" title="Copy link">${ic('copy')}Copy link</button>` : ''}
+          <button class="act" data-act="ln-new" data-id="${c.id}" title="Regenerate">${ic('refresh')}New link</button>
+        </div></td></tr>`).join('')}</tbody></table>`
+      : empty('send','No creators yet','Add a creator row first.');
+  }catch(e){ el.innerHTML = errorState(e,'links'); }
+}
 
 /* ---------- shell: routing, sidebar, header ---------- */
 function setUnread(n){ state.unread = n; const b = $('#nav-unread'); b.hidden = !n; b.textContent = n; }

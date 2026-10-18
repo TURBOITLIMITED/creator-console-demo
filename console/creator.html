@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>My Content</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --paper:#f7f7f6; --panel:#fff; --sunk:#f1f1ef;
+  --ink:#141519; --ink-2:#55585f; --ink-3:#8a8d95;
+  --rule:#e6e6e3; --rule-2:#efefec;
+  --accent:#3346ff; --accent-hi:#2233ee; --accent-ink:#fff; --accent-soft:#eceeff;
+  --ok:#11804a; --ok-soft:#e2f3e9; --bad:#c42f37; --bad-soft:#fbe5e6;
+  --f-ui:"Geist",ui-sans-serif,system-ui,-apple-system,sans-serif;
+  --r:8px;
+}
+@media (prefers-color-scheme: dark){:root{
+  --paper:#111215; --panel:#18191d; --sunk:#141518;
+  --ink:#ececef; --ink-2:#a6a9b1; --ink-3:#73767e;
+  --rule:#2a2c32; --rule-2:#212328;
+  --accent:#6876ff; --accent-soft:#1f2347; --ok:#4fc58b; --ok-soft:#14301f; --bad:#ff6e75; --bad-soft:#3a1a1d;
+  color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 var(--f-ui);-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+.wrap{max-width:760px;margin:0 auto;padding:24px 20px 64px}
+.brand{display:flex;align-items:center;gap:10px;margin-bottom:22px}
+.mark{width:30px;height:30px;border-radius:8px;background:var(--accent);display:grid;place-items:center;color:var(--accent-ink);font-weight:650}
+h1{font-size:19px;font-weight:650;letter-spacing:-.02em;margin:0 0 4px}
+.sub{color:var(--ink-2);margin:0 0 22px;font-size:13.5px}
+.panel{background:var(--panel);border:1px solid var(--rule);border-radius:var(--r);margin-bottom:18px;overflow:hidden}
+.panel h2{margin:0;padding:14px 16px;font-size:14px;font-weight:600;border-bottom:1px solid var(--rule-2)}
+.body{padding:16px}
+label{display:block;font-size:12.5px;font-weight:550;color:var(--ink-2);margin:0 0 6px}
+input,textarea{width:100%;height:38px;padding:0 11px;border-radius:8px;border:1px solid var(--rule);background:var(--panel);margin-bottom:12px}
+textarea{height:auto;min-height:64px;padding:10px 11px;resize:vertical}
+input[type=file]{padding:8px}
+input:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:36px;padding:0 14px;border-radius:8px;border:1px solid var(--rule);background:var(--panel);font-weight:550;cursor:pointer}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.sm{height:30px;padding:0 10px;font-size:13px}
+.btn.danger{color:var(--bad)}
+.btn:disabled{opacity:.6;cursor:not-allowed}
+table{width:100%;border-collapse:collapse;font-size:13px}
+td,th{padding:10px 16px;border-bottom:1px solid var(--rule-2);text-align:left}
+th{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3)}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:550;padding:3px 9px;border-radius:999px;background:var(--ok-soft);color:var(--ok)}
+.empty{padding:32px 16px;text-align:center;color:var(--ink-2)}
+.loading{display:flex;align-items:center;justify-content:center;gap:10px;padding:40px;color:var(--ink-3)}
+.spinner{width:20px;height:20px;border-radius:50%;border:2.5px solid var(--rule);border-top-color:var(--accent);animation:spin .75s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#toast{position:fixed;bottom:20px;right:20px;background:var(--ink);color:var(--panel);padding:12px 16px;border-radius:8px;display:none;font-size:13px;z-index:50}
+.err-box{background:var(--bad-soft);color:var(--bad);border-radius:8px;padding:16px;margin-bottom:18px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand"><div class="mark">»</div><div><h1 id="title">My Content</h1><div class="sub" id="subtitle">Add and remove your content.</div></div></div>
+  <div class="err-box" id="bad-token" style="display:none">This link is not valid. Ask for a fresh link.</div>
+
+  <div id="main" style="display:none">
+    <div class="panel">
+      <h2>Upload new content</h2>
+      <div class="body">
+        <label for="c-title">Title</label>
+        <input id="c-title" placeholder="e.g. New clip" maxlength="120">
+        <label for="c-desc">Description</label>
+        <textarea id="c-desc" placeholder="What fans get" maxlength="280"></textarea>
+        <div class="row2">
+          <div>
+            <label for="c-price">Price in TON (0 = free)</label>
+            <input id="c-price" type="number" min="0" step="0.1" placeholder="0">
+          </div>
+          <div>
+            <label for="c-file">File</label>
+            <input id="c-file" type="file" accept="video/*,image/*,audio/*,.zip,.pdf">
+          </div>
+        </div>
+        <button class="btn primary" id="c-upload" onclick="upload()">Upload</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Your content</h2>
+      <div id="list" class="loading"><div class="spinner"></div>Loading…</div>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script type="module">
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+const SUPABASE_URL = 'https://xsgvdlgmhuxozjlbjzxy.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzZ3ZkbGdtaHV4b3pqbGJqenh5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNjIxNTcsImV4cCI6MjEwNzYzODE1N30.eTDJH5Xm7LZGEdcQy94X61E7EqFx9S3iWsxEpS20BZ0';
+
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const TOKEN = (location.hash.match(/t=([\w-]+)/) || [])[1] || new URLSearchParams(location.search).get('t') || '';
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function toast(msg){ const t = $('toast'); t.textContent = msg; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 3200); }
+
+async function upload(){
+  const title = $('c-title').value.trim();
+  const desc = $('c-desc').value.trim();
+  const price = parseFloat($('c-price').value) || 0;
+  const file = $('c-file').files[0];
+  if(!title){ toast('Add a title'); return; }
+  if(!file){ toast('Choose a file'); return; }
+  const btn = $('c-upload'); btn.disabled = true; btn.textContent = 'Uploading…';
+  try{
+    const t = file.type || '';
+    const kind = t.startsWith('video/') ? 'video' : t.startsWith('image/') ? 'image' : t.startsWith('audio/') ? 'audio' : 'document';
+    // storage path uses the creator id (from token) so RLS lets it in
+    const who = await sb.rpc('creator_id_for_token', { t: TOKEN });
+    if(!who.data) throw new Error('bad token');
+    const safe = file.name.replace(/[^\w.\-]/g, '_');
+    const path = `${who.data}/${Date.now()}-${safe}`;
+    const { error: upErr } = await sb.storage.from('content-store').upload(path, file, { contentType: t || 'application/octet-stream' });
+    if(upErr) throw upErr;
+    const { error } = await sb.rpc('creator_add_media', {
+      t: TOKEN, p_title: title, p_desc: desc, p_kind: kind,
+      p_media_key: path, p_media_type: t || 'application/octet-stream',
+      p_media_size: file.size, p_price_ton: price || null
+    });
+    if(error) throw error;
+    toast('Uploaded');
+    $('c-title').value = ''; $('c-desc').value = ''; $('c-price').value = ''; $('c-file').value = '';
+    load();
+  }catch(e){ toast('Upload failed: ' + (e.message || e)); }
+  finally{ btn.disabled = false; btn.textContent = 'Upload'; }
+}
+window.upload = upload;
+
+async function del(id){
+  if(!confirm('Remove this content?')) return;
+  const { error } = await sb.rpc('creator_delete_media', { t: TOKEN, p_id: id });
+  if(error){ toast('Delete failed: ' + error.message); return; }
+  toast('Removed');
+  load();
+}
+window.del = del;
+
+async function load(){
+  const el = $('list');
+  el.innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>';
+  const { data, error } = await sb.rpc('creator_list_media', { t: TOKEN });
+  if(error){ el.innerHTML = '<div class="empty">Could not load your content.</div>'; return; }
+  if(!data.length){ el.innerHTML = '<div class="empty">Nothing here yet. Upload your first file above.</div>'; return; }
+  el.innerHTML = `<table><tr><th>Title</th><th>Type</th><th>Price</th><th></th></tr>
+    ${data.map(m => `<tr>
+      <td><b>${esc(m.title)}</b>${m.description ? `<br><small style="color:var(--ink-3)">${esc(m.description)}</small>` : ''}</td>
+      <td>${esc(m.kind)}</td>
+      <td>${Number(m.price_ton) > 0 ? Number(m.price_ton) + ' TON' : '<span class="pill">Free</span>'}</td>
+      <td style="text-align:right"><button class="btn sm danger" onclick="del('${m.id}')">Remove</button></td>
+    </tr>`).join('')}</table>`;
+}
+
+(async () => {
+  if(!TOKEN){ $('bad-token').style.display = 'block'; return; }
+  const { data: who, error } = await sb.rpc('creator_id_for_token', { t: TOKEN });
+  if(error || !who){ $('bad-token').style.display = 'block'; return; }
+  const { data: creator } = await sb.from('creators').select('name').eq('id', who).maybeSingle();
+  $('title').textContent = (creator?.name || 'My') + ' content';
+  $('main').style.display = 'block';
+  load();
+})();
+</script>
+</body>
+</html>
