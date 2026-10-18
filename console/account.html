@@ -270,12 +270,12 @@ async function loadAccount(){
       btn.textContent = '⏳ Activating...';
       
       try {
-        const token = localStorage.getItem('sb_access_token');
-        if (!token) throw new Error('No auth token found');
+        const { data: { session } } = await sb.auth.getSession();
+        if (!session?.access_token) throw new Error('Not signed in. Please login first.');
         
         const res = await fetch('/api/bots/hook', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
           body: JSON.stringify({ persona: botUsername, unhook: false })
         });
         
@@ -286,7 +286,7 @@ async function loadAccount(){
         
         if (hookData.webhook === 'set') {
           const connRes = await fetch('/api/bots/connection?username=' + encodeURIComponent(botUsername), {
-            headers: { 'Authorization': 'Bearer ' + token }
+            headers: { 'Authorization': 'Bearer ' + session.access_token }
           });
           if (connRes.ok) {
             const connData = await connRes.json();
@@ -311,12 +311,12 @@ async function loadAccount(){
       const bcId = $('#business_connection_id').value.trim();
       if (!bcId) { alert('Enter connection ID or click Activate bot'); return; }
       try {
-        const token = localStorage.getItem('sb_access_token');
-        if (!token) throw new Error('No auth token found');
+        const { data: { session } } = await sb.auth.getSession();
+        if (!session?.access_token) throw new Error('Not signed in. Please login first.');
         
         const res = await fetch('/api/bots/connection', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
           body: JSON.stringify({ username: botUsername, connection_id: bcId })
         });
         
