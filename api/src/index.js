@@ -516,7 +516,45 @@ export default {
 
 
     // Fetch business connection ID for a bot (called by console Sync button)
-    if (url.pathname === "/bots/connection" && request.method === "GET") {
+
+    // Save business connection ID
+    if (url.pathname === "/bots/connection" && request.method === "POST") {
+      if (me.role !== "admin" && !(await consoleAdmin(env, request))) {
+        return json({ error: "not allowed" }, 403, origin);
+      }
+      const body = await request.json();
+      const username = body.username;
+      const connectionId = body.connection_id;
+      
+      if (!username || !connectionId) {
+        return json({ error: "username and connection_id required" }, 400, origin);
+      }
+      
+      // Find the telegram_account for this username
+      const accounts = await sb(env, "telegram_accounts?select=id&username=eq." + encodeURIComponent(username));
+      if (!accounts || !accounts.length) {
+        return json({ error: "account not found" }, 404, origin);
+      }
+      const accountId = accounts[0].id;
+      
+      // Update or insert business_connection
+      const existing = await sb(env, "business_connections?id=eq." + encodeURIComponent(accountId) + "&select=id");
+      if (existing && existing.length) {
+        await sb(env, "business_connections?id=eq." + encodeURIComponent(existing[0].id), {
+          method: "PATCH",
+          body: JSON.stringify({ connection_id: connectionId })
+        });
+      } else {
+        await sb(env, "business_connections", {
+          method: "POST",
+          body: JSON.stringify({ telegram_account_id: accountId, connection_id: connectionId })
+        });
+      }
+      
+      return json({ success: true, connection_id: connectionId }, 200, origin);
+    }
+
+        if (url.pathname === "/bots/connection" && request.method === "GET") {
       if (me.role !== "admin" && !(await consoleAdmin(env, request))) {
         return json({ error: "not allowed" }, 403, origin);
       }
