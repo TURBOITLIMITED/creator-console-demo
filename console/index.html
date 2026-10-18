@@ -948,9 +948,11 @@ function renderAccConnection(a){
       $('#acc-refresh-bc').disabled = true;
       $('#acc-refresh-bc').textContent = 'Syncing...';
       
-      // Check if logged in
-      if (!state.session?.user?.access_token) {
+      // Check if logged in and token exists
+      const token = state.session?.user?.access_token;
+      if (!token) {
         toast('Please login first', 'error');
+        console.error('[Activate Bot] No access token found. State session:', state.session);
         $('#acc-refresh-bc').disabled = false;
         $('#acc-refresh-bc').innerHTML = ic('refresh') + 'Activate bot';
         return;
@@ -961,10 +963,16 @@ function renderAccConnection(a){
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json', 
-          'Authorization': 'Bearer ' + state.session.user.access_token 
+          'Authorization': 'Bearer ' + token
         },
         body: JSON.stringify({ persona: a.username, unhook: false })
       });
+      
+      if (!res.ok) {
+        const errText = await res.text().catch(() => 'unknown');
+        console.error('[Activate Bot] API returned non-OK status:', res.status, errText);
+        throw new Error(`API error: ${res.status} ${res.statusText}`);
+      }
       const data = await res.json();
       if (data.webhook === 'set') {
         // After setting webhook, fetch the connection ID
