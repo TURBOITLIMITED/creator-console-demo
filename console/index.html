@@ -478,6 +478,7 @@ input[type=range]{accent-color:var(--accent);width:100%}
   </div>
 </div>
 <div class="toasts" id="toasts" role="status"></div>
+<div class="page-loading" id="pageLoading"><div class="spinner"></div></div>
 
 <script type="module">
 /* ============================================================
@@ -738,7 +739,7 @@ const ownerPicker = () => {
     <span style="font-size:12px;color:var(--dim)">Owner access: everything below is that creator's.</span>
   </div>`;
 };
-const setView = html => { const v = $('#view'); v.innerHTML = html; v.classList.remove('fade-in'); void v.offsetWidth; v.classList.add('fade-in'); };
+const setView = html => { const v = $('#view'); v.innerHTML = html; v.classList.remove('fade-in'); void v.offsetWidth; v.classList.add('fade-in'); $('#pageLoading').classList.remove('active'); };
 function trend(now, prev){
   if(!prev && !now) return `<span class="trend flat">—</span>`;
   if(!prev) return `<span class="trend up">${ic('up')}New</span>`;
@@ -1424,6 +1425,8 @@ function route(force=false){
   const sec = (location.hash || '#overview').slice(1);
   const key = SECTIONS[sec] ? sec : 'overview';
   if(!force && key === state.section && $('#view').children.length) return;
+  // Show loading overlay on navigation
+  $('#pageLoading').classList.add('active');
   state.section = key;
   document.querySelectorAll('#nav a').forEach(a => a.dataset.sec === key ? a.setAttribute('aria-current','page') : a.removeAttribute('aria-current'));
   $('#crumb-title').textContent = SECTIONS[key].title;
