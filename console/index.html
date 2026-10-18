@@ -947,10 +947,22 @@ function renderAccConnection(a){
     try {
       $('#acc-refresh-bc').disabled = true;
       $('#acc-refresh-bc').textContent = 'Syncing...';
+      
+      // Check if logged in
+      if (!state.session?.user?.access_token) {
+        toast('Please login first', 'error');
+        $('#acc-refresh-bc').disabled = false;
+        $('#acc-refresh-bc').innerHTML = ic('refresh') + 'Activate bot';
+        return;
+      }
+      
       // Fetch business connection from Telegram API via our backend
       const res = await fetch('https://api-telebotcreator.turboit.uk/bots/hook', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + state.session?.user?.access_token },
+        headers: { 
+          'Content-Type': 'application/json', 
+          'Authorization': 'Bearer ' + state.session.user.access_token 
+        },
         body: JSON.stringify({ persona: a.username, unhook: false })
       });
       const data = await res.json();
