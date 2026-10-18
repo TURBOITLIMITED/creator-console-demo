@@ -913,9 +913,12 @@ function renderAccConnection(a){
     <div class="field"><label>Bot username</label><div class="input mono" style="background:var(--sunk)">@${esc(a.username||'—')}</div></div>
     <div class="field"><label>Telegram user id</label><div class="input mono" style="background:var(--sunk)">${esc(a.tg_user_id||'—')}</div></div>
     <div class="field">
-      <label>Bot username (to add in Telegram)</label>
-      <div class="input mono" style="background:var(--sunk);padding:8px 11px">@${esc(a.username||'—')}</div>
-      <span class="hint">Step 1: In Telegram, go to <b>Settings → Business → Chatbots</b> and add <b>@${esc(a.username||'—')}</b></span>
+      <label>Bot to add in Telegram</label>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <div class="input mono" style="background:var(--sunk);padding:8px 11px;flex:1;min-width:200px">@${esc(a.username||'—')}</div>
+        ${a.username ? `<a href="https://t.me/${esc(a.username)}" target="_blank" class="btn sm">${ic('external')}Open bot in Telegram</a>` : ''}
+      </div>
+      <span class="hint">Step 1: In Telegram, go to <b>Settings → Business → Chatbots</b> and add this bot. You can click the button above or search for <b>@${esc(a.username||'—')}</b></span>
     </div>
     <div class="field">
       <label>Business connection ID</label>
