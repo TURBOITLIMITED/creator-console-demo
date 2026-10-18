@@ -459,12 +459,7 @@ input[type=range]{accent-color:var(--accent);width:100%}
   </aside>
 
   <div class="main">
-    <div class="demo" id="demo" hidden>
-      <span class="tag">DEMO MODE</span>
-      <p><b>You're not signed in.</b> Everything here is read-only. <span id="demo-note">Showing sample data so you can explore.</span></p>
-      <label class="switch" for="sample-toggle"><input type="checkbox" id="sample-toggle" checked><span class="track"></span>Sample data</label>
-      <a class="btn sm primary" href="login.html">Sign in</a>
-    </div>
+
     <header class="top">
       <button class="icon-btn menu-btn" id="menu" type="button" aria-label="Open navigation"><svg class="i"><use href="#i-menu"/></svg></button>
       <div class="crumb"><small id="crumb-group">Dashboard</small><h1 id="crumb-title">Overview</h1></div>
@@ -489,7 +484,7 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const SUPABASE_ESM = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
 const PAGE_SIZE = 10;
 
-const state = { sb:null, session:null, creator:null, demo:true, sample:true, isAdmin:false,
+const state = { sb:null, session:null, creator:null, demo:false, sample:false, isAdmin:false,
   section:'overview', pages:{}, libType:'', editing:{}, inbox:{ active:null } };
 
 /* ---------- utils ---------- */
@@ -558,125 +553,14 @@ async function checkAuth(){
       return;
     }
   }
-  state.demo = true;
-  state.sample = store.get('cc-sample') !== 'off';
-  buildDemo();
+  location.replace('login.html');
 }
 
 /* ---------- demo data ---------- */
-let DEMO = {};
-function rng(seed){ return () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; }; }
-function buildDemo(){
-  const now = Date.now();
-  const empty = { creators:[], telegram_accounts:[], conversations:[], media_items:[], content_bundles:[], bundle_purchases:[], customers:[], messages:{}, ai_profile:null };
-  const baseCreator = { display_name:'Demo creator', email:'demo@creator.console', plan:'Free', split:80, ton_wallet:'' };
-  if(!state.sample){ DEMO = empty; state.creator = baseCreator; return; }
-
-  const r = rng(7), pick = a => a[Math.floor(r()*a.length)], iso = t => new Date(t).toISOString();
-  const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-';
-  const wallet = 'UQ' + Array.from({length:46}, () => B64[Math.floor(r()*64)]).join('');
-  state.creator = { display_name:'Mara Vale', email:'mara@maravale.studio', plan:'Pro', split:80, ton_wallet:wallet, created_at:iso(now-210*D) };
-
-  const firsts = ['Ava','Leo','Noor','Kai','Mila','Theo','Yara','Finn','Iris','Omar','Zoe','Jonas','Lena','Ravi','Sofia','Elio','Hana','Max','Priya','Tomas','Ines','Ezra','Nia','Lucas','Freya','Sami','Ada','Bruno'];
-  const tails = ['_shoots','.raw','_travels','','_frames','.ph','_lens'];
-  const customers = firsts.map((f,i) => ({ id:'cu_'+(i+1), first_name:f, username:f.toLowerCase()+pick(tails)+(i%3?'':Math.floor(r()*90+10)) }));
-
-  const titles = [
-    ['Lisbon golden hour — raw set','image'],['Preset pack vol. 3 (Lightroom)','document'],['Night street edit walkthrough','video'],['Iceland drone b-roll','video'],
-    ['Portrait lighting cheat sheet','document'],['Porto rooftops — 24 frames','image'],['Colour grading in 10 minutes','video'],['Film emulation LUTs','document'],
-    ['Alfama alleys — raw set','image'],['Behind the shoot: Sintra','video'],['Gear list 2026','document'],['Sunrise timelapse — Madeira','video'],
-    ['Moody interiors preset','document'],['Street portraits — Porto','image'],['How I pitch brands','video'],['Phone editing workflow','video'],
-    ['Blue hour — Lisbon bridge','image'],['Composition field guide','document'],['Drone basics for travel','video'],['Market colours — 18 frames','image'],
-    ['Skin tone retouch guide','document'],['Coastal road b-roll','video'],['Monthly raw files — Sept','image'],['Monthly raw files — Oct','image'],
-    ['Lens comparison 35 vs 50','video'],['Black & white preset','document'],['Faroe cliffs — raw set','image'],['Editing livestream replay','video'],
-    ['Client contract template','document'],['Tram 28 series','image'],['Light painting tutorial','video'],['Fog & mist pack','image'],
-    ['Travel shot list','document'],['Q&A: building an audience','video']
-  ];
-  const media = titles.map(([t,type],i) => ({
-    id:'md_'+(i+1), creator_id:'demo', title:t, kind:type,
-    price_ton: Math.round((type==='video'?6+r()*30:type==='image'?3+r()*14:2+r()*10)*2)/2,
-    visible: r() > .2, media_key:`demo/${i+1}`, media_size: 1048576 * Math.round(type==='video'?80+r()*900:type==='image'?20+r()*200:1+r()*12),
-    created_at: iso(now - i*1.6*D - r()*D)
-  }));
-
-  const bundleNames = [
-    ['Lisbon Light — complete set','Every Lisbon raw set plus the matching preset.'],['Preset Vault','All four preset packs in one download.'],
-    ['Night Street Starter','Edit walkthrough, raw files and LUTs for night work.'],['Iceland B-roll Pro','4K drone and handheld clips, licence included.'],
-    ['Portrait Lighting Course','Video lessons, cheat sheet and retouch guide.'],['Film Emulation Kit','LUTs and presets tuned to classic stocks.'],
-    ['Behind the Shoot: Portugal','Three behind-the-scenes films from the road.'],['Drone Basics Bundle','Beginner drone lessons and the shot list.'],
-    ['Monthly Raw Files — Autumn','September and October raw drops.'],['Editing Masterclass','Grading, retouching and the full livestream replay.'],
-    ['Phone Photography Pack','Phone workflow, presets and a field guide.'],['Creator Business Kit','Pitch video, contract template and Q&A.']
-  ];
-  const bundles = bundleNames.map(([name,description],i) => {
-    const n = 2 + Math.floor(r()*5), items = new Set();
-    while(items.size < n) items.add(media[Math.floor(r()*media.length)].id);
-    return { id:'bu_'+(i+1), creator_id:'demo', name, description, price_ton: Math.round((12+r()*58)*2)/2,
-      is_active: i!==5 && i!==10, created_at: iso(now - (8+i*4.5)*D - r()*D),
-      bundle_items:[...items].map(id => ({ media_item_id:id })), bundle_purchases:[] };
-  });
-
-  const purchases = [];
-  for(let i=0;i<104;i++){
-    const b = bundles[Math.min(bundles.length-1, Math.floor(Math.pow(r(),1.6)*bundles.length))];
-    if(!b.is_active && r()<.7) continue;
-    const t = now - Math.pow(r(),1.35)*60*D;
-    if(t < new Date(b.created_at).getTime()) continue;
-    const c = pick(customers);
-    const p = { id:'pu_'+i, creator_id:'demo', bundle_id:b.id, customer_id:c.id, amount_ton:b.price_ton, created_at:iso(t),
-      content_bundles:{ name:b.name }, customers:{ username:c.username, first_name:c.first_name } };
-    purchases.push(p); b.bundle_purchases.push({ amount_ton:p.amount_ton });
-  }
-
-  const previews = ['Does the preset work on phone too?','Just bought the Lisbon set, the blues are unreal','Any chance of a Porto night pack?','Can I use the b-roll in a client video?',
-    'Thanks! Download worked fine','What camera did you use for the Sintra shoot?','Is the masterclass still on offer?','Sent the TON, can you check?',
-    'Loved the livestream replay','Which lens for street portraits?','Do you do 1:1 edit reviews?','Is there a student discount?'];
-  const conversations = customers.slice(0,23).map((c,i) => {
-    const last = now - Math.pow(r(),2.2)*16*D - r()*3600e3;
-    return { id:'cv_'+(i+1), creator_id:'demo', customer_id:c.id, customers:{ username:c.username, first_name:c.first_name },
-      status: r()<.22 ? 'closed' : 'open', unread_count: r()<.3 ? 1+Math.floor(r()*3) : 0, ai_handled: r()<.45,
-      last_message_preview: pick(previews), last_message_at: iso(last), created_at: iso(last - (2+r()*40)*D) };
-  });
-
-  DEMO = {
-    customers, media_items:media, content_bundles:bundles, bundle_purchases:purchases, conversations, messages:{},
-    telegram_accounts:[
-      { id:'ta_1', creator_id:'demo', username:'maravale', label:'Main DMs', is_enabled:true, created_at:iso(now-180*D),
-        business_connections:[{ id:'bc_1', connection_id:'7Hq2-vK9x-ML04', is_enabled:true, can_reply:true }] },
-      { id:'ta_2', creator_id:'demo', username:'maravale_presets', label:'Preset shop', is_enabled:true, created_at:iso(now-64*D),
-        business_connections:[{ id:'bc_2', connection_id:'Qe81-pZ3a-77Ts', is_enabled:true, can_reply:false }] },
-      { id:'ta_3', creator_id:'demo', username:'mara_backup', label:'Backup', is_enabled:false, created_at:iso(now-20*D), business_connections:[] }
-    ],
-    ai_profile:{ persona_name:'Mara', tone:'warm', language:'English', creativity:0.6, reply_delay:20, enabled:true, auto_reply:true, upsell:true,
-      system_prompt:'You are Mara, a travel photographer from Lisbon. Answer fans warmly and briefly. Recommend a bundle only when it genuinely fits what they asked about. Never promise custom work or refunds — hand those to Mara.' }
-  };
-}
-function demoMessages(conv){
-  if(DEMO.messages[conv.id]) return DEMO.messages[conv.id];
-  const r = rng(conv.id.length * 97 + parseInt(conv.id.slice(3)) * 13), end = new Date(conv.last_message_at).getTime();
-  const script = [
-    ['in','Hey Mara! Love your work from Portugal 🙌'],
-    ['out','Thank you so much! Anything I can help with?', true],
-    ['in','I\'m looking for presets that match your Lisbon blue hour shots'],
-    ['out','The Lisbon Light bundle has the exact preset plus 40 raw files to practise on. It\'s 32 TON right now.', true],
-    ['in','Perfect. Does it work in Lightroom mobile?'],
-    ['out','Yes — the pack includes .dng versions for mobile.', false],
-    ['in', conv.last_message_preview]
-  ];
-  const n = 3 + Math.floor(r()*4);
-  const lines = script.slice(script.length - n);
-  const msgs = lines.map(([dir,text,ai],i) => ({ id:conv.id+'_m'+i, direction:dir, text, ai:!!ai && conv.ai_handled,
-    created_at:new Date(end - (lines.length-1-i)*(40+r()*500)*60e3).toISOString() }));
-  return DEMO.messages[conv.id] = msgs;
-}
-
 /* ---------- data layer: anon key + RLS (live) or local demo ---------- */
-function demoGuard(){
-  if(!state.sample){ const e = new Error('Demo mode is read-only'); e.sub = 'Sign in to make changes.'; e.kind='info'; throw e; }
-}
 const Data = {
   async list(table, { page=1, select='*', order='created_at', asc=false, match=null, size=PAGE_SIZE }={}){
     const from = (page-1)*size, to = from + size - 1;
-    if(!state.demo){
       const tcol = table === 'media_items' ? 'uploaded_at' : table === 'conversations' ? 'started_at' : table === 'bundle_purchases' ? 'purchased_at' : 'created_at';
       const o = order === 'created_at' ? tcol : order;
       let q = state.sb.from(table).select(select, { count:'exact' }).eq('creator_id', uid());
@@ -684,42 +568,22 @@ const Data = {
       const { data, count, error } = await q.order(o, { ascending:asc }).range(from, to);
       if(error) throw error;
       return { rows:(data || []), count:count || 0 };
-    }
-    await sleep(280 + Math.random()*220);
-    let rows = [...(DEMO[table] || [])];
-    if(match) rows = rows.filter(r => Object.entries(match).every(([k,v]) => r[k] === v));
-    rows.sort((a,b) => (asc?1:-1) * (new Date(a[order]) - new Date(b[order])));
-    return { rows: rows.slice(from, to+1), count: rows.length };
   },
   async insert(table, obj){
-    if(!state.demo){
-      const { data, error } = await state.sb.from(table).insert({ ...obj, creator_id:uid() }).select().single();
-      if(error) throw error; return data;
-    }
-    demoGuard(); await sleep(260);
-    const row = { id: table.slice(0,2)+'_'+Math.random().toString(36).slice(2,8), creator_id:'demo', created_at:new Date().toISOString(), ...obj };
-    (DEMO[table] ||= []).unshift(row); return row;
+    const { data, error } = await state.sb.from(table).insert({ ...obj, creator_id:uid() }).select().single();
+    if(error) throw error; return data;
   },
   async update(table, id, patch){
-    if(!state.demo){
-      const { data, error } = await state.sb.from(table).update(patch).eq('id', id).eq('creator_id', uid()).select().single();
-      if(error) throw error; return data;
-    }
-    demoGuard(); await sleep(220);
-    const row = (DEMO[table]||[]).find(r => r.id === id); Object.assign(row || {}, patch); return row;
+    const { data, error } = await state.sb.from(table).update(patch).eq('id', id).eq('creator_id', uid()).select().single();
+    if(error) throw error; return data;
   },
   async remove(table, id){
-    if(!state.demo){
-      const { error } = await state.sb.from(table).delete().eq('id', id).eq('creator_id', uid());
-      if(error) throw error; return;
-    }
-    demoGuard(); await sleep(220);
-    const arr = DEMO[table] || []; const i = arr.findIndex(r => r.id === id); if(i > -1) arr.splice(i,1);
+    const { error } = await state.sb.from(table).delete().eq('id', id).eq('creator_id', uid());
+    if(error) throw error; return;
   },
 
   async stats(){
     const d30 = Date.now()-30*D, d60 = Date.now()-60*D;
-    if(!state.demo){
       const sb = state.sb, u = uid(), i30 = new Date(d30).toISOString(), i60 = new Date(d60).toISOString();
       const cnt = async (t, from, to, extra) => {
         let q = sb.from(t).select('id', { count:'exact', head:true }).eq('creator_id', u);
@@ -732,62 +596,40 @@ const Data = {
       const unread = 0;
       const { data:pur, error } = await sb.from('bundle_purchases').select('price_paid_ton,purchased_at').eq('creator_id', u).order('purchased_at',{ascending:false}).limit(5000);
       if(error) throw error;
-      return shapeStats(tabs.map((t,k) => res.slice(k*3, k*3+3)), (pur || []).map(p => ({ amount_ton:p.price_paid_ton, created_at:p.purchased_at })), unread);
-    }
-    await sleep(380);
-    const c = arr => { const t=arr.map(x=>new Date(x.created_at).getTime()); return [t.length, t.filter(x=>x>=d30).length, t.filter(x=>x>=d60&&x<d30).length]; };
-    return shapeStats([c(DEMO.conversations), c(DEMO.media_items), c(DEMO.content_bundles)], DEMO.bundle_purchases, DEMO.conversations.filter(c=>c.unread_count>0).length);
+    return shapeStats(tabs.map((t,k) => res.slice(k*3, k*3+3)), (pur || []).map(p => ({ amount_ton:p.price_paid_ton, created_at:p.purchased_at })), unread);
   },
 
   async activity(){
-    if(!state.demo){
-      const sb = state.sb, u = uid();
-      const [m, p, c] = await Promise.all([
-        sb.from('messages').select('id,text,created_at,conversation_id,conversations(customers(username,first_name))').eq('creator_id',u).eq('direction','in').order('created_at',{ascending:false}).limit(5),
-        sb.from('bundle_purchases').select('id,amount_ton,created_at,content_bundles(name),customers(username,first_name)').eq('creator_id',u).order('created_at',{ascending:false}).limit(5),
-        sb.from('media_items').select('id,title,type,created_at').eq('creator_id',u).order('created_at',{ascending:false}).limit(4)
-      ]);
-      return mergeActivity((m.data||[]).map(x=>({...x, customer:x.conversations?.customers})), p.data||[], c.data||[]);
-    }
-    await sleep(300);
-    const msgs = [...DEMO.conversations].sort((a,b)=>new Date(b.last_message_at)-new Date(a.last_message_at)).slice(0,5)
-      .map(c => ({ id:c.id, text:c.last_message_preview, created_at:c.last_message_at, customer:c.customers }));
-    const pur = [...DEMO.bundle_purchases].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)).slice(0,5);
-    return mergeActivity(msgs, pur, DEMO.media_items.slice(0,4));
+    const sb = state.sb, u = uid();
+    const [m, p, c] = await Promise.all([
+      sb.from('messages').select('id,body_preview,sent_at,conversation_id,conversations(customers(username,first_name))').eq('creator_id',u).eq('direction','in').order('sent_at',{ascending:false}).limit(5),
+      sb.from('bundle_purchases').select('id,price_paid_ton,purchased_at,content_bundles(name)').eq('creator_id',u).order('purchased_at',{ascending:false}).limit(5),
+      sb.from('media_items').select('id,title,kind,uploaded_at').eq('creator_id',u).order('uploaded_at',{ascending:false}).limit(4)
+    ]);
+    return mergeActivity(
+      (m.data||[]).map(x=>({ ...x, text:x.body_preview, created_at:x.sent_at, customer:x.conversations?.customers })),
+      (p.data||[]).map(x=>({ ...x, amount_ton:x.price_paid_ton, created_at:x.purchased_at })),
+      (c.data||[]).map(x=>({ ...x, type:x.kind, created_at:x.uploaded_at }))
+    );
   },
 
   async messages(convId){
-    if(!state.demo){
-      const { data, error } = await state.sb.from('messages').select('*').eq('creator_id', uid()).eq('conversation_id', convId).order('sent_at',{ascending:true}).limit(100);
-      if(error) throw error; return data || [];
-    }
-    await sleep(240);
-    return demoMessages(DEMO.conversations.find(c => c.id === convId));
+    const { data, error } = await state.sb.from('messages').select('*').eq('creator_id', uid()).eq('conversation_id', convId).order('sent_at',{ascending:true}).limit(100);
+    if(error) throw error; return data || [];
   },
   async sendMessage(conv, text){
-    if(!state.demo){
       const { data, error } = await state.sb.from('messages').insert({ creator_id:uid(), conversation_id:conv.id, direction:'out', body_preview:text, sent_at:new Date().toISOString() }).select().single();
       if(error) throw error;
-      await state.sb.from('conversations').update({ last_message_at:data.sent_at }).eq('id', conv.id).eq('creator_id', uid());
-      return data;
-    }
-    demoGuard(); await sleep(260);
-    const m = { id:'m_'+Date.now(), direction:'out', text, created_at:new Date().toISOString() };
-    demoMessages(conv).push(m);
-    Object.assign(conv, { last_message_at:m.created_at, last_message_preview:text, unread_count:0 });
-    return m;
+    await state.sb.from('conversations').update({ last_message_at:data.sent_at }).eq('id', conv.id).eq('creator_id', uid());
+    return data;
   },
 
   async mediaOptions(){
-    if(!state.demo){
-      const { data, error } = await state.sb.from('media_items').select('id,title,kind,price_ton,visible').eq('creator_id', uid()).order('uploaded_at',{ascending:false}).limit(300);
-      if(error) throw error; return data || [];
-    }
-    return DEMO.media_items;
+    const { data, error } = await state.sb.from('media_items').select('id,title,kind,price_ton,visible').eq('creator_id', uid()).order('uploaded_at',{ascending:false}).limit(300);
+    if(error) throw error; return data || [];
   },
   async saveBundle(id, fields, itemIds){
     let bundle;
-    if(!state.demo){
       bundle = id ? await Data.update('content_bundles', id, fields) : await Data.insert('content_bundles', fields);
       const del = await state.sb.from('bundle_items').delete().eq('bundle_id', bundle.id);
       if(del.error) throw del.error;
@@ -795,50 +637,28 @@ const Data = {
         const ins = await state.sb.from('bundle_items').insert(itemIds.map((m, i) => ({ bundle_id:bundle.id, media_id:m, position:i+1 })));
         if(ins.error) throw ins.error;
       }
-      return bundle;
-    }
-    demoGuard();
-    bundle = id ? await Data.update('content_bundles', id, fields) : await Data.insert('content_bundles', { ...fields, bundle_purchases:[] });
-    bundle.bundle_items = itemIds.map(m => ({ media_item_id:m }));
     return bundle;
   },
 
   async saveAccount(fields, connectionId){
-    if(!state.demo){
-      const acc = await Data.insert('telegram_accounts', fields);
-      return acc;
-    }
-    demoGuard();
-    return Data.insert('telegram_accounts', { ...fields, business_connections: connectionId ? [{ id:'bc_'+Date.now(), connection_id:connectionId, is_enabled:true, can_reply:true }] : [] });
+    return await Data.insert('telegram_accounts', fields);
   },
 
   async getAI(){
-    if(!state.demo){
       const { data, error } = await state.sb.from('ai_profiles').select('*').eq('creator_id', uid()).maybeSingle();
-      if(error) throw error; return data;
-    }
-    await sleep(300); return DEMO.ai_profile;
+    if(error) throw error; return data;
   },
   async saveAI(fields){
-    if(!state.demo){
       const { data, error } = await state.sb.from('ai_profiles').upsert({ ...fields, creator_id:uid() }, { onConflict:'creator_id' }).select().single();
-      if(error) throw error; return data;
-    }
-    demoGuard(); await sleep(300); return DEMO.ai_profile = { ...DEMO.ai_profile, ...fields };
+    if(error) throw error; return data;
   },
   async updateCreator(patch){
-    if(!state.demo){
       const { data, error } = await state.sb.from('creators').update(patch).eq('id', uid()).select().single();
-      if(error) throw error; return state.creator = data;
-    }
-    demoGuard(); await sleep(260); return Object.assign(state.creator, patch);
+    if(error) throw error; return state.creator = data;
   },
   async earnings(){
-    if(!state.demo){
       const { data, error } = await state.sb.from('bundle_purchases').select('id,price_paid_ton,purchased_at,content_bundles(name)').eq('creator_id', uid()).order('purchased_at',{ascending:false}).limit(5000);
-      if(error) throw error; return (data || []).map(p => ({ ...p, amount_ton:p.price_paid_ton, created_at:p.purchased_at }));
-    }
-    await sleep(320); return [...DEMO.bundle_purchases].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+    if(error) throw error; return (data || []).map(p => ({ ...p, amount_ton:p.price_paid_ton, created_at:p.purchased_at }));
   }
 };
 
@@ -896,7 +716,6 @@ async function withBusy(btn, fn, okTitle, okSub){
   if(btn){ btn.disabled = true; btn.classList.add('busy'); }
   try{
     const r = await fn();
-    if(okTitle) toast(okTitle, 'success', okSub ?? (state.demo ? 'Sample data — resets when you reload.' : ''));
     return r ?? true;
   }catch(e){
     toast(e.message || 'Something went wrong', e.kind || 'error', e.sub || (e.details || e.hint || ''));
@@ -1101,7 +920,6 @@ async function openConversation(id){
       conv.unread_count = 0;
       document.querySelector(`.conv[data-id="${id}"]`)?.classList.remove('is-unread');
       document.querySelector(`.conv[data-id="${id}"] .unread`)?.remove();
-      if(!state.demo) state.sb.from('conversations').update({ unread_count:0 }).eq('id', id).eq('creator_id', uid());
       setUnread(Math.max(0, (state.unread||1) - 1));
     }
   }catch(e){ $('#msgs').innerHTML = errorState(e,'inbox'); }
@@ -1437,7 +1255,6 @@ view.addEventListener('submit', async e => {
       box.insertAdjacentHTML('beforeend', `<div class="bubble out fade-in">${esc(text)}<time>${fmtTime(new Date().toISOString())}</time></div>`);
       box.scrollTop = box.scrollHeight;
       const row = document.querySelector(`.conv[data-id="${id}"] p`); if(row) row.textContent = text;
-      if(state.demo) toast('Reply sent', 'success', 'Sample data — resets when you reload.');
     }
   }
 });
@@ -1461,7 +1278,6 @@ function paintHeader(){
   $('#avatar').textContent = (c.name || email)[0].toUpperCase();
   $('#user-email').textContent = email;
   $('#admin-badge').hidden = !state.isAdmin;
-  $('#demo').hidden = !state.demo;
   $('#sample-toggle').checked = state.sample;
   $('#demo-note').textContent = state.sample ? 'Showing sample data so you can explore — edits stay in this tab.' : 'Showing an empty account.';
 }
@@ -1477,7 +1293,6 @@ $('#logout').onclick = async () => {
 };
 $('#sample-toggle').onchange = e => {
   state.sample = e.target.checked; store.set('cc-sample', state.sample ? 'on' : 'off');
-  buildDemo(); paintHeader(); setUnread(DEMO.conversations.filter(c=>c.unread_count>0).length); state.pages = {}; route(true);
   toast(state.sample ? 'Sample data on' : 'Showing an empty account', 'info');
 };
 window.addEventListener('hashchange', () => route());
@@ -1488,9 +1303,8 @@ document.addEventListener('keydown', e => { if(e.key==='Escape' && $('#app').dat
   if(store.get('cc-collapsed') === 'true') $('#app').dataset.collapsed = 'true';
   $('#view').innerHTML = spinner('Restoring your session…');
   try{ await checkAuth(); }
-  catch(e){ console.error(e); toast('Could not load your profile', 'error', e.message); state.demo = true; buildDemo(); }
+  catch(e){ console.error(e); toast('Could not load your profile', 'error', e.message); }
   paintHeader();
-  if(state.demo) setUnread(DEMO.conversations.filter(c=>c.unread_count>0).length);
   route(true);
 })();
 </script>
