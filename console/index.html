@@ -1025,11 +1025,11 @@ async function loadBundles(){
   const page = state.pages.bundles || 1;
   el.innerHTML = spinner('Loading bundles…'); $('#bun-pager').innerHTML = '';
   try{
-    const { rows, count } = await Data.list('content_bundles', { page, select:'*, bundle_items(media_item_id), bundle_purchases(amount_ton)' });
+    const { rows, count } = await Data.list('content_bundles', { page, select:'*, bundle_items(media_id), bundle_purchases(price_paid_ton)' });
     bunCache = rows;
     $('#bun-count').textContent = count ? `${count} bundle${count===1?'':'s'}` : '';
     el.innerHTML = rows.length ? `<table><thead><tr><th>Bundle</th><th class="num">Items</th><th class="num">Price</th><th class="num">Sales</th><th class="num">Revenue</th><th>Status</th><th class="num">Actions</th></tr></thead><tbody>
-      ${rows.map(b => { const sales=(b.bundle_purchases||[]); const rev=sales.reduce((s,p)=>s+Number(p.amount_ton||0),0); return `<tr>
+      ${rows.map(b => { const sales=(b.bundle_purchases||[]); const rev=sales.reduce((s,p)=>s+Number(p.price_paid_ton||0),0); return `<tr>
         <td><div class="cell-main"><div class="thumb video">${ic('package')}</div><div><b>${esc(b.name)}</b><small style="font-family:var(--f-ui)">${esc((b.description||'').slice(0,48))}${(b.description||'').length>48?'…':''}</small></div></div></td>
         <td class="num mono">${(b.bundle_items||[]).length}</td>
         <td class="num"><span class="price">${fmtTon(b.price_ton,false)}<small>TON</small></span></td>
