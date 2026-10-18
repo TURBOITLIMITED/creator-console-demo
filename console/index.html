@@ -500,7 +500,7 @@
     <div class="section">Telegram</div>
     <div class="side-nav">
       <button onclick="showSection('accounts')" id="btn-accounts">
-        <span class="icon">🤖</span> Accounts
+        <span class="icon">🤖</span> Accounts &amp; Setup
       </button>
       <button onclick="showSection('inbox')" id="btn-inbox">
         <span class="icon">📥</span> Inbox
@@ -514,16 +514,6 @@
       </button>
       <button onclick="showSection('bundles')" id="btn-bundles">
         <span class="icon">📦</span> Bundles
-      </button>
-    </div>
-    
-    <div class="section">Settings</div>
-    <div class="side-nav">
-      <button onclick="showSection('ai')" id="btn-ai">
-        <span class="icon">🧠</span> AI Personality
-      </button>
-      <button onclick="showSection('wallet')" id="btn-wallet">
-        <span class="icon">💰</span> TON Wallet
       </button>
     </div>
   </div>
@@ -546,9 +536,9 @@
 
     <!-- Accounts -->
     <section id="accounts">
-      <h2>Telegram Accounts</h2>
+      <h2>Telegram Accounts &amp; Setup</h2>
       <div class="card" id="connectWizard">
-        <h3>Connect New Account</h3>
+        <h3>Set Up New Account</h3>
         <div class="steps">
           <div class="step-marker">
             <span class="step-dot active" id="stepDot1">1</span>
@@ -558,6 +548,11 @@
           <div class="step-marker">
             <span class="step-dot" id="stepDot2">2</span>
             <div class="step-label">Configure</div>
+          </div>
+          <div class="step-line"></div>
+          <div class="step-marker">
+            <span class="step-dot" id="stepDot3">3</span>
+            <div class="step-label">Personality &amp; Wallet</div>
           </div>
         </div>
 
@@ -585,7 +580,14 @@
             <option value="assisted">Assisted (AI drafts, you approve)</option>
             <option value="human">Human Only (you answer everything)</option>
           </select>
-          <button class="btn" onclick="configureBot()">Finish Setup</button>
+          <button class="btn" onclick="configureBot()">Continue</button>
+        </div>
+
+        <!-- STEP 3 -->
+        <div id="wizardStep3" style="display: none">
+          <p class="note" style="margin-bottom: 8px">Last step: give the bot its personality and where it sends your earnings.</p>
+          <div id="wizardAIForm"></div>
+          <button class="btn" onclick="finishSetup()">Finish Setup</button>
         </div>
       </div>
 
@@ -642,24 +644,6 @@
       </div>
     </section>
 
-    <!-- AI Settings -->
-    <section id="ai">
-      <h2>AI Personality</h2>
-      <div class="card">
-        <h3>Settings</h3>
-        <div id="aiForm"></div>
-      </div>
-    </section>
-
-    <!-- Wallet -->
-    <section id="wallet">
-      <h2>TON Wallet</h2>
-      <div class="card">
-        <h3>Wallet Configuration</h3>
-        <p class="note">Your TON wallet address where payments will be received.</p>
-        <div id="walletForm"></div>
-      </div>
-    </section>
   </main>
 </div>
 
@@ -918,12 +902,12 @@ window.configureBot = async function() {
   });
 
   if (error) { showToast('Save failed: ' + error.message); return; }
-  showToast('Configured. Account is live.');
+  showToast('Saved. One step left.');
   document.getElementById('wizardStep2').style.display = 'none';
-  document.getElementById('wizardStep1').style.display = 'block';
+  document.getElementById('wizardStep3').style.display = 'block';
   document.getElementById('stepDot2').classList.remove('active');
-  document.getElementById('stepDot1').classList.add('active');
-  document.getElementById('botToken').value = '';
+  document.getElementById('stepDot3').classList.add('active');
+  await loadAISettings();
   loadAccounts();
 };
 
@@ -1096,47 +1080,36 @@ async function loadBundles() {
 }
 
 async function loadAISettings() {
-  const { data } = await sb.from('settings')
+  const { data } = await sb.from('ai_profiles')
     .select('*')
     .eq('creator_id', currentCreator.id)
-    .single();
-  
-  const value = data?.value || {};
-  
-  document.getElementById('aiForm').innerHTML = `
+    .maybeSingle();
+
+  const formHtml = `
     <label>Persona Name</label>
-    <input type="text" id="aiPersona" value="${value.persona_name || ''}">
-    
-    <label>System Prompt</label>
-    <textarea id="aiSystemPrompt" rows="6">${value.system_prompt || ''}</textarea>
-    
+    <input type="text" id="aiPersona" value="${data?.display_name || ''}">
+
     <label>Tone</label>
     <select id="aiTone">
-      <option value="friendly" ${value.tone === 'friendly' ? 'selected' : ''}>Friendly</option>
-      <option value="professional" ${value.tone === 'professional' ? 'selected' : ''}>Professional</option>
-      <option value="casual" ${value.tone === 'casual' ? 'selected' : ''}>Casual</option>
-      <option value="witty" ${value.tone === 'witty' ? 'selected' : ''}>Witty</option>
+      <option value="friendly" ${data?.tone === 'friendly' ? 'selected' : ''}>Friendly</option>
+      <option value="professional" ${data?.tone === 'professional' ? 'selected' : ''}>Professional</option>
+      <option value="casual" ${data?.tone === 'casual' ? 'selected' : ''}>Casual</option>
+      <option value="witty" ${data?.tone === 'witty' ? 'selected' : ''}>Witty</option>
     </select>
-    
-    <button class="btn" onclick="saveAISettings()">Save Settings</button>
+
+    <label>System Prompt (how the bot talks)</label>
+    <textarea id="aiSystemPrompt" rows="4">${data?.system_prompt || ''}</textarea>
+
+    <label>TON Wallet Address (earnings go here)</label>
+    <input type="text" id="tonWallet" value="${data?.wallet_address || ''}" placeholder="UQ...">
+    <p class="note">All bundle payments will be sent to this address.</p>
   `;
+  const af = document.getElementById('aiForm');
+  if (af) af.innerHTML = formHtml;
+  document.getElementById('wizardAIForm').innerHTML = formHtml;
 }
 
-async function loadWallet() {
-  const { data } = await sb.from('settings')
-    .select('*')
-    .eq('creator_id', currentCreator.id)
-    .single();
-  
-  const value = data?.value || {};
-  
-  document.getElementById('walletForm').innerHTML = `
-    <label>TON Wallet Address</label>
-    <input type="text" id="tonWallet" value="${value.ton_wallet || ''}" placeholder="UQ...">
-    <p class="note">This is where all bundle payments will be sent.</p>
-    <button class="btn" onclick="saveWallet()">Save Wallet</button>
-  `;
-}
+async function loadWallet() { loadAISettings(); }
 
 // Helper functions
 function renderPagination(totalPages, currentPage, type) {
@@ -1303,54 +1276,36 @@ window.toggleBundle = async function(id, active) {
 };
 
 window.saveAISettings = async function() {
-  const personaName = document.getElementById('aiPersona').value;
-  const systemPrompt = document.getElementById('aiSystemPrompt').value;
-  const tone = document.getElementById('aiTone').value;
-  
-  const { data: existing } = await sb.from('settings')
-    .select('id')
-    .eq('creator_id', currentCreator.id)
-    .eq('key', 'ai')
-    .single();
-  
   const payload = {
     creator_id: currentCreator.id,
-    key: 'ai',
-    value: { persona_name: personaName, system_prompt: systemPrompt, tone },
+    display_name: document.getElementById('aiPersona').value,
+    tone: document.getElementById('aiTone').value,
+    system_prompt: document.getElementById('aiSystemPrompt').value,
+    wallet_address: document.getElementById('tonWallet')?.value || null,
+    enabled: true,
   };
-  
-  if (existing?.id) {
-    await sb.from('settings').update(payload).eq('id', existing.id);
-  } else {
-    await sb.from('settings').insert(payload);
-  }
-  
+
+  const { error } = await sb.from('ai_profiles')
+    .upsert(payload, { onConflict: 'creator_id' });
+
+  if (error) { showToast('Save failed: ' + error.message); return; }
   showToast('AI settings saved');
 };
 
-window.saveWallet = async function() {
-  const tonWallet = document.getElementById('tonWallet').value;
-  
-  const { data: existing } = await sb.from('settings')
-    .select('id')
-    .eq('creator_id', currentCreator.id)
-    .eq('key', 'wallet')
-    .single();
-  
-  const payload = {
-    creator_id: currentCreator.id,
-    key: 'wallet',
-    value: { ton_wallet: tonWallet },
-  };
-  
-  if (existing?.id) {
-    await sb.from('settings').update(payload).eq('id', existing.id);
-  } else {
-    await sb.from('settings').insert(payload);
-  }
-  
-  showToast('Wallet saved');
+window.finishSetup = async function() {
+  // step 3: save persona + wallet, mark wizard done
+  await window.saveAISettings();
+  showToast('Setup complete. Account is live.');
+  document.getElementById('wizardStep3').style.display = 'none';
+  document.getElementById('wizardStep1').style.display = 'block';
+  ['stepDot2', 'stepDot3'].forEach(id => document.getElementById(id).classList.remove('active'));
+  document.getElementById('stepDot1').classList.add('active');
+  document.getElementById('botToken').value = '';
+  loadAccounts();
 };
+
+// wallet now saved as part of ai_profiles
+window.saveWallet = async function() { await window.saveAISettings(); };
 
 // Start
 checkAuth();
