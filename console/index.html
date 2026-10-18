@@ -901,7 +901,7 @@ window.configureBot = async function() {
   if (!displayName) { showToast('Display name required'); return; }
 
   const { data: acct } = await sb.from('telegram_accounts')
-    .select('id').eq('creator_id', currentCreator.id)
+    .select('id, tg_user_id').eq('creator_id', currentCreator.id)
     .eq('connected', true).order('created_at', { ascending: false }).limit(1).maybeSingle();
 
   if (!acct) { showToast('Connect an account first (step 1)'); return; }
@@ -910,6 +910,7 @@ window.configureBot = async function() {
     id: 'bc-' + crypto.randomUUID(),
     creator_id: currentCreator.id,
     telegram_account_id: acct.id,
+    tg_user_id: acct.tg_user_id,
     is_enabled: true,
     rights: { mode },
     connected_at: new Date().toISOString(),
