@@ -74,17 +74,23 @@ th{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--in
         <input id="c-title" placeholder="e.g. New clip" maxlength="120">
         <label for="c-desc">Description</label>
         <textarea id="c-desc" placeholder="What fans get" maxlength="280"></textarea>
-        <div class="row2">
-          <div>
-            <label for="c-price">Price in TON (0 = free)</label>
-            <input id="c-price" type="number" min="0" step="0.1" placeholder="0">
-          </div>
-          <div>
-            <label for="c-file">File</label>
-            <input id="c-file" type="file" accept="video/*,image/*,audio/*,.zip,.pdf">
-          </div>
-        </div>
+        <label for="c-file">File</label>
+        <input id="c-file" type="file" accept="video/*,image/*,audio/*,.zip,.pdf">
         <button class="btn primary" id="c-upload" onclick="upload()">Upload</button>
+      </div>
+    </div>
+
+    <div class="panel" id="edit-panel" style="display:none">
+      <h2>Edit content</h2>
+      <div class="body">
+        <label for="e-title">Title</label>
+        <input id="e-title" maxlength="120">
+        <label for="e-desc">Description</label>
+        <textarea id="e-desc" maxlength="280"></textarea>
+        <label for="e-file">Replace file <small style="color:var(--ink-3)">(optional)</small></label>
+        <input id="e-file" type="file" accept="video/*,image/*,audio/*,.zip,.pdf">
+        <button class="btn primary" id="e-save" onclick="saveEdit()">Save changes</button>
+        <button class="btn" onclick="closeEdit()">Cancel</button>
       </div>
     </div>
 
@@ -112,7 +118,6 @@ function toast(msg){ const t = $('toast'); t.textContent = msg; t.style.display 
 async function upload(){
   const title = $('c-title').value.trim();
   const desc = $('c-desc').value.trim();
-  const price = parseFloat($('c-price').value) || 0;
   const file = $('c-file').files[0];
   if(!title){ toast('Add a title'); return; }
   if(!file){ toast('Choose a file'); return; }
@@ -130,11 +135,11 @@ async function upload(){
     const { error } = await sb.rpc('creator_add_media', {
       t: TOKEN, p_title: title, p_desc: desc, p_kind: kind,
       p_media_key: path, p_media_type: t || 'application/octet-stream',
-      p_media_size: file.size, p_price_ton: price || null
+      p_media_size: file.size, p_price_ton: null
     });
     if(error) throw error;
     toast('Uploaded');
-    $('c-title').value = ''; $('c-desc').value = ''; $('c-price').value = ''; $('c-file').value = '';
+    $('c-title').value = ''; $('c-desc').value = ''; $('c-file').value = '';
     load();
   }catch(e){ toast('Upload failed: ' + (e.message || e)); }
   finally{ btn.disabled = false; btn.textContent = 'Upload'; }
@@ -155,15 +160,55 @@ async function load(){
   el.innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>';
   const { data, error } = await sb.rpc('creator_list_media', { t: TOKEN });
   if(error){ el.innerHTML = '<div class="empty">Could not load your content.</div>'; return; }
+  editingList = data;
   if(!data.length){ el.innerHTML = '<div class="empty">Nothing here yet. Upload your first file above.</div>'; return; }
   el.innerHTML = `<table><tr><th>Title</th><th>Type</th><th>Price</th><th></th></tr>
     ${data.map(m => `<tr>
       <td><b>${esc(m.title)}</b>${m.description ? `<br><small style="color:var(--ink-3)">${esc(m.description)}</small>` : ''}</td>
       <td>${esc(m.kind)}</td>
-      <td>${Number(m.price_ton) > 0 ? Number(m.price_ton) + ' TON' : '<span class="pill">Free</span>'}</td>
-      <td style="text-align:right"><button class="btn sm danger" onclick="del('${m.id}')">Remove</button></td>
+      <td>${m.price_ton != null ? (Number(m.price_ton) > 0 ? Number(m.price_ton) + ' TON' : '<span class="pill">Free</span>') : '<small style="color:var(--ink-3)">Owner sets</small>'}</td>
+      <td style="text-align:right"><button class="btn sm" onclick="edit('${m.id}')">Edit</button> <button class="btn sm danger" onclick="del('${m.id}')">Remove</button></td>
     </tr>`).join('')}</table>`;
 }
+
+let editing = null;
+function edit(id){
+  const row = editingList.find(m => m.id === id); if(!row) return;
+  editing = row;
+  $('e-title').value = row.title || '';
+  $('e-desc').value = row.description || '';
+  $('e-file').value = '';
+  $('edit-panel').style.display = 'block';
+  $('edit-panel').scrollIntoView({ behavior:'smooth' });
+}
+window.edit = edit;
+function closeEdit(){ editing = null; $('edit-panel').style.display = 'none'; }
+window.closeEdit = closeEdit;
+async function saveEdit(){
+  if(!editing) return;
+  const title = $('e-title').value.trim();
+  if(!title){ toast('Add a title'); return; }
+  const btn = $('e-save'); btn.disabled = true;
+  try{
+    const args = { t: TOKEN, p_id: editing.id, p_title: title, p_desc: $('e-desc').value.trim() };
+    const file = $('e-file').files[0];
+    if(file){
+      const t = file.type || '';
+      const who = await sb.rpc('creator_id_for_token', { t: TOKEN });
+      if(!who.data) throw new Error('bad token');
+      const safe = file.name.replace(/[^\w.\-]/g, '_');
+      const path = `${who.data}/${Date.now()}-${safe}`;
+      const { error: upErr } = await sb.storage.from('content-store').upload(path, file, { contentType: t || 'application/octet-stream' });
+      if(upErr) throw upErr;
+      args.p_media_key = path; args.p_media_type = t || 'application/octet-stream'; args.p_media_size = file.size;
+    }
+    const { error } = await sb.rpc('creator_update_media', args);
+    if(error) throw error;
+    toast('Saved'); closeEdit(); load();
+  }catch(e){ toast('Save failed: ' + (e.message || e)); }
+  finally{ btn.disabled = false; }
+}
+window.saveEdit = saveEdit;
 
 (async () => {
   if(!TOKEN){ $('bad-token').style.display = 'block'; return; }
