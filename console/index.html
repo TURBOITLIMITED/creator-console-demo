@@ -907,6 +907,7 @@ window.configureBot = async function() {
   if (!acct) { showToast('Connect an account first (step 1)'); return; }
 
   const { error } = await sb.from('business_connections').insert({
+    id: 'bc-' + crypto.randomUUID(),
     creator_id: currentCreator.id,
     telegram_account_id: acct.id,
     is_enabled: true,
