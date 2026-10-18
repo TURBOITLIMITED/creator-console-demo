@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Account · Creator Console</title>
+<link rel="icon" type="image/png" sizes="32x32" href="favicon32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="favicon16.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --paper:#f7f7f6; --panel:#ffffff; --sunk:#f1f1ef;
+  --ink:#141519; --ink-2:#55585f; --ink-3:#8a8d95; --rule:#e6e6e3; --rule-2:#efefec;
+  --accent:#3346ff; --accent-hi:#2233ee; --accent-ink:#ffffff; --accent-soft:#eceeff; --accent-line:#c9cfff;
+  --ok:#11804a; --ok-soft:#e2f3e9; --bad:#c42f37; --bad-soft:#fbe5e6;
+  --f-ui:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"Geist Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --r:8px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --paper:#111215; --panel:#18191d; --sunk:#141518; --ink:#ececef; --ink-2:#a6a9b1; --ink-3:#73767e; --rule:#2a2c32; --rule-2:#212328;
+  --accent:#6876ff; --accent-hi:#8792ff; --accent-ink:#0b0c10; --accent-soft:#1f2347; --accent-line:#363e86;
+  --ok:#4fc58b; --ok-soft:#14301f; --bad:#ff6e75; --bad-soft:#3a1a1d; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#111215; --panel:#18191d; --sunk:#141518; --ink:#ececef; --ink-2:#a6a9b1; --ink-3:#73767e; --rule:#2a2c32; --rule-2:#212328;
+  --accent:#6876ff; --accent-hi:#8792ff; --accent-ink:#0b0c10; --accent-soft:#1f2347; --accent-line:#363e86;
+  --ok:#4fc58b; --ok-soft:#14301f; --bad:#ff6e75; --bad-soft:#3a1a1d; color-scheme:dark}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 var(--f-ui);-webkit-font-smoothing:antialiased;padding:0}
+.wrap{max-width:720px;margin:0 auto;padding:24px 20px 64px}
+.header{display:flex;align-items:center;gap:12px;margin-bottom:20px}
+.back{width:36px;height:36px;border-radius:8px;border:1px solid var(--rule);background:var(--panel);display:grid;place-items:center;color:var(--ink);cursor:pointer;transition:background .15s}
+.back:hover{background:var(--sunk)}
+.header h1{margin:0;font-size:20px;font-weight:650;letter-spacing:-.02em}
+.header .sub{margin:0;color:var(--ink-2);font-size:13.5px}
+.panel{background:var(--panel);border:1px solid var(--rule);border-radius:var(--r);margin-bottom:16px;overflow:hidden}
+.panel-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--rule-2)}
+.panel-head h2{margin:0;font-size:14px;font-weight:600}
+.panel-body{padding:16px}
+.field{margin-bottom:14px}
+.field:last-child{margin-bottom:0}
+label{display:block;font-size:12.5px;font-weight:550;color:var(--ink-2);margin-bottom:6px}
+input,textarea,select{width:100%;height:40px;padding:0 12px;border-radius:8px;border:1px solid var(--rule);background:var(--panel);color:var(--ink);font:inherit;transition:border-color .15s,box-shadow .15s}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+textarea{height:auto;min-height:80px;padding:10px 12px;resize:vertical}
+input[type="file"]{padding:8px}
+input.mono,textarea.mono{font-family:var(--f-mono);font-size:13px}
+.hint{font-size:12.5px;color:var(--ink-3);margin-top:4px;display:block}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:40px;padding:0 16px;border-radius:8px;border:1px solid var(--rule);background:var(--panel);color:var(--ink);font:600 14px var(--f-ui);cursor:pointer;transition:background .15s,box-shadow .15s}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.primary:hover{background:var(--accent-hi);box-shadow:0 8px 24px -10px var(--accent)}
+.btn.ghost{background:var(--panel);color:var(--ink);border-color:var(--rule)}
+.btn.ghost:hover{border-color:var(--ink-3)}
+.btn[disabled]{opacity:.6;cursor:not-allowed}
+.btn.busy{color:transparent}
+.btn.busy::after{content:"";position:absolute;width:18px;height:18px;border-radius:50%;border:2.5px solid currentColor;border-right-color:transparent;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.switch{display:flex;align-items:center;gap:10px;cursor:pointer}
+.switch input{display:none}
+.switch .track{width:40px;height:22px;border-radius:999px;background:var(--rule);transition:background .2s;position:relative}
+.switch input:checked+.track{background:var(--accent)}
+.switch input:checked+.track::after{opacity:1}
+.switch .track::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .2s;opacity:0}
+.switch input:checked+.track::after{transform:translateX(18px)}
+.switch span{font-size:13.5px}
+.switch small{display:block;font-size:12px;color:var(--ink-3);font-weight:400}
+.tabs{display:grid;grid-template-columns:1fr 1fr;gap:3px;background:var(--sunk);padding:3px;border-radius:8px;display:inline-grid}
+.tabs button{border:0;background:none;padding:7px 12px;border-radius:6px;color:var(--ink-2);font:500 13px var(--f-ui);cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--panel);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.msg{padding:12px 14px;border-radius:8px;font-size:13px;display:none}
+.msg.on{display:block}
+.msg.ok{background:var(--ok-soft);color:var(--ok);border:1px solid color-mix(in srgb,var(--ok) 20%,transparent)}
+.msg.err{background:var(--bad-soft);color:var(--bad);border:1px solid color-mix(in srgb,var(--bad) 20%,transparent)}
+.loading{display:flex;align-items:center;gap:10px;padding:32px;color:var(--ink-3)}
+.spinner{width:20px;height:20px;border-radius:50%;border:2.5px solid var(--rule);border-top-color:var(--accent);animation:spin .75s linear infinite}
+.avatar{width:40px;height:40px;border-radius:8px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-weight:600;font-size:14px}
+.pill{display:inline-flex;align-items:center;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:550}
+.pill.ok{background:var(--ok-soft);color:var(--ok)}
+.pill.off{background:var(--sunk);color:var(--ink-3)}
+.action-row{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div class="back" id="backBtn" title="Back to accounts">←</div>
+    <div>
+      <h1 id="pageTitle">Loading…</h1>
+      <div class="sub" id="pageSub"></div>
+    </div>
+  </div>
+
+  <div id="msg" class="msg"></div>
+
+  <div id="loading" class="loading"><div class="spinner"></div>Loading account…</div>
+
+  <div id="content" style="display:none">
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Account info</h2>
+        <div class="tabs" role="tablist">
+          <button type="button" role="tab" data-tab="edit" aria-selected="true">Edit</button>
+          <button type="button" role="tab" data-tab="connection" aria-selected="false">Connection</button>
+        </div>
+      </div>
+      <div class="panel-body" id="tab-body">
+        <!-- Edit tab -->
+        <div id="tab-edit">
+          <div class="field">
+            <label for="username">Bot username</label>
+            <input type="text" id="username" class="mono" placeholder="@botname" readonly>
+          </div>
+          <div class="field">
+            <label for="first_name">Display name</label>
+            <input type="text" id="first_name" placeholder="Bot name">
+          </div>
+          <div class="field">
+            <label for="bio">Bio</label>
+            <textarea id="bio" placeholder="Short description shown to users" maxlength="256"></textarea>
+          </div>
+          <div class="field">
+            <label for="avatar_url">Avatar URL</label>
+            <input type="url" id="avatar_url" placeholder="https://...">
+            <span class="hint">Leave blank to use default avatar.</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="connected">
+            <span class="track"></span>
+            <span>Enabled<small>Sync chats and allow AI replies</small></span>
+          </label>
+          <div class="action-row">
+            <button class="btn primary" id="saveBtn">Save changes</button>
+            <button class="btn ghost" id="cancelBtn">Cancel</button>
+          </div>
+        </div>
+
+        <!-- Connection tab -->
+        <div id="tab-connection" style="display:none">
+          <div class="field">
+            <label>Bot token</label>
+            <input type="text" id="bot_token" class="mono" placeholder="•••••••••••••••••••••••••••••••" readonly>
+            <span class="hint">Get this from @BotFather. Contact support to update.</span>
+          </div>
+          <div class="field">
+            <label>Telegram user ID</label>
+            <input type="text" id="tg_user_id" class="mono" readonly>
+          </div>
+          <div class="field">
+            <label>Business connection ID</label>
+            <input type="text" id="business_connection_id" class="mono" readonly>
+            <span class="hint">She must add the bot in Telegram: Settings → Business → Chatbots</span>
+          </div>
+          <div class="field">
+            <label>Status</label>
+            <div id="statusPill" class="pill ok">Connected</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>AI Persona</h2></div>
+      <div class="panel-body" id="personaPanel">
+        <div class="loading"><div class="spinner"></div>Loading persona…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+const SUPABASE_URL = 'https://xsgvdlgmhuxozjlbjzxy.supabase.co';
+const SUPABASE_ANON = 'eyJhbGc...0BZ0';
+const SUPABASE_ESM = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
+
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+const qs = new URLSearchParams(location.search);
+const ACC_ID = qs.get('id');
+
+if(!ACC_ID){
+  say('No account selected.', 'err');
+  $('#loading').style.display = 'none';
+}
+
+let sb, accData, originalData;
+
+function say(text, kind){
+  const m = $('#msg');
+  m.textContent = text;
+  m.className = `msg ${kind} ${text ? 'on' : ''}`;
+}
+
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function init(){
+  const { createClient } = await import(SUPABASE_ESM);
+  sb = createClient(SUPABASE_URL, SUPABASE_ANON, { auth:{ persistSession:true, autoRefreshToken:true } });
+  await loadAccount();
+  setupTabs();
+  setupEvents();
+}
+
+async function loadAccount(){
+  try{
+    const { data, error } = await sb.from('telegram_accounts').select('*, business_connections(*)').eq('id', ACC_ID).maybeSingle();
+    if(error) throw error;
+    if(!data){ say('Account not found.', 'err'); $('#loading').style.display = 'none'; return; }
+    
+    accData = data;
+    originalData = JSON.parse(JSON.stringify(data));
+    
+    // Fill form
+    $('#username').value = data.username ? '@' + data.username : '';
+    $('#first_name').value = data.first_name || '';
+    $('#bio').value = data.bio || '';
+    $('#avatar_url').value = data.avatar_url || '';
+    $('#connected').checked = !!data.connected;
+    $('#bot_token').value = data.bot_token || '';
+    $('#tg_user_id').value = data.tg_user_id || '—';
+    $('#business_connection_id').value = (data.business_connections && data.business_connections[0]) ? data.business_connections[0].connection_id : '—';
+    $('#statusPill').className = `pill ${data.connected ? 'ok' : 'off'}`;
+    $('#statusPill').textContent = data.connected ? 'Connected' : 'Disconnected';
+    
+    // Header
+    $('#pageTitle').textContent = '@' + (data.username || data.first_name || 'account');
+    $('#pageSub').textContent = 'Configure bot settings and AI persona';
+    
+    $('#loading').style.display = 'none';
+    $('#content').style.display = 'block';
+    
+    // Load persona (placeholder - integrate with your existing AI panel component)
+    loadPersona();
+    
+  }catch(e){
+    say(e.message || 'Failed to load account.', 'err');
+    $('#loading').style.display = 'none';
+  }
+}
+
+function setupTabs(){
+  $$('.tabs button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tab = btn.dataset.tab;
+      $$('.tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === tab));
+      $('#tab-edit').style.display = tab === 'edit' ? 'block' : 'none';
+      $('#tab-connection').style.display = tab === 'connection' ? 'block' : 'none';
+    });
+  });
+}
+
+function setupEvents(){
+  $('#backBtn').onclick = () => location.href = 'index.html#accounts';
+  $('#cancelBtn').onclick = () => {
+    if(hasChanges()){
+      if(confirm('You have unsaved changes. Discard them?')) location.href = 'index.html#accounts';
+    } else {
+      location.href = 'index.html#accounts';
+    }
+  };
+  $('#saveBtn').onclick = saveChanges;
+}
+
+function hasChanges(){
+  return (
+    $('#first_name').value !== (originalData.first_name || '') ||
+    $('#bio').value !== (originalData.bio || '') ||
+    $('#avatar_url').value !== (originalData.avatar_url || '') ||
+    $('#connected').checked !== !!originalData.connected
+  );
+}
+
+async function saveChanges(){
+  const btn = $('#saveBtn');
+  btn.disabled = true;
+  btn.classList.add('busy');
+  
+  try{
+    const updates = {
+      first_name: $('#first_name').value || null,
+      bio: $('#bio').value || null,
+      avatar_url: $('#avatar_url').value || null,
+      connected: $('#connected').checked
+    };
+    
+    const { error } = await sb.from('telegram_accounts').update(updates).eq('id', ACC_ID);
+    if(error) throw error;
+    
+    originalData = { ...originalData, ...updates };
+    say('Saved successfully.', 'ok');
+    setTimeout(() => say('', ''), 2000);
+    
+  }catch(e){
+    say(e.message || 'Failed to save.', 'err');
+  }finally{
+    btn.disabled = false;
+    btn.classList.remove('busy');
+  }
+}
+
+async function loadPersona(){
+  // Placeholder - integrate with your existing AI persona loading logic
+  // For now, show a simple message
+  setTimeout(() => {
+    $('#personaPanel').innerHTML = `
+      <p style="color:var(--ink-2);margin:0">
+        AI persona settings for this bot. Configure voice, personality traits, and response style.
+        <br><br>
+        <em style="color:var(--ink-3)">Persona editor coming soon.</em>
+      </p>
+    `;
+  }, 500);
+}
+
+init();
+</script>
+</body>
+</html>

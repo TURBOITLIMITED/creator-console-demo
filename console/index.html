@@ -736,11 +736,9 @@ const ownerPicker = () => {
   const cur = ownerTarget();
   const name = c => c ? (c.name || c.id) : '';
   return `<div class="panel owner-pick" style="margin-bottom:16px;padding:10px 14px;display:flex;gap:12px;align-items:center">
-    <span style="font-size:12px;color:var(--dim)">Managing</span>
     <select class="input" id="ai-creator" style="max-width:340px;padding:6px 10px;min-height:34px">
       ${rows.map(c => `<option value="${esc(c.id)}" ${c.id===cur?'selected':''}>${esc(name(c))} · ${esc(c.id)}</option>`).join('')}
     </select>
-    <span style="font-size:12px;color:var(--dim)">Owner access: everything below is that creator's.</span>
   </div>`;
 };
 const setView = html => { const v = $('#view'); v.innerHTML = html; v.classList.remove('fade-in'); void v.offsetWidth; v.classList.add('fade-in'); $('#pageLoading').classList.remove('active'); };
@@ -871,7 +869,7 @@ async function loadAccounts(){
         <td>${pill(a.connected,'Enabled','Disabled','off')}</td>
         <td class="muted">${fmtDate(a.created_at)}</td>
         <td><div class="row-actions">
-          <button class="act" data-act="acc-open" data-id="${a.id}" title="Open">${ic('edit')}Open</button>
+          <a href="account.html?id=${a.id}" class="act" title="Open">${ic('edit')}Open</a>
           <button class="act danger" data-act="acc-del" data-id="${a.id}" title="Remove">${ic('trash')}</button>
         </div></td></tr>`).join('')}</tbody></table>`
       : empty('send','No accounts yet','Connect a Telegram bot account to start chatting and selling in DMs.', `<button class="btn sm primary" data-act="acc-connect">${ic('plus')}Connect account</button>`);
