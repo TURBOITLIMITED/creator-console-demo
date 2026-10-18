@@ -950,6 +950,8 @@ function renderAccConnection(a){
       
       // Check if logged in and token exists
       const token = state.session?.user?.access_token;
+      const userEmail = state.session?.user?.email;
+      
       if (!token) {
         toast('Please login first', 'error');
         console.error('[Activate Bot] No access token found. State session:', state.session);
@@ -957,6 +959,8 @@ function renderAccConnection(a){
         $('#acc-refresh-bc').innerHTML = ic('refresh') + 'Activate bot';
         return;
       }
+      
+      console.log('[Activate Bot] Using token for user:', userEmail);
       
       // Fetch business connection from Telegram API via our backend
       const res = await fetch('https://api-telebotcreator.turboit.uk/bots/hook', {
@@ -968,11 +972,17 @@ function renderAccConnection(a){
         body: JSON.stringify({ persona: a.username, unhook: false })
       });
       
+      console.log('[Activate Bot] Response status:', res.status, res.statusText);
+      
       if (!res.ok) {
         const errText = await res.text().catch(() => 'unknown');
         console.error('[Activate Bot] API returned non-OK status:', res.status, errText);
-        throw new Error(`API error: ${res.status} ${res.statusText}`);
+        toast('API error: ' + res.status + ' ' + res.statusText, 'error');
+        $('#acc-refresh-bc').disabled = false;
+        $('#acc-refresh-bc').innerHTML = ic('refresh') + 'Activate bot';
+        return;
       }
+      
       const data = await res.json();
       if (data.webhook === 'set') {
         // After setting webhook, fetch the connection ID
