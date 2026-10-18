@@ -503,6 +503,8 @@ function ago(iso){ if(!iso) return '—'; const s=(Date.now()-new Date(iso))/100
   if(s<172800) return 'Yesterday'; if(s<7*86400) return Math.floor(s/86400)+'d ago';
   return new Date(iso).toLocaleDateString('en-GB',{day:'numeric',month:'short'}); }
 const uid = () => state.session?.user?.id;
+// Owner can edit any creator's assistant; everyone else edits their own.
+const aiTarget = () => (state.isAdmin && state.aiCreator) ? state.aiCreator : uid();
 const configured = () => !/YOUR-/.test(SUPABASE_URL + SUPABASE_ANON_KEY);
 const store = { get(k){ try{ return localStorage.getItem(k) }catch{ return null } }, set(k,v){ try{ localStorage.setItem(k,v) }catch{} } };
 const nameOf = c => c ? (c.first_name || c.username || 'Customer') : 'Customer';
@@ -647,12 +649,12 @@ const Data = {
     return await Data.insert('telegram_accounts', fields);
   },
 
-  async getAI(){
-      const { data, error } = await state.sb.from('ai_profiles').select('*').eq('creator_id', uid()).maybeSingle();
+  async getAI(cid){
+      const { data, error } = await state.sb.from('ai_profiles').select('*').eq('creator_id', cid || uid()).maybeSingle();
     if(error) throw error; return data;
   },
-  async saveAI(fields){
-      const { data, error } = await state.sb.from('ai_profiles').upsert({ ...fields, creator_id:uid() }, { onConflict:'creator_id' }).select().single();
+  async saveAI(fields, cid){
+      const { data, error } = await state.sb.from('ai_profiles').upsert({ ...fields, creator_id:cid || uid() }, { onConflict:'creator_id' }).select().single();
     if(error) throw error; return data;
   },
   async updateCreator(patch){
@@ -1053,15 +1055,29 @@ async function loadBundles(){
 /* ---------- AI Personality ---------- */
 const TONES = { warm:['Warm','Friendly, personal, a little chatty'], playful:['Playful','Light jokes, emoji, high energy'], professional:['Professional','Polite, precise, no slang'], concise:['Concise','Short answers, straight to the point'] };
 async function renderAI(){
-  setView(`${secHead('How your assistant talks to fans when you are away. Changes apply to new replies straight away.')}<div id="ai-body">${spinner('Loading personality…')}</div>`);
-  let p;
-  try{ p = await Data.getAI(); }catch(e){ $('#ai-body').innerHTML = `<div class="panel">${errorState(e,'ai')}</div>`; return; }
+  const asOwner = !!state.isAdmin, target = aiTarget();
+  const head = 'How your assistant talks to fans when you are away. Changes apply to new replies straight away.';
+  setView(`${secHead(head)}<div id="ai-body">${spinner('Loading personality…')}</div>`);
+  let p, picker = '';
+  if(asOwner){
+    try{
+      const { data: rows, error } = await state.sb.from('creators').select('id, name').order('created_at', { ascending: true });
+      if(error) throw error;
+      state.aiCreators = rows || [];
+      const cur = state.aiCreators.find(c => c.id === target);
+      picker = `<div class="field" style="margin-bottom:16px"><label for="ai-creator">Creator</label>
+        <select class="input" id="ai-creator">${state.aiCreators.map(c => `<option value="${esc(c.id)}" ${c.id===target?'selected':''}>${esc(c.name||c.id)} · ${esc(c.id)}</option>`).join('')}</select>
+        <span class="hint">Owner access: you are editing${cur?` ${esc(cur.name||cur.id)}'s`:''} assistant, not your own.</span></div>`;
+    }catch{}
+  }
+  try{ p = await Data.getAI(target); }catch(e){ $('#ai-body').innerHTML = `<div class="panel">${errorState(e,'ai')}</div>`; return; }
   p = p || { display_name:'', tone:'warm', system_prompt:'', first_contact_line:'', disclose_on_first_contact:false, enabled:false };
   p.persona_name = p.display_name || p.persona_name || '';
   $('#ai-body').innerHTML = `<div class="ai-wrap">
     <form class="panel" data-form="ai" autocomplete="off">
       <div class="panel-head"><h2>Persona</h2><span class="end">${p.enabled?'<span class="pill ok">Enabled</span>':'<span class="pill off">Disabled</span>'}</span></div>
       <div class="form panel-body">
+        ${picker}
         <div class="row2">
           <div class="field"><label for="ai-name">Assistant name</label><input class="input" id="ai-name" name="persona_name" maxlength="40" value="${esc(p.persona_name)}" placeholder="Mara"></div>
           <div class="field"><label for="ai-first">First contact line</label><input class="input" id="ai-first" name="first_contact_line" maxlength="120" value="${esc(p.first_contact_line||'')}" placeholder="hey, I'm around…"><span class="hint">Sent to brand-new chats (optional).</span></div>
@@ -1201,7 +1217,10 @@ view.addEventListener('input', e => {
   if(e.target.id==='w-addr'){ const v=e.target.value.trim(); e.target.classList.toggle('invalid', v.length>4 && !TON_RE.test(v)); }
   if(e.target.classList.contains('invalid') && e.target.id!=='w-addr') e.target.classList.remove('invalid');
 });
-view.addEventListener('change', e => { if(e.target.closest('form[data-form="ai"]')) updateAIPreview(); });
+view.addEventListener('change', e => {
+  if(e.target.id === 'ai-creator'){ state.aiCreator = e.target.value; renderAI(); return; }
+  if(e.target.closest('form[data-form="ai"]')) updateAIPreview();
+});
 
 view.addEventListener('submit', async e => {
   e.preventDefault();
@@ -1253,7 +1272,7 @@ view.addEventListener('submit', async e => {
   if(kind === 'ai'){
     const data = { display_name:f.persona_name.value.trim()||null, tone:f.tone.value, system_prompt:f.system_prompt.value.trim(),
       first_contact_line:f.first_contact_line?.value.trim()||null, disclose_on_first_contact:f.disclose_on_first_contact?.checked||false, enabled:f.enabled.checked };
-    if(await withBusy(btn, () => Data.saveAI(data), 'Personality saved')) renderAI();
+    if(await withBusy(btn, () => Data.saveAI(data, aiTarget()), 'Personality saved')) renderAI();
   }
   if(kind === 'wallet'){
     const v = f.ton_wallet.value.trim();
