@@ -391,7 +391,14 @@
     from { transform: translateY(100%); opacity: 0; }
     to { transform: translateY(0); opacity: 1; }
   }
-  
+  /* Connect wizard */
+  .steps { display:flex; align-items:center; margin:4px 0 20px }
+  .step-marker { text-align:center }
+  .step-dot { display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px; border-radius:50%; background:#e5e5e2; color:var(--muted); font-weight:600; font-size:14px }
+  .step-dot.active { background:var(--accent); color:#fff }
+  .step-line { flex:1; height:2px; background:var(--rule); margin:0 12px 22px }
+  .step-label { font-size:11.5px; color:var(--muted); margin-top:6px }
+  .status.revoked { background:#fdecea; color:#a33 }
   /* Messages */
   .msg { 
     padding: 12px 16px; 
@@ -540,15 +547,50 @@
     <!-- Accounts -->
     <section id="accounts">
       <h2>Telegram Accounts</h2>
-      <div class="card">
+      <div class="card" id="connectWizard">
         <h3>Connect New Account</h3>
-        <p class="note">To connect a Telegram account:</p>
-        <ol class="note" style="margin: 8px 0 16px; padding-left: 20px">
-          <li>Go to @BotFather and create a new bot (or use existing)</li>
-          <li>Enable Secretary Mode: /mybots → your bot → Bot Settings → Secretary Mode</li>
-          <li>On your personal account: Settings → Business → Chatbots → add the bot</li>
-          <li>Grant reply permission when prompted</li>
-        </ol>
+        <div class="steps">
+          <div class="step-marker">
+            <span class="step-dot active" id="stepDot1">1</span>
+            <div class="step-label">Connect</div>
+          </div>
+          <div class="step-line"></div>
+          <div class="step-marker">
+            <span class="step-dot" id="stepDot2">2</span>
+            <div class="step-label">Configure</div>
+          </div>
+        </div>
+
+        <!-- STEP 1 -->
+        <div id="wizardStep1">
+          <p class="note" style="margin-bottom: 8px">Create a bot with @BotFather and connect it to your Telegram Business:</p>
+          <ol class="note" style="margin: 8px 0 16px; padding-left: 20px">
+            <li>Message @BotFather → /newbot (or use an existing bot)</li>
+            <li>On your personal account: Settings → Business → Chatbots → add the bot</li>
+            <li>Grant reply permission when Telegram prompts you</li>
+          </ol>
+          <label>Bot token (from BotFather)</label>
+          <input type="text" id="botToken" placeholder="123456789:ABCdefGhIjKlMnOpQrStUvWxYz">
+          <button class="btn" onclick="connectBot()">Connect Account</button>
+        </div>
+
+        <!-- STEP 2 -->
+        <div id="wizardStep2" style="display: none">
+          <p class="note" style="margin-bottom: 8px">Account connected. Now configure it so it can start chatting:</p>
+          <label>Display name</label>
+          <input type="text" id="cfgDisplayName" placeholder="e.g. Ava">
+          <label>Reply mode</label>
+          <select id="cfgMode">
+            <option value="ai">AI Mode (bot answers customers for you)</option>
+            <option value="assisted">Assisted (AI drafts, you approve)</option>
+            <option value="human">Human Only (you answer everything)</option>
+          </select>
+          <button class="btn" onclick="configureBot()">Finish Setup</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Your Accounts</h3>
         <div id="accountList"></div>
       </div>
     </section>
@@ -763,28 +805,125 @@ async function loadAccounts() {
   const { data } = await sb.from('business_connections')
     .select('*,telegram_accounts(*)')
     .eq('creator_id', currentCreator.id);
-  
-  if (!data || data.length === 0) {
-    document.getElementById('accountList').innerHTML = '<div class="empty">No connected accounts yet. Follow the steps above.</div>';
+
+  // also count bare telegram_accounts with no connection yet (step 1 done, step 2 pending)
+  const { data: orphans } = await sb.from('telegram_accounts')
+    .select('*')
+    .eq('creator_id', currentCreator.id);
+
+  const connectedIds = new Set((data || []).map(c => c.telegram_account_id).filter(Boolean));
+  const pending = (orphans || []).filter(a => !connectedIds.has(a.id));
+
+  if ((!data || data.length === 0) && pending.length === 0) {
+    document.getElementById('accountList').innerHTML = '<div class="empty">No accounts yet. Use the wizard above: step 1 connect, step 2 configure.</div>';
     return;
   }
-  
-  document.getElementById('accountList').innerHTML = `
+
+  let html = '';
+
+  if (pending.length) {
+    html += `
+      <div class="empty" style="text-align:left; margin-bottom:12px; color:var(--warn, #8a5a12)">
+        <strong>${pending.length} account${pending.length > 1 ? 's' : ''} awaiting configuration</strong> (step 1 done, step 2 pending):
+        ${pending.map(a => `@${a.username || a.first_name || 'unknown'}`).join(', ')}
+      </div>`;
+  }
+
+  html += `
     <div class="table-container">
       <table>
-        <tr><th>Status</th><th>Username</th><th>Can Reply</th><th>Connected</th></tr>
-        ${data.map(c => `
+        <tr><th>Status</th><th>Username</th><th>Can Reply</th><th>Mode</th><th>Connected</th></tr>
+        ${(data || []).map(c => {
+          const configured = c.is_enabled && c.can_reply_cached;
+          const status = c.revoked_at ? 'revoked'
+            : configured ? 'active'
+            : c.is_enabled ? 'setup'
+            : 'setup';
+          const label = c.revoked_at ? 'Revoked' : configured ? 'Live' : c.is_enabled ? 'Awaiting config' : 'Setup incomplete';
+          return `
           <tr>
-            <td><span class="status ${c.is_enabled ? 'active' : 'setup'}">${c.is_enabled ? 'Enabled' : 'Disabled'}</span></td>
+            <td><span class="status ${status}">${label}</span></td>
             <td>@${c.telegram_accounts?.username || 'N/A'}</td>
             <td>${c.can_reply_cached ? '✓ Yes' : '✗ No'}</td>
+            <td>${c.rights?.mode || '—'}</td>
             <td>${new Date(c.connected_at).toLocaleDateString()}</td>
-          </tr>
-        `).join('')}
+          </tr>`;
+        }).join('')}
       </table>
     </div>
   `;
+  document.getElementById('accountList').innerHTML = html;
 }
+
+window.connectBot = async function() {
+  const token = document.getElementById('botToken').value.trim();
+  if (!token || !/^\d+:[\w-]+$/.test(token)) {
+    showToast('Enter a valid bot token (from @BotFather)');
+    return;
+  }
+  showToast('Connecting…');
+  try {
+    const me = await fetch(`https://api.telegram.org/bot${token}/getMe`).then(r => r.json());
+    if (!me.ok) { showToast('Telegram rejected that token'); return; }
+
+    const existing = await sb.from('telegram_accounts')
+      .select('id, connected')
+      .eq('creator_id', currentCreator.id)
+      .eq('tg_user_id', me.result.id)
+      .maybeSingle();
+
+    if (existing.data) {
+      await sb.from('telegram_accounts').update({ connected: true, updated_at: new Date().toISOString() }).eq('id', existing.data.id);
+    } else {
+      await sb.from('telegram_accounts').insert({
+        creator_id: currentCreator.id,
+        tg_user_id: me.result.id,
+        username: me.result.username,
+        first_name: me.result.first_name,
+        connected: true,
+      });
+    }
+    showToast('Connected. Now configure it (step 2).');
+    document.getElementById('wizardStep1').style.display = 'none';
+    document.getElementById('wizardStep2').style.display = 'block';
+    document.getElementById('stepDot1').classList.remove('active');
+    document.getElementById('stepDot2').classList.add('active');
+    document.getElementById('cfgDisplayName').value = me.result.first_name || '';
+    loadAccounts();
+  } catch (e) {
+    showToast('Could not reach Telegram. Check the token.');
+  }
+};
+
+window.configureBot = async function() {
+  const displayName = document.getElementById('cfgDisplayName').value.trim();
+  const mode = document.getElementById('cfgMode').value;
+  if (!displayName) { showToast('Display name required'); return; }
+
+  const { data: acct } = await sb.from('telegram_accounts')
+    .select('id').eq('creator_id', currentCreator.id)
+    .eq('connected', true).order('created_at', { ascending: false }).limit(1).maybeSingle();
+
+  if (!acct) { showToast('Connect an account first (step 1)'); return; }
+
+  const { error } = await sb.from('business_connections').insert({
+    creator_id: currentCreator.id,
+    telegram_account_id: acct.id,
+    is_enabled: true,
+    rights: { mode },
+    connected_at: new Date().toISOString(),
+    last_verified_at: new Date().toISOString(),
+  });
+
+  if (error) { showToast('Save failed: ' + error.message); return; }
+  showToast('Configured. Account is live.');
+  document.getElementById('wizardStep2').style.display = 'none';
+  document.getElementById('wizardStep1').style.display = 'block';
+  document.getElementById('stepDot2').classList.remove('active');
+  document.getElementById('stepDot1').classList.add('active');
+  document.getElementById('botToken').value = '';
+  loadAccounts();
+};
 
 async function loadConversations() {
   const search = document.getElementById('inboxSearch').value.toLowerCase();
