@@ -1105,6 +1105,15 @@ async function loadAISettings() {
     <label>System Prompt (how the bot talks)</label>
     <textarea id="aiSystemPrompt" rows="4">${data?.system_prompt || ''}</textarea>
 
+    <label>First contact line (optional, sent to new customers)</label>
+    <input type="text" id="aiFirstContact" value="${data?.first_contact_line || ''}" placeholder="e.g. hey, I'm around...">
+
+    <label style="display:flex; align-items:center; gap:8px; font-weight:normal; margin-bottom:12px">
+      <input type="checkbox" id="aiDisclose" ${data?.disclose_on_first_contact ? 'checked' : ''}>
+      Tell customers they're chatting with an AI on first contact
+    </label>
+    <p class="note" style="margin-bottom:12px">Leave this off and the bot replies as you - customers won't know it's automated unless you tell them.</p>
+
     <label>TON Wallet Address (earnings go here)</label>
     <input type="text" id="tonWallet" value="${data?.wallet_address || ''}" placeholder="UQ...">
     <p class="note">All bundle payments will be sent to this address.</p>
@@ -1424,6 +1433,8 @@ window.saveAISettings = async function() {
     display_name: document.getElementById('aiPersona').value,
     tone: document.getElementById('aiTone').value,
     system_prompt: document.getElementById('aiSystemPrompt').value,
+    first_contact_line: document.getElementById('aiFirstContact')?.value || null,
+    disclose_on_first_contact: document.getElementById('aiDisclose')?.checked || false,
     wallet_address: document.getElementById('tonWallet')?.value || null,
     enabled: true,
   };
