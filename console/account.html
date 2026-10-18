@@ -271,12 +271,18 @@ async function loadAccount(){
       
       try {
         const token = localStorage.getItem('sb_access_token');
+        if (!token) throw new Error('No auth token found');
+        
         const res = await fetch('/api/bots/hook', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
           body: JSON.stringify({ persona: botUsername, unhook: false })
         });
-        const hookData = await res.json();
+        
+        const text = await res.text();
+        if (!text) throw new Error('Empty response from API');
+        
+        const hookData = JSON.parse(text);
         
         if (hookData.webhook === 'set') {
           const connRes = await fetch('/api/bots/connection?username=' + encodeURIComponent(botUsername), {
@@ -306,13 +312,20 @@ async function loadAccount(){
       if (!bcId) { alert('Enter connection ID or click Activate bot'); return; }
       try {
         const token = localStorage.getItem('sb_access_token');
+        if (!token) throw new Error('No auth token found');
+        
         const res = await fetch('/api/bots/connection', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
           body: JSON.stringify({ username: botUsername, connection_id: bcId })
         });
+        
+        const text = await res.text();
+        if (!text) throw new Error('Empty response from API');
+        
+        const data = JSON.parse(text);
         if (res.ok) alert('✓ Saved!');
-        else alert('Failed to save');
+        else alert('Failed: ' + (data.error || 'Unknown'));
       } catch(e) { alert('Error: ' + e.message); }
     });
     
