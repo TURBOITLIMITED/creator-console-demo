@@ -948,7 +948,7 @@ function renderAccConnection(a){
       $('#acc-refresh-bc').disabled = true;
       $('#acc-refresh-bc').textContent = 'Syncing...';
       // Fetch business connection from Telegram API via our backend
-      const res = await fetch('/api/bots/hook', {
+      const res = await fetch('https://api-telebotcreator.turboit.uk/bots/hook', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + state.session?.user?.access_token },
         body: JSON.stringify({ persona: a.username, unhook: false })
@@ -956,7 +956,7 @@ function renderAccConnection(a){
       const data = await res.json();
       if (data.webhook === 'set') {
         // After setting webhook, fetch the connection ID
-        const connRes = await fetch('/api/bots/connection?username=' + encodeURIComponent(a.username), {
+        const connRes = await fetch('https://api-telebotcreator.turboit.uk/bots/connection?username=' + encodeURIComponent(a.username), {
           headers: { 'Authorization': 'Bearer ' + state.session?.user?.access_token }
         });
         if (connRes.ok) {
