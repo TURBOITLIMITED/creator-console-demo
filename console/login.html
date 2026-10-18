@@ -138,8 +138,16 @@ el("signin").onclick = async () => {
 
 el("chverify").onclick = async () => {
   say("m-challenge", "");
-  const v = await sb.auth.mfa.verify({ factorId: window._factorId, challengeId: window._challengeId,
-                                       code: el("chcode").value.trim() });
+  el("chverify").disabled = true;
+  // If the exit IP changed mid-login Supabase rejects the challenge. Re-issue and retry once.
+  const attempt = async (challengeId) =>
+    sb.auth.mfa.verify({ factorId: window._factorId, challengeId, code: el("chcode").value.trim() });
+  let v = await attempt(window._challengeId);
+  if (v.error && /mismatch/i.test(v.error.message || "")) {
+    const ch = await sb.auth.mfa.challenge({ factorId: window._factorId });
+    if (!ch.error) { window._challengeId = ch.data.id; v = await attempt(ch.data.id); }
+  }
+  el("chverify").disabled = false;
   if (v.error) { say("m-challenge", v.error.message, "bad"); return; }
   location.replace("index.html");
 };
