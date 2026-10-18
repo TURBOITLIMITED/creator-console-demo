@@ -928,12 +928,12 @@ function renderAccConnection(a){
     </div>
     <div class="field">
       <label>Business connection ID</label>
-      <div style="display:flex;gap:8px;align-items:center">
-        <input class="input mono" id="acc-bc-id" value="${connectionId}" placeholder="Will appear after bot is added" style="flex:1">
-        <button class="btn sm" id="acc-refresh-bc" title="Fetch connection ID from Telegram">${ic('refresh')}Fetch</button>
-        <button class="btn sm primary" id="acc-save-bc" title="Save connection ID">${ic('check')}Save</button>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input class="input mono" id="acc-bc-id" value="${connectionId}" placeholder="Click 'Activate bot' to fetch" style="flex:1;min-width:200px">
+        <button class="btn sm primary" id="acc-refresh-bc" title="Activate bot and fetch connection ID" style="white-space:nowrap">${ic('refresh')}Activate bot</button>
+        <button class="btn sm" id="acc-save-bc" title="Save connection ID">${ic('check')}Save</button>
       </div>
-      <span class="hint">Step 2: After adding the bot, click <b>Fetch</b> to get the connection ID, or enter it manually if you have it.</span>
+      <span class="hint"><b>Step 1:</b> Click <b>Activate bot</b> to set up the webhook. <b>Step 2:</b> Then add to Telegram Business. <b>Step 3:</b> Click Activate again to fetch the connection ID.</span>
     </div>
     <label class="switch" for="acc-open-enabled"><input type="checkbox" id="acc-open-enabled" ${a.connected?'checked':''}><span class="track"></span><span>Enabled<small>Sync chats and allow AI replies</small></span></label>`;
   
