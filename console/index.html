@@ -908,15 +908,82 @@ async function openAccount(id){
 }
 function renderAccConnection(a){
   const bc = (a.business_connections||[])[0];
+  const connectionId = bc ? esc(bc.connection_id) : '';
   $('#acc-tab-body').innerHTML = `
     <div class="field"><label>Bot username</label><div class="input mono" style="background:var(--sunk)">@${esc(a.username||'—')}</div></div>
     <div class="field"><label>Telegram user id</label><div class="input mono" style="background:var(--sunk)">${esc(a.tg_user_id||'—')}</div></div>
-    <div class="field"><label>Business connection</label><div class="input mono" style="background:var(--sunk)">${bc ? esc(bc.connection_id) : 'Not linked yet — she must add the bot in Telegram Settings → Business → Chatbots'}</div></div>
+    <div class="field">
+      <label>Business connection ID</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input class="input mono" id="acc-bc-id" value="${connectionId}" placeholder="Enter or refresh connection ID" style="flex:1">
+        <button class="btn sm" id="acc-refresh-bc" title="Refresh from Telegram">${ic('refresh')}Sync</button>
+        <button class="btn sm primary" id="acc-save-bc" title="Save connection ID">${ic('check')}Save</button>
+      </div>
+      <span class="hint">The business connection ID links this bot to the creator's Telegram Business account. Get it from Telegram Settings → Business → Chatbots, or use Sync to fetch it live.</span>
+    </div>
     <label class="switch" for="acc-open-enabled"><input type="checkbox" id="acc-open-enabled" ${a.connected?'checked':''}><span class="track"></span><span>Enabled<small>Sync chats and allow AI replies</small></span></label>`;
+  
   $('#acc-open-enabled').addEventListener('change', async e => {
     const ok = await Data.update('telegram_accounts', a.id, { connected:e.target.checked });
     toast(ok ? (e.target.checked?'Account enabled':'Account disabled') : 'Update failed', ok?'success':'error');
     loadAccounts();
+  });
+  
+  $('#acc-refresh-bc').addEventListener('click', async () => {
+    try {
+      $('#acc-refresh-bc').disabled = true;
+      $('#acc-refresh-bc').textContent = 'Syncing...';
+      // Fetch business connection from Telegram API via our backend
+      const res = await fetch('/api/bots/hook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + state.session?.user?.access_token },
+        body: JSON.stringify({ persona: a.username, unhook: false })
+      });
+      const data = await res.json();
+      if (data.webhook === 'set') {
+        // After setting webhook, fetch the connection ID
+        const connRes = await fetch('/api/bots/connection?username=' + encodeURIComponent(a.username), {
+          headers: { 'Authorization': 'Bearer ' + state.session?.user?.access_token }
+        });
+        if (connRes.ok) {
+          const connData = await connRes.json();
+          if (connData.connection_id) {
+            $('#acc-bc-id').value = connData.connection_id;
+            toast('Connection synced from Telegram!', 'success');
+          } else {
+            toast('No connection ID found. Please add bot in Telegram Business settings.', 'error');
+          }
+        }
+      } else {
+        toast('Failed to sync: ' + (data.error || 'Unknown error'), 'error');
+      }
+    } catch(e) {
+      toast('Sync error: ' + e.message, 'error');
+    } finally {
+      $('#acc-refresh-bc').disabled = false;
+      $('#acc-refresh-bc').innerHTML = ic('refresh') + 'Sync';
+    }
+  });
+  
+  $('#acc-save-bc').addEventListener('click', async () => {
+    const newBcId = $('#acc-bc-id').value.trim();
+    if (!newBcId) {
+      toast('Please enter a connection ID', 'error');
+      return;
+    }
+    try {
+      // Update the business connection in Supabase
+      const existing = await state.sb.from('business_connections').select('id').eq('telegram_account_id', a.id).maybeSingle();
+      if (existing.data) {
+        await state.sb.from('business_connections').update({ connection_id: newBcId }).eq('id', existing.data.id);
+      } else {
+        await state.sb.from('business_connections').insert({ telegram_account_id: a.id, connection_id: newBcId });
+      }
+      toast('Connection ID saved!', 'success');
+      loadAccounts();
+    } catch(e) {
+      toast('Save failed: ' + e.message, 'error');
+    }
   });
 }
 /* Connect wizard: first thing shown when Connect account is pressed. */

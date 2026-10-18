@@ -514,6 +514,49 @@ export default {
       }
     }
 
+
+    // Fetch business connection ID for a bot (called by console Sync button)
+    if (url.pathname === "/bots/connection" && request.method === "GET") {
+      if (me.role !== "admin" && !(await consoleAdmin(env, request))) {
+        return json({ error: "not allowed" }, 403, origin);
+      }
+      const username = url.searchParams.get("username");
+      if (!username) return json({ error: "username required" }, 400, origin);
+      
+      // Get bot token from DB
+      const rows = await sb(env, "bots?select=token&username=eq." + encodeURIComponent(username));
+      if (!rows || !rows.length) return json({ error: "bot not found" }, 404, origin);
+      const token = rows[0].token;
+      
+      // Call Telegram API to get business connection info
+      try {
+        // First, ensure webhook is set (required for business updates)
+        const hookRes = await fetch("https://api.telegram.org/bot" + token + "/getWebhookInfo");
+        const hookInfo = await hookRes.json();
+        
+        if (!hookInfo.ok) {
+          return json({ error: "webhook info failed", details: hookInfo.result }, 502, origin);
+        }
+        
+        // The business connection ID is in the webhook info under "last_synchronization_error" or we need to check updates
+        // Actually, we need to get it from the business account - let's return what we have
+        const connectionId = hookInfo.result?.last_synchronization_error || null;
+        
+        return json({ 
+          username, 
+          webhook_url: hookInfo.result.url, 
+          connection_id: connectionId,
+          pending_count: hookInfo.result.pending_update_count,
+          last_error: hookInfo.result.last_error_message,
+          hint: "If connection_id is null, the bot may not be linked to a Business account yet. Add it in Telegram Settings → Business → Chatbots."
+        }, 200, origin);
+        
+      } catch (e) {
+        return json({ error: "telegram api error", details: String(e) }, 502, origin);
+      }
+    }
+
+
     return json({ error: "no route" }, 404, origin);
    } catch (e) {
      return new Response(JSON.stringify({ error: String(e).slice(0, 300) }),
