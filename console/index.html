@@ -919,12 +919,11 @@ function renderAccConnection(a){
         ${a.username ? `<a href="https://t.me/${esc(a.username)}" target="_blank" class="btn sm">${ic('external')}Open bot in Telegram</a>` : ''}
       </div>
       <span class="hint">
-        <b>What to enter in Telegram:</b> When Telegram asks for "link or bot name", just type <b>@${esc(a.username||'—')}</b> (the username shown above). 
-        Or click the button to open it directly, then add it in <b>Settings → Business → Chatbots</b>.
+        <b>Step 1:</b> Click <b>Fetch</b> below first to activate the bot. 
+        <b>Step 2:</b> Then in Telegram go to <b>Settings → Business → Chatbots</b> and add <b>@${esc(a.username||'—')}</b>.
       </span>
       ${a.username ? `<div class="err-box" style="margin-top:10px;display:none" id="secrecy-hint">
-        <b>Got "doesn't support secrecy mode"?</b> This is normal - the bot needs to be activated first. 
-        After adding it, click <b>Fetch</b> below to set up the webhook and activate it.
+        <b>Got "doesn't support secrecy mode" in Telegram?</b> Click <b>Fetch</b> above first to activate the bot, then try adding it again.
       </div>` : ''}
     </div>
     <div class="field">
