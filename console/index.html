@@ -726,7 +726,8 @@ const Data = {
       const sb = state.sb, u = uid(), i30 = new Date(d30).toISOString(), i60 = new Date(d60).toISOString();
       const cnt = async (t, from, to, extra) => {
         let q = sb.from(t).select('id', { count:'exact', head:true }).eq('creator_id', u);
-        if(from) q = q.gte('created_at', from); if(to) q = q.lt('created_at', to); if(extra) q = extra(q);
+        const tcol = t === 'media_items' ? 'uploaded_at' : t === 'conversations' ? 'started_at' : 'created_at';
+        if(from) q = q.gte(tcol, from); if(to) q = q.lt(tcol, to); if(extra) q = extra(q);
         const { count, error } = await q; if(error) throw error; return count || 0;
       };
       const tabs = ['conversations','media_items','content_bundles'];
