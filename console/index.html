@@ -454,10 +454,6 @@ input[type=range]{accent-color:var(--accent);width:100%}
       <a href="#wallet" data-sec="wallet" title="TON Wallet"><svg class="i"><use href="#i-wallet"/></svg><span class="nav-label">TON Wallet</span></a>
     </nav>
     <div class="side-foot">
-      <div class="plan-card" title="Plan">
-        <div class="pc-ico"><svg class="i"><use href="#i-coin"/></svg></div>
-        <div class="pc-body"><b id="plan-name">Plan</b><span id="plan-split">— split</span></div>
-      </div>
       <button class="collapse-btn" id="collapse" type="button" aria-label="Collapse sidebar"><svg class="i"><use href="#i-panel"/></svg><span class="nav-label">Collapse</span></button>
     </div>
   </aside>
@@ -1286,7 +1282,7 @@ async function renderWallet(){
   const c = { ...(state.creator || {}), ton_wallet: ai?.wallet_address || '' };
   setView(`
     ${secHead('Where your share of every sale is paid out. Payouts go to this TON address only.')}
-    <div class="wallet-grid">
+    <div class="wallet-grid" style="grid-template-columns:minmax(0,1fr)">
       <div style="display:flex;flex-direction:column;gap:20px;min-width:0">
         <section class="panel"><div class="panel-head"><h2>Payout address</h2><span class="end">${c.ton_wallet?'<span class="pill ok">Verified format</span>':'<span class="pill warn">Not set</span>'}</span></div>
           <form class="form panel-body" data-form="wallet" autocomplete="off">
@@ -1299,25 +1295,19 @@ async function renderWallet(){
         <section class="panel"><div class="panel-head"><h2>Recent sales</h2><span class="end muted" id="w-count"></span></div>
           <div class="table-wrap" id="w-sales">${spinner('Loading sales…')}</div></section>
       </div>
-      <section class="panel"><div class="panel-head"><h2>Plan & revenue split</h2></div>
-        <div class="panel-body">
-          <div style="display:flex;align-items:baseline;gap:10px"><b style="font-size:22px;letter-spacing:-.02em">${esc(c.plan||'Free')}</b><span class="muted">plan</span></div>
-          <div class="split-bar" aria-hidden="true"><i style="width:${Number(c.split_pct??80)}%"></i><em style="width:${100-Number(c.split_pct??80)}%"></em></div>
-          <div class="split-legend"><span>You <b>${Number(c.split_pct??80)}%</b></span><span>Platform <b>${100-Number(c.split_pct??80)}%</b></span></div>
-        </div>
+      <section class="panel"><div class="panel-head"><h2>Earnings</h2></div>
         <div class="earn" id="w-earn">${spinner('')}</div>
       </section>
     </div>`);
   try{
     const sales = await Data.earnings();
-    const gross = sales.reduce((s,p)=>s+Number(p.price_paid_ton||0),0), share = Number(c.split_pct??80)/100;
-    $('#w-earn').innerHTML = `<div><span>Gross sales</span><b>${fmtTon(gross,false)}</b></div><div class="yours"><span>Your share</span><b>${fmtTon(gross*share,false)}</b></div><div><span>Platform fee</span><b>${fmtTon(gross*(1-share),false)}</b></div>`;
+    const gross = sales.reduce((s,p)=>s+Number(p.price_paid_ton||0),0);
+    $('#w-earn').innerHTML = `<div><span>Total sales</span><b>${fmtTon(gross,false)}</b></div><div class="yours"><span>Purchases</span><b>${fmtNum(sales.length)}</b></div><div><span>Best bundle</span><b>${esc((sales.length ? (sales.map(p=>p.content_bundles?.name).filter(Boolean)[0] || '—') : '—'))}</b></div>`;
     $('#w-count').textContent = sales.length ? `${sales.length} total` : '';
     const recent = sales.slice(0,10);
-    $('#w-sales').innerHTML = recent.length ? `<table><thead><tr><th>Bundle</th><th class="num">Amount</th><th class="num">Your share</th><th>When</th></tr></thead><tbody>
+    $('#w-sales').innerHTML = recent.length ? `<table><thead><tr><th>Bundle</th><th class="num">Amount</th><th>When</th></tr></thead><tbody>
       ${recent.map(p=>`<tr><td><b style="font-weight:550">${esc(p.content_bundles?.name||'Bundle')}</b></td>
-        <td class="num"><span class="price">${fmtTon(p.price_paid_ton,false)}<small>TON</small></span></td>
-        <td class="num"><span class="price" style="color:var(--ok)">+${fmtTon(p.price_paid_ton*share,false)}</span></td><td class="muted">${ago(p.purchased_at)}</td></tr>`).join('')}</tbody></table>`
+        <td class="num"><span class="price">${fmtTon(p.price_paid_ton,false)}<small>TON</small></span></td><td class="muted">${ago(p.purchased_at)}</td></tr>`).join('')}</tbody></table>`
       : empty('coin','No sales yet','Your share of each bundle sale will be listed here.');
   }catch(e){ $('#w-sales').innerHTML = errorState(e,'wallet'); $('#w-earn').innerHTML=''; }
 }
@@ -1470,8 +1460,6 @@ function paintHeader(){
   const c = state.creator || {}, email = state.session?.user?.email || c.email || 'demo';
   $('#avatar').textContent = (c.name || email)[0].toUpperCase();
   $('#user-email').textContent = email;
-  $('#plan-name').textContent = `${c.plan || 'Free'} plan`;
-  const sp = Number(c.split_pct ?? 80); $('#plan-split').textContent = `${sp} / ${100-sp} split`;
   $('#admin-badge').hidden = !state.isAdmin;
   $('#demo').hidden = !state.demo;
   $('#sample-toggle').checked = state.sample;
