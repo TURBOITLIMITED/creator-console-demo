@@ -48,9 +48,6 @@ body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 var(--f-ui)
 .card-f{width:100%;max-width:392px;display:flex;flex-direction:column;gap:20px}
 .card-f h2{margin:0;font-size:26px;letter-spacing:-.03em;font-weight:650}
 .card-f .sub{margin:4px 0 0;color:var(--ink-2)}
-.tabs{display:grid;grid-template-columns:1fr 1fr;gap:3px;background:var(--sunk);padding:3px;border-radius:8px}
-.tabs button{border:0;background:none;padding:7px;border-radius:6px;color:var(--ink-2);font:500 13px var(--f-ui);cursor:pointer}
-.tabs button[aria-selected="true"]{background:var(--panel);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
 form{display:flex;flex-direction:column;gap:14px}
 .field{display:flex;flex-direction:column;gap:6px}
 label{font-size:12.5px;font-weight:550;color:var(--ink-2)}
@@ -68,7 +65,6 @@ label{font-size:12.5px;font-weight:550;color:var(--ink-2)}
 .row{display:flex;justify-content:space-between;align-items:center;font-size:13px}
 .link{background:none;border:0;padding:0;color:var(--accent);font:500 13px var(--f-ui);cursor:pointer;text-decoration:none}
 .link:hover{text-decoration:underline}
-.or{display:flex;align-items:center;gap:12px;color:var(--ink-3);font:500 11px var(--f-mono);letter-spacing:.1em}
 .or::before,.or::after{content:"";flex:1;height:1px;background:var(--rule)}
 .note{padding:12px 14px;border-radius:8px;font-size:13px;line-height:1.45;display:flex;gap:10px}
 .note.info{background:var(--accent-soft);border:1px solid var(--accent-line)}
@@ -90,7 +86,7 @@ label{font-size:12.5px;font-weight:550;color:var(--ink-2)}
   .card-f h2{font-size:22px}
   .input,.btn{height:42px}
 }
-@media (max-width:900px) and (max-height:740px){ .card-f .or,.card-f .legal,.card-f .sub{display:none} }
+@media (max-width:900px) and (max-height:740px){ .card-f .legal,.card-f .sub{display:none} }
 @media (max-width:900px) and (max-height:620px){ .card-f a.link{display:none} .card-f{gap:10px;padding:16px} }
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important;transition-duration:.001ms!important}}
 </style>
@@ -104,21 +100,13 @@ label{font-size:12.5px;font-weight:550;color:var(--ink-2)}
   <main class="form-side">
     <div class="card-f">
       <div><h2 id="heading">Welcome back</h2><p class="sub" id="subheading">Sign in with the email linked to your creator account.</p></div>
-      <div id="setup" class="note info" hidden><div>Supabase isn't configured yet. Set <code>SUPABASE_URL</code> and <code>SUPABASE_ANON_KEY</code> at the top of the script, or explore the console in demo mode.</div></div>
-      <div class="tabs" role="tablist">
-        <button type="button" role="tab" id="tab-pass" aria-selected="true">Password</button>
-        <button type="button" role="tab" id="tab-magic" aria-selected="false">Magic link</button>
-      </div>
       <div id="msg" class="note" hidden></div>
       <form id="form" novalidate>
         <div class="field"><label for="email">Email</label><input class="input" id="email" name="email" type="email" autocomplete="email" required placeholder="you@studio.com"></div>
         <div class="field" id="pass-field"><label for="password">Password</label><input class="input" id="password" name="password" type="password" autocomplete="current-password" minlength="8" placeholder="At least 8 characters"></div>
         <button class="btn" type="submit" id="submit">Sign in</button>
-        <div class="row" id="pass-row"><button type="button" class="link" id="toggle-signup">Create an account</button><button type="button" class="link" id="forgot">Forgot password?</button></div>
+        <div class="row" id="pass-row"><button type="button" class="link" id="forgot">Forgot password?</button></div>
       </form>
-      <div class="or">OR</div>
-      <a class="btn ghost" href="index.html">Open demo console</a>
-      <a class="link" href="admin.html" style="text-align:center">Preview the admin console</a>
       <p class="legal">Your session stays in this browser. We never ask for your Telegram password.</p>
     </div>
   </main>
@@ -277,29 +265,22 @@ const SUPABASE_ANON_KEY = 'eyJhbGc...0BZ0';
 const SUPABASE_ESM = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
 
 const $ = s => document.querySelector(s);
-const configured = !/YOUR-/.test(SUPABASE_URL + SUPABASE_ANON_KEY);
 const nextParam = new URLSearchParams(location.search).get('next');
 const NEXT = ['index.html','admin.html'].includes(nextParam) ? nextParam : 'index.html';
 const consoleUrl = new URL(NEXT, location.href).href;
 if(NEXT === 'admin.html') $('#subheading').textContent = 'Admin sign-in. Your account needs console admin access.';
-let sb = null, mode = 'password', signup = false;
+let sb = null;
 
 function say(text, kind='err'){ const m=$('#msg'); m.className=`note ${kind}`; m.textContent=text; m.hidden=false; }
 function busy(on){ const b=$('#submit'); b.disabled=on; b.classList.toggle('busy',on); }
-function setMode(m){
-  mode = m; $('#msg').hidden = true;
-  $('#tab-pass').setAttribute('aria-selected', m==='password'); $('#tab-magic').setAttribute('aria-selected', m==='magic');
-  $('#pass-field').hidden = m==='magic'; $('#pass-row').hidden = m==='magic';
-  $('#submit').textContent = m==='magic' ? 'Email me a sign-in link' : signup ? 'Create account' : 'Sign in';
-  $('#heading').textContent = signup && m==='password' ? 'Create your account' : 'Welcome back';
-  $('#password').autocomplete = signup ? 'new-password' : 'current-password';
+function setMode(){
+  $('#msg').hidden = true;
+  $('#submit').textContent = 'Sign in';
+  $('#password').autocomplete = 'current-password';
 }
-$('#tab-pass').onclick = () => setMode('password');
-$('#tab-magic').onclick = () => setMode('magic');
-$('#toggle-signup').onclick = () => { signup = !signup; $('#toggle-signup').textContent = signup ? 'I already have an account' : 'Create an account'; setMode('password'); };
+setMode();
 
 async function init(){
-  if(!configured){ $('#setup').hidden = false; return; }
   try{
     const { createClient } = await import(SUPABASE_ESM);
     sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth:{ persistSession:true, autoRefreshToken:true, detectSessionInUrl:true } });
@@ -313,31 +294,20 @@ $('#form').addEventListener('submit', async e => {
   e.preventDefault(); $('#msg').hidden = true;
   const email = $('#email').value.trim(), password = $('#password').value;
   if(!/^\S+@\S+\.\S+$/.test(email)){ say('Enter a valid email address.'); $('#email').focus(); return; }
-  if(mode==='password' && password.length < 8){ say('Passwords are at least 8 characters.'); $('#password').focus(); return; }
-  if(!sb){ say(configured ? 'Supabase is still loading — try again in a second.' : 'Sign-in is unavailable until Supabase is configured. Use the demo console for now.', 'info'); return; }
+  if(password.length < 8){ say('Passwords are at least 8 characters.'); $('#password').focus(); return; }
+  if(!sb){ say('Supabase is still loading — try again in a second.', 'info'); return; }
   busy(true);
   try{
-    if(mode==='magic'){
-      const { error } = await sb.auth.signInWithOtp({ email, options:{ emailRedirectTo:consoleUrl } });
-      if(error) throw error;
-      say(`Check ${email} — we sent a link that signs you straight in.`, 'ok');
-    }else if(signup){
-      const { data, error } = await sb.auth.signUp({ email, password, options:{ emailRedirectTo:consoleUrl } });
-      if(error) throw error;
-      if(data.session) location.replace(consoleUrl); else say('Account created. Confirm your email, then sign in.', 'ok');
-    }else{
-      const { error } = await sb.auth.signInWithPassword({ email, password });
-      if(error) throw error;
-      location.replace(consoleUrl);
-    }
+    const { error } = await sb.auth.signInWithPassword({ email, password });
+    if(error) throw error;
+    location.replace(consoleUrl);
   }catch(err){
-    say(/invalid login/i.test(err.message) ? 'That email and password don\'t match. Try again or use a magic link.' : err.message);
+    say(/invalid login/i.test(err.message) ? 'That email and password don\'t match. Try again or reset below.' : err.message);
   }finally{ busy(false); }
 });
 $('#forgot').onclick = async () => {
   const email = $('#email').value.trim();
   if(!/^\S+@\S+\.\S+$/.test(email)){ say('Enter your email first, then tap "Forgot password?".', 'info'); $('#email').focus(); return; }
-  if(!sb){ say('Password reset needs Supabase configured.', 'info'); return; }
   const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo:consoleUrl });
   error ? say(error.message) : say(`Reset link sent to ${email}.`, 'ok');
 };
