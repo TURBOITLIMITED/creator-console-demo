@@ -164,6 +164,77 @@ export default {
       return handleWebhook(request, env, sb, persona);
     }
 
+    // Bot management endpoints for console admin (before whoami check)
+    if (url.pathname === "/bots/hook" && request.method === "POST") {
+      if (!(await consoleAdmin(env, request))) {
+        return json({ error: "not allowed" }, 403, origin);
+      }
+      const b = await request.json();
+      const persona = String(b.persona || "").trim().toLowerCase();
+      const rows = await sb(env, "bots?select=token,username&persona=eq." + encodeURIComponent(persona));
+      if (!rows || !rows.length) return json({ error: "no bot saved for that persona" }, 404, origin);
+      const token = rows[0].token;
+      if (!env.TELEGRAM_WEBHOOK_SECRET && !b.unhook) {
+        return json({ error: "TELEGRAM_WEBHOOK_SECRET is not set",
+                      hint: "wrangler secret put TELEGRAM_WEBHOOK_SECRET --name creator-api" }, 409, origin);
+      }
+      const hookUrl = "https://api-telebotcreator.turboit.uk/tg/" + encodeURIComponent(persona);
+      const out = {};
+      try {
+        out.webhook = b.unhook
+          ? await tgapi.deleteWebhook(token)
+          : await tgapi.setWebhook(token, hookUrl, env.TELEGRAM_WEBHOOK_SECRET);
+        out.info = await tgapi.getWebhookInfo(token);
+      } catch (e) {
+        return json({ persona, error: String(e.message || e) }, 502, origin);
+      }
+      return json({ persona, webhook: b.unhook ? "deleted" : "set", url: b.unhook ? null : hookUrl,
+                    allowed_updates: b.unhook ? null : tgapi.ALLOWED_UPDATES,
+                    pending: out.info && out.info.pending_update_count,
+                    last_error: (out.info && out.info.last_error_message) || null }, 200, origin);
+    }
+
+    // Fetch/save business connection ID for a bot (called by console)
+    if (url.pathname === "/bots/connection") {
+      if (!(await consoleAdmin(env, request))) {
+        return json({ error: "not allowed" }, 403, origin);
+      }
+      if (request.method === "GET") {
+        const username = url.searchParams.get("username");
+        if (!username) return json({ error: "username required" }, 400, origin);
+        const accounts = await sb(env, "telegram_accounts?select=id,business_connection_id&username=eq." + encodeURIComponent(username));
+        if (!accounts || !accounts.length) {
+          return json({ error: "account not found" }, 404, origin);
+        }
+        return json({ connection_id: accounts[0].business_connection_id || null }, 200, origin);
+      } else if (request.method === "POST") {
+        const body = await request.json();
+        const username = body.username;
+        const connectionId = body.connection_id;
+        if (!username || !connectionId) {
+          return json({ error: "username and connection_id required" }, 400, origin);
+        }
+        const accounts = await sb(env, "telegram_accounts?select=id&username=eq." + encodeURIComponent(username));
+        if (!accounts || !accounts.length) {
+          return json({ error: "account not found" }, 404, origin);
+        }
+        const accountId = accounts[0].id;
+        const existing = await sb(env, "business_connections?telegram_account_id=eq." + encodeURIComponent(accountId) + "&select=id");
+        if (existing && existing.length) {
+          await sb(env, "business_connections?id=eq." + encodeURIComponent(existing[0].id), {
+            method: "PATCH",
+            body: JSON.stringify({ connection_id: connectionId })
+          });
+        } else {
+          await sb(env, "business_connections", {
+            method: "POST",
+            body: JSON.stringify({ telegram_account_id: accountId, connection_id: connectionId })
+          });
+        }
+        return json({ success: true, connection_id: connectionId }, 200, origin);
+      }
+    }
+
     const me = await whoami(env, request, url);
     if (!me) return json({ error: "unauthorised" }, 401, origin);
     if (me.role === "nobody") {
@@ -463,39 +534,6 @@ export default {
                   200, origin);
     }
 
-    if (url.pathname === "/bots/hook" && request.method === "POST") {
-      if (me.role !== "admin" && !(await consoleAdmin(env, request))) {
-        return json({ error: "not allowed" }, 403, origin);
-      }
-      const b = await request.json();
-      const persona = String(b.persona || "").trim().toLowerCase();
-      const rows = await sb(env, "bots?select=token,username&persona=eq." + encodeURIComponent(persona));
-      if (!rows || !rows.length) return json({ error: "no bot saved for that persona" }, 404, origin);
-      const token = rows[0].token;
-      // The previous version registered the webhook with no secret_token and no
-      // allowed_updates. Without allowed_updates Telegram delivers NO business
-      // updates at all, which is the most common reason a Business bot looks
-      // dead; without secret_token the endpoint cannot tell Telegram from anyone.
-      if (!env.TELEGRAM_WEBHOOK_SECRET && !b.unhook) {
-        return json({ error: "TELEGRAM_WEBHOOK_SECRET is not set",
-                      hint: "wrangler secret put TELEGRAM_WEBHOOK_SECRET --name creator-api" }, 409, origin);
-      }
-      const hookUrl = "https://api-telebotcreator.turboit.uk/tg/" + encodeURIComponent(persona);
-      const out = {};
-      try {
-        out.webhook = b.unhook
-          ? await tgapi.deleteWebhook(token)
-          : await tgapi.setWebhook(token, hookUrl, env.TELEGRAM_WEBHOOK_SECRET);
-        out.info = await tgapi.getWebhookInfo(token);
-      } catch (e) {
-        return json({ persona, error: String(e.message || e) }, 502, origin);
-      }
-      return json({ persona, webhook: b.unhook ? "deleted" : "set", url: b.unhook ? null : hookUrl,
-                    allowed_updates: b.unhook ? null : tgapi.ALLOWED_UPDATES,
-                    pending: out.info && out.info.pending_update_count,
-                    last_error: (out.info && out.info.last_error_message) || null }, 200, origin);
-    }
-
     // admin: the creator roster and per-creator records (used by the bot and the owner console)
     if (me.role === "admin") {
       if (url.pathname === "/creators" && request.method === "GET") {
@@ -511,86 +549,6 @@ export default {
       }
       if (url.pathname.startsWith("/creator/")) {
         return json(await record(env, url.pathname.split("/")[2]), 200, origin);
-      }
-    }
-
-
-    // Fetch business connection ID for a bot (called by console Sync button)
-
-    // Save business connection ID
-    if (url.pathname === "/bots/connection" && request.method === "POST") {
-      if (me.role !== "admin" && !(await consoleAdmin(env, request))) {
-        return json({ error: "not allowed" }, 403, origin);
-      }
-      const body = await request.json();
-      const username = body.username;
-      const connectionId = body.connection_id;
-      
-      if (!username || !connectionId) {
-        return json({ error: "username and connection_id required" }, 400, origin);
-      }
-      
-      // Find the telegram_account for this username
-      const accounts = await sb(env, "telegram_accounts?select=id&username=eq." + encodeURIComponent(username));
-      if (!accounts || !accounts.length) {
-        return json({ error: "account not found" }, 404, origin);
-      }
-      const accountId = accounts[0].id;
-      
-      // Update or insert business_connection
-      const existing = await sb(env, "business_connections?id=eq." + encodeURIComponent(accountId) + "&select=id");
-      if (existing && existing.length) {
-        await sb(env, "business_connections?id=eq." + encodeURIComponent(existing[0].id), {
-          method: "PATCH",
-          body: JSON.stringify({ connection_id: connectionId })
-        });
-      } else {
-        await sb(env, "business_connections", {
-          method: "POST",
-          body: JSON.stringify({ telegram_account_id: accountId, connection_id: connectionId })
-        });
-      }
-      
-      return json({ success: true, connection_id: connectionId }, 200, origin);
-    }
-
-        if (url.pathname === "/bots/connection" && request.method === "GET") {
-      if (me.role !== "admin" && !(await consoleAdmin(env, request))) {
-        return json({ error: "not allowed" }, 403, origin);
-      }
-      const username = url.searchParams.get("username");
-      if (!username) return json({ error: "username required" }, 400, origin);
-      
-      // Get bot token from DB
-      const rows = await sb(env, "bots?select=token&username=eq." + encodeURIComponent(username));
-      if (!rows || !rows.length) return json({ error: "bot not found" }, 404, origin);
-      const token = rows[0].token;
-      
-      // Call Telegram API to get business connection info
-      try {
-        // First, ensure webhook is set (required for business updates)
-        const hookRes = await fetch("https://api.telegram.org/bot" + token + "/getWebhookInfo");
-        const hookInfo = await hookRes.json();
-        
-        if (!hookInfo.ok) {
-          return json({ error: "webhook info failed", details: hookInfo.result }, 502, origin);
-        }
-        
-        // The business connection ID is in the webhook info under "last_synchronization_error" or we need to check updates
-        // Actually, we need to get it from the business account - let's return what we have
-        const connectionId = hookInfo.result?.last_synchronization_error || null;
-        
-        return json({ 
-          username, 
-          webhook_url: hookInfo.result.url, 
-          connection_id: connectionId,
-          pending_count: hookInfo.result.pending_update_count,
-          last_error: hookInfo.result.last_error_message,
-          hint: "If connection_id is null, the bot may not be linked to a Business account yet. Add it in Telegram Settings → Business → Chatbots."
-        }, 200, origin);
-        
-      } catch (e) {
-        return json({ error: "telegram api error", details: String(e) }, 502, origin);
       }
     }
 
