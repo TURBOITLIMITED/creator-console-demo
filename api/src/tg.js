@@ -74,15 +74,25 @@ async function onConnection(env, sb, conn) {
   const u = n.user || {};
 
   // The account row is keyed on the stable Telegram user id, never the username.
-  const accounts = await upsert(sb, env, "telegram_accounts", "tg_user_id", {
-    tg_user_id: n.tg_user_id,
-    username: u.username || null,
-    first_name: u.first_name || null,
-    last_name: u.last_name || null,
-    connected: n.is_enabled,
-    updated_at: new Date().toISOString(),
-  });
-  const account = accounts && accounts[0];
+  // Only upsert when an account row already exists for this tg_user_id: an
+  // unknown human granting access must not crash the insert (creator_id NOT
+  // NULL) and must not create an unclaimed shell row either. The connection
+  // row below still records the link, waiting to be claimed in the dashboard.
+  const found = await sb(env, "telegram_accounts?tg_user_id=eq." + n.tg_user_id + "&select=id,creator_id");
+  const account = found && found[0] || null;
+  if (account) {
+    await sb(env, "telegram_accounts?id=eq." + account.id, {
+      method: "PATCH",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({
+        username: u.username || null,
+        first_name: u.first_name || null,
+        last_name: u.last_name || null,
+        connected: n.is_enabled,
+        updated_at: new Date().toISOString(),
+      }),
+    }).catch(() => {});
+  }
 
   // creator_id stays NULL until a human claims this account in the dashboard.
   // Guessing here would attach a stranger's private DMs to the wrong creator,
@@ -131,7 +141,7 @@ async function onConnection(env, sb, conn) {
 async function onMessage(env, sb, msg, edited) {
   const bcId = msg.business_connection_id;
   const rows = await sb(env, "business_connections?id=eq." + encodeURIComponent(bcId) +
-    "&select=id,creator_id,tg_user_id,user_chat_id,is_enabled,rights");
+    "&select=id,creator_id,telegram_account_id,tg_user_id,user_chat_id,is_enabled,rights");
   const conn = rows && rows[0];
   if (!conn) return { skipped: "unknown connection" };
   if (!conn.creator_id) return { skipped: "unclaimed connection" };
@@ -266,11 +276,155 @@ async function onMessage(env, sb, msg, edited) {
     }).catch(() => {});
   }
 
+  // Auto-reply: deterministic intercept answers send straight away; everything
+  // else asks the model, then sends through the business connection.
+  let sent = null;
+  if (!outgoing && (reply || !intercept) && windowOpen && conv.mode !== "human" && !conv.ai_disabled) {
+    sent = await autoReply(env, sb, conn, conv, msg, text, reply);
+  }
+
   return {
     conversation_id: conv.id, direction: outgoing ? "out" : "in", sender,
     window_open: windowOpen, intercept,
     reply: reply ? { text: reply.text, register: reply.variant } : null,
+    sent: sent ? { via: sent.via, text: sent.text } : null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Auto-reply: persona lookup -> Workers AI -> sendMessage, all recorded.
+// ---------------------------------------------------------------------------
+async function loadPersonaRow(env, sb, conn) {
+  // Per-account persona first (account_personas), creator default fallback.
+  const acct = conn.telegram_account_id || null;
+  if (acct) {
+    const own = await sb(env, "account_personas?telegram_account_id=eq." +
+      encodeURIComponent(acct) + "&select=*").catch(() => null);
+    if (own && own.length) return { row: own[0], own: true };
+  }
+  const base = await sb(env, "ai_profiles?creator_id=eq." +
+    encodeURIComponent(conn.creator_id) + "&select=*").catch(() => null);
+  if (base && base.length) return { row: base[0], own: false };
+  return { row: null, own: false };
+}
+
+function personaSystemPrompt(p, conn) {
+  const name = (p && p.display_name) || "the creator";
+  const tone = { warm: "friendly, personal, a little chatty",
+                 playful: "light jokes, emoji, high energy",
+                 professional: "polite, precise, no slang",
+                 concise: "short answers, straight to the point" }[(p && p.tone) || "warm"];
+  const lines = [
+    `You are ${name}, replying to fans in her Telegram DMs.`,
+    `Voice: ${tone}.`,
+  ];
+  if (p && p.system_prompt) lines.push(String(p.system_prompt));
+  lines.push(
+    "Keep replies short, one to three sentences, like a real person texting.",
+    "Never mention being a bot or AI unless directly asked.",
+    "Never promise anything about money, meets or content that is not already stated in your instructions.",
+    "If a message is ambiguous, reply warmly and ask one short question.",
+  );
+  return lines.join(" ");
+}
+
+async function generateReply(env, system, history, incoming) {
+  const messages = [
+    { role: "system", content: system },
+    ...history.map(h => ({ role: h.dir === "in" ? "user" : "assistant", content: h.text })),
+    { role: "user", content: incoming },
+  ];
+  const out = await env.AI.run(env.AI_MODEL || "@cf/meta/llama-3.3-70b-instruct-fp", {
+    messages, max_tokens: 200,
+  });
+  const text = typeof out === "string" ? out : (out && out.response) || "";
+  return String(text).trim().replace(/^["']|["']$/g, "");
+}
+
+async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
+  // Need text to reply to, and a bot token to send with.
+  if (!text) return null;
+
+  const persona = await loadPersonaRow(env, sb, conn);
+  const p = persona.row;
+  if (p && p.enabled === false) return null;   // persona off: stay quiet
+
+  // Recent history (decrypted previews are enough context for tone).
+  const hist = await sb(env, "messages?conversation_id=eq." + conv.id +
+    "&direction=in.(" + encodeURIComponent("in,out") + ")&select=direction,body_preview,sent_at" +
+    "&order=sent_at.desc&limit=8").catch(() => null);
+  const history = (hist || []).reverse()
+    .filter(m => m.body_preview && m.body_preview !== text)
+    .map(m => ({ dir: m.direction, text: m.body_preview }));
+
+  // Generate. A forced intercept answer skips the model.
+  let replyText = null, via = null;
+  try {
+    if (forcedReply) {
+      replyText = forcedReply.text;
+      via = "intercept";
+    } else {
+      const system = personaSystemPrompt(p, conn);
+      replyText = await generateReply(env, system, history, text);
+      via = "workers-ai";
+      if (!replyText) return null;
+    }
+  } catch (e) {
+    console.log(JSON.stringify({ evt: "tg.reply.generate_failed", err: String(e).slice(0, 200) }));
+    return null;
+  }
+
+  // Send through the business connection as the account.
+  const token = await botTokenFor(env, sb, conn);
+  if (!token) {
+    console.log(JSON.stringify({ evt: "tg.reply.no_token", persona: null }));
+    return null;
+  }
+  try {
+    const sent = await tg.sendMessage(token, conn.id, msg.chat.id, replyText);
+    // Record our own reply as an outbound message row.
+    await sb(env, "messages", {
+      method: "POST",
+      headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+      body: JSON.stringify({
+        conversation_id: conv.id,
+        creator_id: conn.creator_id,
+        tg_message_id: sent && sent.message_id ? sent.message_id : null,
+        direction: "out",
+        sender: "ai",
+        kind: "text",
+        body_preview: preview(replyText),
+        raw: { via, business_connection_id: conn.id },
+        sent_at: new Date().toISOString(),
+        delivered: true,
+      }),
+    }).catch(() => {});
+    await sb(env, "conversations?id=eq." + conv.id, {
+      method: "PATCH", headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({ last_outbound_at: new Date().toISOString() }),
+    }).catch(() => {});
+    return { via, text: replyText };
+  } catch (e) {
+    console.log(JSON.stringify({ evt: "tg.reply.send_failed", err: String(e).slice(0, 200) }));
+    return null;
+  }
+}
+
+async function botTokenFor(env, sb, conn) {
+  // The bot token lives in the bots table, keyed by persona. We try the
+  // telegram account username first, then the connection's account username.
+  const unames = [];
+  if (conn.telegram_account_id) {
+    const acc = await sb(env, "telegram_accounts?id=eq." +
+      encodeURIComponent(conn.telegram_account_id) + "&select=username").catch(() => null);
+    if (acc && acc[0] && acc[0].username) unames.push(acc[0].username.toLowerCase());
+  }
+  for (const uname of unames) {
+    const rows = await sb(env, "bots?persona=eq." + encodeURIComponent(uname) + "&select=token")
+      .catch(() => null);
+    if (rows && rows.length && rows[0].token) return rows[0].token;
+  }
+  return null;
 }
 
 async function onDeleted(env, sb, d) {
