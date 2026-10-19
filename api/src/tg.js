@@ -311,7 +311,25 @@ async function loadPersonaRow(env, sb, conn) {
   return { row: null, own: false };
 }
 
-function personaSystemPrompt(p, conn) {
+/* Her real live catalogue, formatted for the system prompt. Empty string when
+   she has nothing live; the model then avoids naming products. */
+async function liveCatalogue(env, sb, conn) {
+  if (!conn.telegram_account_id) return "";
+  const rows = await sb(env, "media_items?telegram_account_id=eq." +
+    encodeURIComponent(conn.telegram_account_id) +
+    "&visible=eq.true&select=title,kind,price_ton&order=price_ton.desc&limit=15").catch(() => null);
+  const items = (rows || []).filter(m => m.title);
+  if (!items.length) return "";
+  const lines = ["Your current live content for sale (the ONLY things you can offer, use these exact names and prices):"];
+  for (const m of items) {
+    lines.push("- " + m.title + " (" + (m.kind || "content") + ", " +
+      (Number(m.price_ton) > 0 ? Number(m.price_ton) + " TON" : "FREE - only send it if they ask for something free") + ")");
+  }
+  lines.push("Never mention or invent any other content, and never write placeholders like [Insert Picture Link]. When they pick something, tell them the price and that you'll send it as soon as it's paid.");
+  return lines.join("\n");
+}
+
+function personaSystemPrompt(p, conn, catalogue) {
   const name = (p && p.display_name) || "the creator";
   const tone = { warm: "friendly, personal, a little chatty",
                  playful: "light jokes, emoji, high energy",
@@ -322,6 +340,7 @@ function personaSystemPrompt(p, conn) {
     `Voice: ${tone}.`,
   ];
   if (p && p.system_prompt) lines.push(String(p.system_prompt));
+  if (catalogue) lines.push(catalogue);
   lines.push(
     "You are here to sell your content: weave what you offer into the chat naturally, flirt a little and invite them to buy. Never say you are 'not here for that' or push away from selling; selling is the whole point.",
     "Write like a real human woman texting: natural, warm, playful, small imperfections are fine.",
@@ -391,6 +410,17 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
     if (menu) { stopTyping(); return menu; }
   }
 
+  // BUY INTENT: they picked or named a specific item ("the video please",
+  // "i'll take the half naked one", "yes pls" right after a menu). Match it
+  // against her live titles and jump straight to the payment request.
+  if (!askingFree && !askingMenu && await looksLikeBuyIntent(text, lower)) {
+    const picked = await matchLiveItem(env, sb, conn, text);
+    if (picked) {
+      const payReq = await sendPaymentRequest(env, sb, conn, conv, msg, picked);
+      if (payReq) { stopTyping(); return payReq; }
+    }
+  }
+
   // Recent history (decrypted previews are enough context for tone).
   const hist = await sb(env, "messages?conversation_id=eq." + conv.id +
     "&direction=in.(" + encodeURIComponent("in,out") + ")&select=direction,body_preview,sent_at" +
@@ -411,7 +441,8 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
       replyText = forcedReply.text;
       via = "intercept";
     } else {
-      const system = personaSystemPrompt(p, conn);
+      const catalogue = await liveCatalogue(env, sb, conn);
+      const system = personaSystemPrompt(p, conn, catalogue);
       replyText = await generateReply(env, system, history, text);
       via = "workers-ai";
       if (!replyText) { stopTyping(); return null; }
@@ -671,118 +702,58 @@ async function onDeleted(env, sb, d) {
 
 // ---------------------------------------------------------------------------
 // Direct message to the BOT itself (someone opened @Michelle0161bot and typed).
-// ---------------------------------------------------------------------------
-// callback_query: a customer tapped a menu button. buy:<media_id> asks for
-// payment (TON transfer to her wallet), free:<media_id> sends the freebie.
-// ---------------------------------------------------------------------------
-async function onCallback(env, sb, cq, persona) {
-  const data = String(cq.data || "");
-  const m = data.match(/^(buy|free):([0-9a-f-]{36})$/i);
-  if (!m) {
-    console.log(JSON.stringify({ evt: "tg.callback.unknown", data: data.slice(0, 40) }));
-    return { skipped: "unknown callback" };
-  }
-  const action = m[1], mediaId = m[2];
+/* Does this message look like the customer choosing an item? Catches
+   "the video please", "i'll take the full nude one", "yes", "yes pls". */
+async function looksLikeBuyIntent(text, lower) {
+  if (!text) return false;
+  if (/(video|pic|pics|photo|photos|set|bundle|nude|naked|image|vid|clip|content)/.test(lower)) return true;
+  if (/^yes\b|^yep\b|^yeah\b|^pls\b|please$|take it|i('| a)?ll take|i want (it|that|this)\b|send (it|that)\b/gi.test(text)) return true;
+  return false;
+}
 
-  const rows = await sb(env, "media_items?id=eq." + encodeURIComponent(mediaId) + "&select=*").catch(() => null);
-  const item = rows && rows[0];
-  if (!item) return { skipped: "item not found" };
-
-  // The connection that owns this chat. callback_query.message carries
-  // business_connection_id when the menu was sent through one.
-  const bcId = (cq.message && cq.message.business_connection_id) || null;
-  let conn = null;
-  if (bcId) {
-    const c = await sb(env, "business_connections?id=eq." + encodeURIComponent(bcId) +
-      "&select=id,creator_id,telegram_account_id,tg_user_id,is_enabled,rights").catch(() => null);
-    conn = c && c[0];
+/* Match their words against her live item titles. Exact-word overlap wins;
+   fall back to kind words (video/pic) matching the item kind. */
+async function matchLiveItem(env, sb, conn, text) {
+  if (!conn.telegram_account_id) return null;
+  const rows = await sb(env, "media_items?telegram_account_id=eq." +
+    encodeURIComponent(conn.telegram_account_id) +
+    "&visible=eq.true&select=id,title,kind,price_ton,media_key" +
+    "&order=price_ton.desc&limit=20").catch(() => null);
+  const items = (rows || []).filter(m => m.title && Number(m.price_ton) > 0);
+  if (!items.length) return null;
+  const lower = String(text || "").toLowerCase();
+  let best = null, bestScore = 0;
+  for (const it of items) {
+    const words = it.title.toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 3);
+    let score = 0;
+    for (const w of words) if (lower.includes(w)) score++;
+    if (score > bestScore) { bestScore = score; best = it; }
   }
-  if (!conn && item.telegram_account_id) {
-    const c = await sb(env, "business_connections?telegram_account_id=eq." +
-      encodeURIComponent(item.telegram_account_id) + "&is_enabled=eq.true" +
-      "&select=id,creator_id,telegram_account_id,tg_user_id,is_enabled,rights").catch(() => null);
-    conn = c && c[0];
+  if (best && bestScore > 0) return best;
+  // Kind-based fallback: "the video please" when exactly one video is live.
+  const wantsVideo = /video|vid|clip/.test(lower);
+  const wantsPic = /pic|photo|image|nude|naked/.test(lower);
+  if (wantsVideo) {
+    const vids = items.filter(i => i.kind === "video");
+    if (vids.length === 1) return vids[0];
+  } else if (wantsPic) {
+    const pics = items.filter(i => i.kind === "image");
+    if (pics.length === 1) return pics[0];
   }
-  if (!conn) return { skipped: "no connection for callback" };
+  return null;
+}
 
+/* Payment request for a specific item (shared by buy button and text). */
+async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
   const token = await botTokenFor(env, sb, conn);
-  const chatId = cq.message ? cq.message.chat.id : null;
-  if (!token || !chatId) return { skipped: "no token or chat" };
-
-  const upsertCust = await upsert(sb, env, "customers", "creator_id,tg_user_id", {
-    creator_id: conn.creator_id,
-    tg_user_id: cq.from.id,
-    username: cq.from.username || null,
-    first_name: cq.from.first_name || null,
-    last_name: cq.from.last_name || null,
-    last_seen_at: new Date().toISOString(),
-  });
-  const cust = upsertCust && upsertCust[0];
-  const convs = await upsert(sb, env, "conversations", "business_connection_id,chat_id", {
-    business_connection_id: conn.id,
-    chat_id: chatId,
-    creator_id: conn.creator_id,
-    customer_id: cust ? cust.id : null,
-    customer_ref: String(cq.from.id),
-    last_message_at: new Date().toISOString(),
-  });
-  let conv = convs && convs[0];
-  if (!conv) {
-    const found = await sb(env, "conversations?business_connection_id=eq." +
-      encodeURIComponent(conn.id) + "&chat_id=eq." + chatId + "&select=*");
-    conv = found && found[0];
-  }
-  if (!conv) return { skipped: "no conversation" };
-
-  if (action === "free") {
-    try { await tg.answerCallbackQuery(token, cq.id, "Sending it over 😊"); } catch (e) {
-    console.log(JSON.stringify({ evt: "tg.callback.ack_failed", err: String(e).slice(0, 120) })); }
-    const fakeMsg = { chat: { id: chatId }, message_id: cq.message ? cq.message.message_id : null };
-    const sentFree = await maybeSendFreeItem(env, sb, conn, conv, fakeMsg);
-    if (sentFree) return { free_item: mediaId };
-    // No usable free file left: apologise briefly.
-    await tg.sendMessage(token, conn.id, chatId, "Sorry, that one's not available right now 💔");
-    return { free_fallback: true };
-  }
-
-  // buy: send the payment request. Payout wallet lives on the creator's
-  // ai_profiles row; without it we still name the price so nothing is lost.
-  try { await tg.answerCallbackQuery(token, cq.id, item.title + " · " + Number(item.price_ton) + " TON"); } catch (e) {
-    console.log(JSON.stringify({ evt: "tg.callback.ack_failed", err: String(e).slice(0, 120) })); }
-  let wallet = null;
-  const prof = await sb(env, "ai_profiles?creator_id=eq." +
-    encodeURIComponent(conn.creator_id) + "&select=wallet_address").catch(() => null);
-  if (prof && prof[0] && prof[0].wallet_address) wallet = prof[0].wallet_address;
-
-  const price = Number(item.price_ton) || 0;
-  let payText = `You picked: ${item.title} · ${price} TON 💎\n`;
-  if (wallet) {
-    payText += `Send ${price} TON to my wallet and reply "done" — I'll send it right over 😊\n\n${wallet}`;
-  } else {
-    payText += `Reply "I'll take it" and I'll sort out payment 😊`;
-  }
-  const sent = await tg.sendMessage(token, conn.id, chatId, payText);
-  await sb(env, "messages", {
-    method: "POST",
-    headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
-    body: JSON.stringify({
-      conversation_id: conv.id,
-      creator_id: conn.creator_id,
-      tg_message_id: sent && sent.message_id ? sent.message_id : null,
-      direction: "out",
-      sender: "ai",
-      kind: "text",
-      body_preview: "[payment request] " + item.title + " · " + price + " TON",
-      sent_at: new Date().toISOString(),
-      raw: { via: "menu-buy", item_id: item.id, price_ton: price },
-    }),
-  }).catch(() => {});
+  if (!token) return null;
+  const r = await sendPaymentRequest(env, sb, conn, conv, { chat: { id: chatId } }, item);
   await sb(env, "conversations?id=eq." + conv.id, {
     method: "PATCH", headers: { Prefer: "return=minimal" },
     body: JSON.stringify({ purchase_intent_at: new Date().toISOString() }),
   }).catch(() => {});
-  console.log(JSON.stringify({ evt: "tg.menu.buy_pressed", item: item.id, price }));
-  return { buy_pressed: item.id };
+  console.log(JSON.stringify({ evt: "tg.menu.buy_pressed", item: item.id, price: item.price_ton }));
+  return r || { buy_pressed: item.id };
 }
 
 async function onDirectMessage(env, sb, msg, persona) {
