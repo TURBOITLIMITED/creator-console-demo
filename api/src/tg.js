@@ -827,17 +827,28 @@ async function onCallback(env, sb, cq, persona) {
     const method = pm[1];
     try { await tg.answerCallbackQuery(token, cq.id); } catch (e) {
       console.log(JSON.stringify({ evt: "tg.callback.ack_failed", err: String(e).slice(0, 120) })); }
+    // Closing line varies every time so it never reads like a template.
+    const CLOSERS = [
+      "let me know once you've sent it babe 😈",
+      "give me a shout when it's done 😘",
+      "tell me when you've paid and it's all yours 🤩",
+      "can't wait 💕 just say when you've sent it",
+      "drop me a message once it's in 💋",
+      "I'll be waiting 😏 just tell me when it's done",
+      "once it lands it's straight over to you 💝 say the word",
+    ];
+    const closer = CLOSERS[Math.floor(Math.random() * CLOSERS.length)];
     let detail = null;
     if (method === "ton") {
       const prof2 = await sb(env, "ai_profiles?creator_id=eq." +
         encodeURIComponent(conn.creator_id) + "&select=wallet_address").catch(() => null);
       const w = prof2 && prof2[0] && prof2[0].wallet_address;
-      detail = w ? `send it to my wallet 👉\n${w}\nand once it's through just say done 😊`
-                 : "I'll send you my TON wallet in a sec, just checking it 😊";
+      const addr = w || "UQArealTONwalletgoesHere0000000000000000000001";
+      detail = `my ton address is\n${addr}\n${closer}`;
     } else if (method === "paypal") {
-      detail = "you can PayPal me at info@turboit.uk 📝 (friends & family please babe)\nand once it's in just say done 😊";
+      detail = `paypal.me/turboit is easiest 📝 or send to info@turboit.uk as friends & family\n${closer}`;
     } else if (method === "bank") {
-      detail = "bank transfer 🏦\nsort code 00-00-00, account 56483213 (Turbo IT)\nand once it's in just say done 😊";
+      detail = `bank transfer 🏦 sort code 00-00-00, account 56483213\n${closer}`;
     }
     try {
       await tg.sendMessage(token, conn.id, chatId, detail);
