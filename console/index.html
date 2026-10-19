@@ -293,6 +293,10 @@ input[type=range]{accent-color:var(--accent);width:100%}
 .conv .c-top span{margin-left:auto;font:11px var(--f-mono);color:var(--ink-3);white-space:nowrap}
 .conv p{margin:2px 0 0;font-size:13px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .conv .unread{min-width:18px;height:18px;border-radius:999px;background:var(--accent);color:var(--accent-ink);font:600 10.5px/18px var(--f-mono);text-align:center;padding:0 5px;align-self:center}
+.inbox-crumbs{font-size:13.5px;font-weight:600;color:var(--ink-2);display:flex;align-items:center;gap:8px;min-height:22px}
+.crumb-back{border:0;background:none;font:inherit;color:var(--accent);cursor:pointer;padding:0}
+.crumb-back:hover{text-decoration:underline}
+.crumb-sep{color:var(--ink-3)}
 .conv.is-unread .c-top b{color:var(--ink)}
 .conv.is-unread p{color:var(--ink);font-weight:500}
 .thread{display:flex;flex-direction:column;min-width:0}
@@ -494,7 +498,7 @@ const SUPABASE_ESM = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/
 const PAGE_SIZE = 10;
 
 const state = { sb:null, session:null, creator:null, demo:false, sample:false, isAdmin:false,
-  section:'overview', pages:{}, libType:'', editing:{}, inbox:{ active:null } };
+  section:'overview', pages:{}, libType:'', editing:{}, inbox:{ active:null }, inboxCreator:null };
 
 /* ---------- utils ---------- */
 const $ = (s, el=document) => el.querySelector(s);
@@ -1088,48 +1092,124 @@ function showConnectWizard(){
   $('#wiz-bc')?.focus();
 }
 /* ---------- Inbox ---------- */
+/* Two levels: creators (each girl's Telegram account) -> their chats.
+   Data path: telegram_accounts(owner-scoped) -> business_connections ->
+   conversations -> messages. The owner picker still narrows the whole page. */
 async function renderInbox(){
   setView(`
-    ${secHead('Every DM from your connected accounts. Messages tagged AI were answered by your assistant.')}\
-    <section class="panel inbox" id="inbox" data-open="false">
+    ${secHead('Every DM from your connected accounts. Messages tagged AI were answered by your assistant.')}\\
+    <section class="panel inbox" id="inbox" data-open="false" data-level="creators">
       <div class="conv-list">
-        <div class="panel-head"><div class="tabs" role="tablist" id="inbox-tabs">
-          <button type="button" role="tab" data-act="inbox-filter" data-f="" aria-selected="${!state.inboxFilter}">All</button>
-          <button type="button" role="tab" data-act="inbox-filter" data-f="open" aria-selected="${state.inboxFilter==='open'}">Open</button>
-          <button type="button" role="tab" data-act="inbox-filter" data-f="closed" aria-selected="${state.inboxFilter==='closed'}">Closed</button>
-        </div><span class="end muted" id="conv-count"></span></div>
+        <div class="panel-head"><div class="inbox-crumbs" id="inbox-crumbs">Creators</div></div>
         <div class="list" id="conv-list">${spinner('Loading conversations…')}</div>
         <div id="conv-pager"></div>
       </div>
       <div class="thread" id="thread"><div class="thread-empty">${empty('message','Pick a conversation','Choose a chat on the left to read the thread and reply.')}</div></div>
     </section>`);
-  loadConversations();
-  // Start live polling for new messages (every 5 seconds)
+  state.inboxCreator = null;
+  state.inbox.active = null;
+  loadInboxLevel();
+  // Start live polling (every 5 seconds): refresh whichever level is showing,
+  // plus the open thread. Never rebuilds a level we are not on.
   state.inboxPoll = setInterval(() => {
-    if (state.section === 'inbox') {
-      loadConversations();
-      if (state.inbox.active) loadMessages(state.inbox.active);
-    }
+    if (state.section !== 'inbox') return;
+    if (state.inboxCreator) loadCreatorChats(state.inboxCreator.accountId, state.inboxCreator.creatorId);
+    else loadInboxLevel();
+    if (state.inbox.active) refreshThread(state.inbox.active);
   }, 5000);
 }
-let convCache = [];
-async function loadConversations(){
+/* Level 1: the creator list, derived from Telegram accounts (one account = one
+   girl = one creator persona). Shows per-creator chat counts when there are
+   conversations, and stays honest when there are none yet. */
+async function loadInboxLevel(){
   const el = $('#conv-list'); if(!el) return;
-  const page = state.pages.inbox || 1;
-  el.innerHTML = spinner('Loading conversations…'); $('#conv-pager').innerHTML = '';
+  if(state.inboxCreator) return;                 // we are inside a creator: don't wipe it
   try{
-    const { rows, count } = await Data.list('conversations', { page, select:'*, customers(username, first_name)', order:'last_message_at', match: state.inboxFilter ? { state:state.inboxFilter } : null });
+    const { rows: accounts } = await Data.list('telegram_accounts', { select:'id, username, first_name, last_name, connected, creator_id', size:50, scopeOwner:true });
+    const { rows: convs } = await Data.list('conversations', { select:'id, creator_id, state, last_message_at', order:'last_message_at', size:100 });
+    // map creator_id -> { chats, lastAt, open }
+    const byCreator = new Map();
+    for(const c of convs){
+      const b = byCreator.get(c.creator_id) || { chats:0, open:0, lastAt:null };
+      b.chats++; if(c.state !== 'closed') b.open++;
+      if(!b.lastAt || c.last_message_at > b.lastAt) b.lastAt = c.last_message_at;
+      byCreator.set(c.creator_id, b);
+    }
+    const rows = accounts.map(a => {
+      const stat = byCreator.get(a.creator_id) || { chats:0, open:0, lastAt:null };
+      return `<button type="button" class="conv" data-act="inbox-creator" data-id="${esc(a.id)}" data-creator="${esc(a.creator_id)}">
+        <div class="avatar">${esc((a.first_name||a.username||'?')[0].toUpperCase())}</div>
+        <div class="c-body"><div class="c-top"><b>${esc(a.first_name||a.username||'Account')}</b><span>${stat.lastAt ? ago(stat.lastAt) : ''}</span></div>
+          <p>${stat.chats ? `${stat.chats} chat${stat.chats===1?'':'s'}${stat.open ? ` · ${stat.open} open` : ''}` : 'No chats yet'}</p></div>
+        ${a.connected ? '' : '<span class="pill draft">Disabled</span>'}
+      </button>`;
+    }).join('');
+    el.innerHTML = accounts.length ? rows
+      : empty('inbox','No accounts yet','Connect a Telegram account first; its chats will appear here.', `<a class="btn sm primary" href="#accounts">${ic('plus')}Accounts</a>`);
+    $('#conv-pager').innerHTML = '';
+    $('#inbox-crumbs').textContent = 'Creators';
+  }catch(e){ el.innerHTML = errorState(e,'inbox'); }
+}
+/* Level 2: chats for one creator (from the account's business connections). */
+async function loadCreatorChats(accountId, creatorId){
+  const el = $('#conv-list'); if(!el) return;
+  el.innerHTML = spinner('Loading chats…');
+  try{
+    const { data: bcs, error } = await state.sb.from('business_connections').select('id, telegram_account_id').eq('telegram_account_id', accountId);
+    if(error) throw error;
+    const bcIds = (bcs||[]).map(b => b.id);
+    let rows = [];
+    if(bcIds.length){
+      const { data: convs, error:e2 } = await state.sb.from('conversations').select('*, customers(username, first_name)').in('business_connection_id', bcIds).order('last_message_at',{ascending:false}).limit(100);
+      if(e2) throw e2;
+      rows = convs || [];
+    }
     convCache = rows;
-    $('#conv-count').textContent = count ? `${count} chat${count===1?'':'s'}` : '';
+    const name = await creatorName(creatorId, accountId);
+    $('#inbox-crumbs').innerHTML = `<button type="button" class="crumb-back" data-act="inbox-back">Creators</button> <span class="crumb-sep">/</span> <b>${esc(name)}</b>`;
     el.innerHTML = rows.length ? rows.map(c => `
       <button type="button" class="conv" data-act="open-conv" data-id="${c.id}" aria-current="${state.inbox.active===c.id}">
         <div class="avatar">${esc(nameOf(c.customers)[0].toUpperCase())}</div>
         <div class="c-body"><div class="c-top"><b>${esc(nameOf(c.customers))}</b><span>${ago(c.last_message_at)}</span></div>
           <p>${c.state==='closed'?'<span class="muted">Closed · </span>':''}${esc(c.summary || c.customer_ref || 'No messages yet')}</p></div>
       </button>`).join('')
-      : empty('inbox', state.inboxFilter ? `No ${state.inboxFilter} chats` : 'Your inbox is empty', state.inboxFilter ? 'Try another filter.' : 'When fans message your connected Telegram accounts, their chats land here.');
-    $('#conv-pager').innerHTML = pager('inbox', page, count);
+      : empty('inbox', 'No chats yet', 'When fans message this account, their chats land here.');
+    $('#conv-pager').innerHTML = '';
+    $('#inbox').dataset.level = 'chats';
   }catch(e){ el.innerHTML = errorState(e,'inbox'); }
+}
+/* Show a creator's display name (account first_name beats the creators row). */
+async function creatorName(creatorId, accountId){
+  if(accountId){
+    const { data:a, error } = await state.sb.from('telegram_accounts').select('first_name, username').eq('id', accountId).maybeSingle();
+    if(!error && a) return a.first_name || a.username || 'Account';
+  }
+  if(creatorId){
+    const { data:c, error } = await state.sb.from('creators').select('name').eq('id', creatorId).maybeSingle();
+    if(!error && c) return c.name || 'Creator';
+  }
+  return 'Creator';
+}
+/* Polling helper: refresh the open thread's messages without rebuilding the list. */
+async function refreshThread(id){
+  const conv = convCache.find(c => c.id === id); if(!conv) return;
+  try{
+    const msgs = await Data.messages(id);
+    let lastDay = '';
+    const box = $('#msgs'); if(!box) return;
+    box.innerHTML = msgs.length ? msgs.map(m => {
+      const day = new Date(m.sent_at).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
+      const sep = day !== lastDay ? `<span class="day-sep">${day}</span>` : ''; lastDay = day;
+      return `${sep}<div class="bubble ${m.direction==='out'?'out':'in'}">${esc(m.body_preview)}<time>${m.sender==='ai'?'<span class="ai">AI</span>':''}${fmtTime(m.sent_at)}</time></div>`;
+    }).join('') : box.innerHTML;
+    box.scrollTop = box.scrollHeight;
+  }catch(e){ /* polling errors are silent; the full openConversation shows them */ }
+}
+let convCache = [];
+/* legacy alias kept so any stray call still works */
+async function loadConversations(){
+  if(state.inboxCreator) return loadCreatorChats(state.inboxCreator.accountId, state.inboxCreator.creatorId);
+  return loadInboxLevel();
 }
 async function openConversation(id){
   const conv = convCache.find(c => c.id === id); if(!conv) return;
@@ -1440,15 +1520,24 @@ view.addEventListener('click', async e => {
     case 'wiz-close': $('#connect-wizard')?.remove(); break;
     case 'acc-del': if(armed(a) && await withBusy(a, () => Data.remove('telegram_accounts', id), 'Account removed')) loadAccounts(); break;
     /* inbox */
-    case 'inbox-filter': state.inboxFilter = a.dataset.f || ''; state.pages.inbox = 1;
-      document.querySelectorAll('#inbox-tabs button').forEach(b=>b.setAttribute('aria-selected', b===a)); loadConversations(); break;
+    case 'inbox-creator': state.inboxCreator = { accountId:id, creatorId:a.dataset.creator }; state.inbox.active = null;
+      $('#inbox').dataset.open = 'false'; $('#thread').innerHTML = `<div class="thread-empty">${empty('message','Pick a conversation','Choose a chat on the left to read the thread and reply.')}</div>`;
+      loadCreatorChats(id, a.dataset.creator); break;
+    case 'inbox-back': state.inboxCreator = null; state.inbox.active = null;
+      $('#inbox').dataset.open = 'false'; $('#thread').innerHTML = `<div class="thread-empty">${empty('message','Pick a conversation','Choose a chat on the left to read the thread and reply.')}</div>`;
+      loadInboxLevel(); break;
     case 'open-conv': openConversation(id); break;
     case 'close-thread': $('#inbox').dataset.open = 'false'; break;
     case 'conv-status': {
       const conv = convCache.find(c=>c.id===id); const next = conv.state==='closed'?'open':'closed';
-      if(await withBusy(a, () => Data.update('conversations', id, { state:next }), next==='closed'?'Conversation closed':'Conversation reopened')){ conv.state = next; await loadConversations(); openConversation(id); }
+      if(await withBusy(a, () => Data.update('conversations', id, { state:next }), next==='closed'?'Conversation closed':'Conversation reopened')){
+        conv.state = next;
+        if(state.inboxCreator) await loadCreatorChats(state.inboxCreator.accountId, state.inboxCreator.creatorId);
+        openConversation(id);
+      }
       break; }
-    case 'conv-del': if(armed(a) && await withBusy(a, () => Data.remove('conversations', id), 'Conversation deleted')){ state.inbox.active=null; renderInbox(); } break;
+    case 'conv-del': if(armed(a) && await withBusy(a, () => Data.remove('conversations', id), 'Conversation deleted')){ state.inbox.active=null;
+      if(state.inboxCreator) loadCreatorChats(state.inboxCreator.accountId, state.inboxCreator.creatorId); else renderInbox(); } break;
     /* library */
     case 'lib-type': state.libType = a.dataset.type; state.pages.library = 1;
       a.parentElement.querySelectorAll('button').forEach(b=>b.setAttribute('aria-selected', b===a)); loadLibrary(); break;
