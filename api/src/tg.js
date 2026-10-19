@@ -835,15 +835,22 @@ async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
     encodeURIComponent(conn.creator_id) + "&select=wallet_address").catch(() => null);
   if (prof && prof[0] && prof[0].wallet_address) wallet = prof[0].wallet_address;
   const price = Number(item.price_ton) || 0;
+  // Two payment options: TON wallet when set, and bank transfer details
+  // (sort code + account number). The customer picks whichever suits them.
   let payText = `You picked: ${item.title} · ${price} TON 💎
+
+How would you like to pay?
 `;
   if (wallet) {
-    payText += `Send ${price} TON to my wallet and reply "done" - I'll send it right over 😊
-
-${wallet}`;
-  } else {
-    payText += `Reply "I'll take it" and I'll sort out payment 😊`;
+    payText += `
+👉 TON: send ${price} TON to
+${wallet}
+`;
   }
+  payText += `
+📅 Bank transfer: sort code 00-00-00, account 56483213
+
+Once you've paid, reply "done" and I'll send it straight over 😊`;
   try {
     const sent = await tg.sendMessage(token, conn.id, msg.chat.id, payText);
     await sb(env, "messages", {
