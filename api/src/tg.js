@@ -449,10 +449,51 @@ async function maybeSendFreeItem(env, sb, conn, conv, msg) {
     "&direction=eq.out&select=tg_message_id,media_key&order=sent_at.desc&limit=10").catch(() => null);
   const recentKeys = new Set((recent || []).map(m => m.media_key).filter(Boolean));
   const item = items.find(m => !recentKeys.has(m.media_key)) || null;
-  if (!item) return null;
 
   const token = await botTokenFor(env, sb, conn);
   if (!token) return null;
+
+  // All her freebies already sent in this chat: re-send the SAME one she
+  // already had and call them cheeky, instead of pretending there's nothing.
+  if (!item) {
+    const again = items[0];
+    try {
+      const r = await fetch(env.SUPABASE_URL + "/storage/v1/object/sign/content-store/" +
+        again.media_key.split("/").map(encodeURIComponent).join("/"), {
+        method: "POST",
+        headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY,
+                   "Content-Type": "application/json" },
+        body: JSON.stringify({ expiresIn: 3600 }),
+      });
+      const d = await r.json();
+      if (!d || !d.signedURL) return null;
+      const fileUrl = env.SUPABASE_URL + "/storage/v1" + d.signedURL;
+      const tgKind = again.kind === "image" ? "photo" : again.kind === "video" ? "video" : "document";
+      const sent = await tg.sendMedia(token, conn.id, msg.chat.id, tgKind, fileUrl,
+        "look, you've already had this one for free, cheeky 😜");
+      await sb(env, "messages", {
+        method: "POST",
+        headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+        body: JSON.stringify({
+          conversation_id: conv.id,
+          creator_id: conn.creator_id,
+          tg_message_id: sent && sent.message_id ? sent.message_id : null,
+          direction: "out",
+          sender: "ai",
+          kind: "text",
+          body_preview: "[free again] " + again.title,
+          media_key: again.media_key,
+          sent_at: new Date().toISOString(),
+          raw: { via: "free-item-again", item_id: again.id },
+        }),
+      }).catch(() => {});
+      console.log(JSON.stringify({ evt: "tg.free_item.again", item: again.id }));
+      return { free_again: again.id };
+    } catch (e) {
+      console.log(JSON.stringify({ evt: "tg.free_item.again_failed", err: String(e).slice(0, 200) }));
+      return null;
+    }
+  }
 
   // Signed URL the Telegram servers can fetch the file from. Console uploads
   // live in Supabase Storage (content-store), not the Worker's R2 bucket, so
