@@ -448,7 +448,7 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   // Recent history (decrypted previews are enough context for tone).
   const hist = await sb(env, "messages?conversation_id=eq." + conv.id +
     "&direction=in.(" + encodeURIComponent("in,out") + ")&select=direction,body_preview,sent_at" +
-    "&order=sent_at.desc&limit=8").catch(() => null);
+    "&order=sent_at.desc&limit=30").catch(() => null);
   // Internal rows carry console-only labels like "[free] PIC TITLE" or
   // "[menu] 2 paid". They are bookkeeping, not chat the girl said, so strip
   // them before the model sees them - otherwise it parrots the tag verbatim.
@@ -466,7 +466,20 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
       via = "intercept";
     } else {
       const catalogue = await liveCatalogue(env, sb, conn);
-      const system = personaSystemPrompt(p, conn, catalogue);
+      // Who she's talking to + how far back it goes, so returning customers
+      // are continued, not restarted.
+      let custLine = "";
+      {
+        const custName = (conv && conv.customers) ? (conv.customers.first_name || conv.customers.username) : null;
+        if (custName) custLine = "You're chatting with " + custName + ".";
+        const first = await sb(env, "messages?conversation_id=eq." + conv.id +
+          "&direction=eq.in&select=sent_at&order=sent_at.asc&limit=1").catch(() => null);
+        if (first && first[0]) {
+          const days = Math.max(0, Math.round((Date.now() - new Date(first[0].sent_at)) / 86400000));
+          if (days >= 1) custLine += " You two have been chatting for " + (days === 1 ? "a day" : days + " days") + " - pick up where you left off, don't restart like it's a first conversation.";
+        }
+      }
+      const system = personaSystemPrompt(p, conn, catalogue) + (custLine ? " " + custLine : "");
       replyText = await generateReply(env, system, history, text);
       via = "workers-ai";
       if (!replyText) { stopTyping(); return null; }
