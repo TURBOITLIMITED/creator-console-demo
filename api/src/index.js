@@ -411,12 +411,62 @@ export default {
       return json({ kill_all: value.kill_all }, 200, origin);
     }
 
+    // Console reply: send a message as the creator through her business
+    // connection. Sits before whoami() (console-admin auth only) because the
+    // sender is the OWNER acting on a conversation, not a creator login.
+    if (url.pathname === "/conversations/reply" && request.method === "POST") {
+      if (!(await consoleAdmin(env, request))) {
+        return json({ error: "not allowed" }, 403, origin);
+      }
+      const b = await request.json();
+      const convId = String(b.conversation_id || "");
+      const text = String(b.text || "").trim().slice(0, 4096);
+      if (!convId || !text) return json({ error: "conversation_id and text required" }, 400, origin);
+      const convs = await sb(env, "conversations?id=eq." + encodeURIComponent(convId) + "&select=*");
+      const conv = convs && convs[0];
+      if (!conv) return json({ error: "no such conversation" }, 404, origin);
+      if (!conv.business_connection_id) return json({ error: "conversation has no business connection" }, 409, origin);
+      const conns = await sb(env, "business_connections?id=eq." + encodeURIComponent(conv.business_connection_id) +
+        "&select=id,creator_id,telegram_account_id,is_enabled,can_reply_cached");
+      const conn = conns && conns[0];
+      if (!conn) return json({ error: "no business connection row" }, 404, origin);
+      if (conn.is_enabled === false) return json({ error: "connection disabled" }, 409, origin);
+      // bot token: bots row keyed by the account username (lowercased)
+      const accts = await sb(env, "telegram_accounts?id=eq." + encodeURIComponent(conn.telegram_account_id || "") + "&select=username");
+      const uname = accts && accts[0] && String(accts[0].username || "").toLowerCase();
+      if (!uname) return json({ error: "account has no username" }, 409, origin);
+      const bots = await sb(env, "bots?persona=eq." + encodeURIComponent(uname) + "&select=token");
+      const token = bots && bots[0] && bots[0].token;
+      if (!token) return json({ error: "no bot token for " + uname }, 409, origin);
+      // Send through Telegram as the creator, then record the row.
+      let sent = null;
+      try {
+        sent = await tgapi.sendMessage(token, conv.business_connection_id, conv.chat_id, text);
+      } catch (e) {
+        return json({ error: "telegram send failed", detail: String(e).slice(0, 200) }, 502, origin);
+      }
+      const row = {
+        conversation_id: conv.id,
+        creator_id: conv.creator_id,
+        tg_message_id: sent && sent.message ? sent.message.message_id : null,
+        direction: "out",
+        sender: "human",
+        kind: "text",
+        body_preview: text,
+        sent_at: new Date().toISOString(),
+        raw: { via: "console" },
+      };
+      await sb(env, "messages", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(row) });
+      await sb(env, "conversations?id=eq." + encodeURIComponent(conv.id), { method: "PATCH",
+        headers: { Prefer: "return=minimal" }, body: JSON.stringify({ last_message_at: row.sent_at, last_outbound_at: row.sent_at }) });
+      return json({ ok: true, message: row }, 200, origin);
+    }
+
     // one creator on or off by hand (manual mode), for the console
     if (url.pathname === "/manual" && request.method === "POST") {
       if (me.role !== "admin" && !(await consoleAdmin(env, request))) {
         return json({ error: "not allowed" }, 403, origin);
-      }
-      const b = await request.json();
+      }      const b = await request.json();
       const id = String(b.id || "");
       if (!id) return json({ error: "which creator?" }, 400, origin);
       const rows = await sb(env, "creators?id=eq." + encodeURIComponent(id) + "&select=record");
