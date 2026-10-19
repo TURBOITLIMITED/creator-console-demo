@@ -17,6 +17,8 @@
 import * as tg from "./telegram.js";
 import { getDek, seal, preview } from "./crypto.js";
 import { isAskingIfBot, isAskingForHuman, hasAgeSignal, COPY_VERSION } from "./copy.js";
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
 import { pickBotAnswer, isSeriousRequest, isPurchaseContext } from "./persona.js";
 import { sign as signMedia } from "./media.js";
 
@@ -316,12 +318,14 @@ function personaSystemPrompt(p, conn) {
                  professional: "polite, precise, no slang",
                  concise: "short answers, straight to the point" }[(p && p.tone) || "warm"];
   const lines = [
-    `You are ${name}, replying to fans in her Telegram DMs.`,
+    `You are ${name}, replying to fans in her Telegram DMs. You are chatting to sell your photos and videos.`,
     `Voice: ${tone}.`,
   ];
   if (p && p.system_prompt) lines.push(String(p.system_prompt));
   lines.push(
-    "Keep replies short, one to three sentences, like a real person texting.",
+    "You are here to sell your content: weave what you offer into the chat naturally, flirt a little and invite them to buy. Never say you are 'not here for that' or push away from selling; selling is the whole point.",
+    "Write like a real human woman texting: natural, warm, playful, small imperfections are fine.",
+    "Replies should be 2 to 4 sentences, chatty and engaging, not one-word answers.",
     "Never mention being a bot or AI unless directly asked.",
     "Never promise anything about money, meets or content that is not already stated in your instructions.",
     "If a message is ambiguous, reply warmly and ask one short question.",
@@ -336,7 +340,7 @@ async function generateReply(env, system, history, incoming) {
     { role: "user", content: incoming },
   ];
   const out = await env.AI.run(env.AI_MODEL || "@cf/mistralai/mistral-small-3.1-24b-instruct", {
-    messages, max_tokens: 200,
+    messages, max_tokens: 500,
   });
   const text = typeof out === "string" ? out : (out && out.response) || "";
   return String(text).trim().replace(/^["']|["']$/g, "");
@@ -350,13 +354,33 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   const p = persona.row;
   if (p && p.enabled === false) return null;   // persona off: stay quiet
 
+  // Typing indicator first: a real person doesn't reply instantly. Show
+  // "typing..." while we work, then hold for a beat scaled to reply length.
+  const token0 = await botTokenFor(env, sb, conn);
+  if (token0) {
+    try {
+      let typing = true;
+      const typer = async () => {
+        while (typing) {
+          await tg.sendChatAction(token0, conn.id, msg.chat.id, "typing").catch(() => {});
+          await sleep(4500);
+        }
+      };
+      typer();
+      conv.__typingStop = () => { typing = false; };
+    } catch (e) {
+      console.log(JSON.stringify({ evt: "tg.typing_failed", err: String(e).slice(0, 100) }));
+    }
+  }
+  const stopTyping = () => { try { conv.__typingStop && conv.__typingStop(); } catch {} };
+
   // FREE CONTENT: "anything free?" -> send a live, price-0 item from this
   // account's library, once per conversation until they ask again later.
   const lower = String(text || "").toLowerCase();
   const askingFree = /(free|4free|for free|anything for me|freebie|sample|preview)/.test(lower);
   if (askingFree) {
     const sentFree = await maybeSendFreeItem(env, sb, conn, conv, msg);
-    if (sentFree) return sentFree;              // media sent; no text needed
+    if (sentFree) { stopTyping(); return sentFree; }   // media sent; no text needed
   }
 
   // MENU: "what do you offer / send me the menu" -> list live items with
@@ -364,7 +388,7 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   const askingMenu = /(menu|what.*(offer|have|sell|sellin|got)|price list|how much|options|what can i buy|show me what)/.test(lower);
   if (askingMenu && !askingFree) {
     const menu = await maybeSendMenu(env, sb, conn, conv, msg);
-    if (menu) return menu;
+    if (menu) { stopTyping(); return menu; }
   }
 
   // Recent history (decrypted previews are enough context for tone).
@@ -385,10 +409,11 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
       const system = personaSystemPrompt(p, conn);
       replyText = await generateReply(env, system, history, text);
       via = "workers-ai";
-      if (!replyText) return null;
+      if (!replyText) { stopTyping(); return null; }
     }
   } catch (e) {
     console.log(JSON.stringify({ evt: "tg.reply.generate_failed", err: String(e).slice(0, 200) }));
+    stopTyping();
     return null;
   }
 
@@ -396,9 +421,16 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   const token = await botTokenFor(env, sb, conn);
   if (!token) {
     console.log(JSON.stringify({ evt: "tg.reply.no_token", persona: null }));
+    stopTyping();
     return null;
   }
   try {
+    // Human pacing: a short pause that scales with reply length, so the
+    // typing indicator reads as someone actually composing a message.
+    const words = replyText.split(/\s+/).length;
+    const think = Math.min(9000, 1500 + words * 220 + Math.random() * 1200);
+    await sleep(think);
+    stopTyping();
     const sent = await tg.sendMessage(token, conn.id, msg.chat.id, replyText);
     // Record our own reply as an outbound message row.
     await sb(env, "messages", {
