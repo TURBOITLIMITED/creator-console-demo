@@ -492,6 +492,19 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
     await sleep(think);
     stopTyping();
     const sent = await tg.sendMessage(token, conn.id, msg.chat.id, replyText);
+    // Price or item mentioned in her reply -> always follow with the
+    // clickable payment options (customer never has to ask twice).
+    try {
+      const lowerReply = String(replyText || "").toLowerCase();
+      const mentionsItem = await matchLiveItem(env, sb, conn, replyText);
+      const mentionsPrice = /£\s?\d|\d+\s?(ton|quid|£)/i.test(replyText);
+      if (mentionsItem || mentionsPrice) {
+        const item = mentionsItem || await lastQuotedItem(env, sb, conv);
+        if (item) await sendPaymentRequest(env, sb, conn, conv, msg, item);
+      }
+    } catch (e) {
+      console.log(JSON.stringify({ evt: "tg.reply.paybtn_failed", err: String(e).slice(0, 150) }));
+    }
     // Record our own reply as an outbound message row.
     await sb(env, "messages", {
       method: "POST",
@@ -901,6 +914,17 @@ async function onCallback(env, sb, cq, persona) {
   }).catch(() => {});
   console.log(JSON.stringify({ evt: "tg.menu.buy_pressed", item: item.id, price: item.price_ton }));
   return r || { buy_pressed: item.id };
+}
+
+
+/* The most recent item this conversation was quoted for, if any. */
+async function lastQuotedItem(env, sb, conv) {
+  const rows = await sb(env, "messages?conversation_id=eq." + conv.id +
+    "&direction=eq.out&select=raw&order=sent_at.desc&limit=10").catch(() => null);
+  const m = (rows || []).find(r => r.raw && r.raw.via === "menu-buy" && r.raw.item_id);
+  if (!m) return null;
+  const it = await sb(env, "media_items?id=eq." + encodeURIComponent(m.raw.item_id) + "&select=*").catch(() => null);
+  return it && it[0] ? it[0] : null;
 }
 
 /* Payment request for a specific item (shared by buy button and text). */
