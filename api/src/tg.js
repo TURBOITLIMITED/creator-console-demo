@@ -359,6 +359,14 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
     if (sentFree) return sentFree;              // media sent; no text needed
   }
 
+  // MENU: "what do you offer / send me the menu" -> list live items with
+  // prices straight from her library, not the model's imagination.
+  const askingMenu = /(menu|what.*(offer|have|sell|sellin|got)|price list|how much|options|what can i buy|show me what)/.test(lower);
+  if (askingMenu && !askingFree) {
+    const menu = await maybeSendMenu(env, sb, conn, conv, msg);
+    if (menu) return menu;
+  }
+
   // Recent history (decrypted previews are enough context for tone).
   const hist = await sb(env, "messages?conversation_id=eq." + conv.id +
     "&direction=in.(" + encodeURIComponent("in,out") + ")&select=direction,body_preview,sent_at" +
@@ -490,6 +498,57 @@ async function maybeSendFreeItem(env, sb, conn, conv, msg) {
   } catch (e) {
     console.log(JSON.stringify({ evt: "tg.free_item.send_failed", err: String(e).slice(0, 200) }));
     return null;                                  // fall back to a text reply
+  }
+}
+
+/* MENU: list her live items with prices when a customer asks what she
+   offers. Paid items first with their TON price; if she has a free item,
+   mention it as available on request. Falls back to the model when the
+   library is empty, so nothing is invented from thin air. */
+async function maybeSendMenu(env, sb, conn, conv, msg) {
+  if (!conn.telegram_account_id) return null;
+  const rows = await sb(env, "media_items?telegram_account_id=eq." +
+    encodeURIComponent(conn.telegram_account_id) +
+    "&visible=eq.true&select=id,title,kind,price_ton" +
+    "&order=price_ton.desc&limit=20").catch(() => null);
+  const items = (rows || []).filter(m => m.title);
+  if (!items.length) return null;
+
+  const fmt = t => Number(t) > 0 ? Number(t) + " TON" : null;
+  const paid = items.filter(m => Number(m.price_ton) > 0).slice(0, 8);
+  const free = items.filter(m => !Number(m.price_ton));
+  const lines = ["Here's what I've got right now 💕"];
+  for (const m of paid) {
+    lines.push("• " + m.title + " - " + fmt(m.price_ton));
+  }
+  if (free.length) lines.push("I've also got a freebie if you'd like one, just ask 😊");
+  lines.push("Want any of them?");
+  const menuText = lines.join("\n");
+
+  const token = await botTokenFor(env, sb, conn);
+  if (!token) return null;
+  try {
+    const sent = await tg.sendMessage(token, conn.id, msg.chat.id, menuText);
+    await sb(env, "messages", {
+      method: "POST",
+      headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+      body: JSON.stringify({
+        conversation_id: conv.id,
+        creator_id: conn.creator_id,
+        tg_message_id: sent && sent.message_id ? sent.message_id : null,
+        direction: "out",
+        sender: "ai",
+        kind: "text",
+        body_preview: "[menu] " + paid.length + " paid, " + free.length + " free",
+        sent_at: new Date().toISOString(),
+        raw: { via: "menu", items: items.map(m => m.id) },
+      }),
+    }).catch(() => {});
+    console.log(JSON.stringify({ evt: "tg.menu.sent", paid: paid.length, free: free.length }));
+    return { menu: true };
+  } catch (e) {
+    console.log(JSON.stringify({ evt: "tg.menu.send_failed", err: String(e).slice(0, 200) }));
+    return null;
   }
 }
 
