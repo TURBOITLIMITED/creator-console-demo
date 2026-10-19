@@ -336,6 +336,7 @@ input[type=range]{accent-color:var(--accent);width:100%}
 .thread-head b{display:block;font-weight:600}
 .thread-head small{font:12px var(--f-mono);color:var(--ink-3)}
 .thread-head .end{margin-left:auto;display:flex;gap:6px;align-items:center}
+.bot-toggle.on{color:var(--ok);border-color:var(--rule)}
 .msgs{flex:1;overflow-y:auto;padding:20px 16px;display:flex;flex-direction:column;gap:8px;background:var(--sunk);max-height:520px;min-height:320px}
 .day-sep{align-self:center;font:500 11px var(--f-mono);color:var(--ink-3);padding:3px 10px;border-radius:999px;background:var(--panel);border:1px solid var(--rule);margin:6px 0}
 .bubble{max-width:min(78%,460px);padding:8px 12px 6px;border-radius:12px;font-size:13.5px;line-height:1.45;box-shadow:0 1px 1px rgba(0,0,0,.05);overflow-wrap:anywhere}
@@ -1267,6 +1268,7 @@ async function openConversation(id){
       <div class="avatar">${esc(who[0].toUpperCase())}</div>
       <div><b>${esc(who)}</b><small>@${esc(conv.customers?.username||'unknown')}</small></div>
       <div class="end">${conv.state==='closed'?'<span class="pill draft">Closed</span>':'<span class="pill ok">Open</span>'}
+        <button class="act bot-toggle ${conv.mode!=='human'?'on':''}" data-act="conv-bot" data-id="${conv.id}" data-on="${conv.mode!=='human'?1:0}" title="${conv.mode!=='human'?'Bot is replying automatically. Turn off to type yourself.':'Bot is off. You reply manually.'}">${ic('power')}${conv.mode!=='human'?'Bot on':'Bot off'}</button>
         <button class="act" data-act="conv-status" data-id="${conv.id}">${ic(conv.state==='closed'?'refresh':'check')}${conv.state==='closed'?'Reopen':'Close'}</button>
         <button class="act danger" data-act="conv-del" data-id="${conv.id}" title="Delete conversation">${ic('trash')}</button></div>
     </div>
@@ -1726,6 +1728,14 @@ view.addEventListener('click', async e => {
       loadInboxLevel(); break;
     case 'open-conv': openConversation(id); break;
     case 'close-thread': $('#inbox').dataset.open = 'false'; break;
+    case 'conv-bot': {
+      const on = a.dataset.on === '1';
+      const convB = convCache.find(c=>c.id===id);
+      if(await withBusy(a, async () => { await Data.update('conversations', id, { mode: on ? 'human' : 'ai' }); if(convB) convB.mode = on ? 'human' : 'ai'; }, on ? 'Bot off. You can type replies yourself now.' : 'Bot on. She replies automatically.')){
+        openConversation(id);
+      }
+      break;
+    }
     case 'conv-status': {
       const conv = convCache.find(c=>c.id===id); const next = conv.state==='closed'?'open':'closed';
       if(await withBusy(a, () => Data.update('conversations', id, { state:next }), next==='closed'?'Conversation closed':'Conversation reopened')){
