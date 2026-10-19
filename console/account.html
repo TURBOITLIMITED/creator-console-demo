@@ -106,6 +106,7 @@ input.mono,textarea.mono{font-family:var(--f-mono);font-size:13px}
         <div class="tabs" role="tablist">
           <button type="button" role="tab" data-tab="edit" aria-selected="true">Edit</button>
           <button type="button" role="tab" data-tab="connection" aria-selected="false">Connection</button>
+          <button type="button" role="tab" data-tab="ai" aria-selected="false">AI Personality</button>
         </div>
       </div>
       <div class="panel-body" id="tab-body">
@@ -178,15 +179,54 @@ input.mono,textarea.mono{font-family:var(--f-mono);font-size:13px}
             <div id="statusPill" class="pill ok">Connected</div>
           </div>
         </div>
+        <!-- AI Personality tab -->
+        <div id="tab-ai" style="display:none">
+          <div class="field">
+            <label>Persona source</label>
+            <div id="personaSource" style="font-size:13px;color:var(--ink-2)"><em>Loading…</em></div>
+          </div>
+          <div class="field">
+            <label for="ai_display_name">Assistant name</label>
+            <input type="text" id="ai_display_name" maxlength="40" placeholder="Mara">
+            <span class="hint">The name fans see when the assistant replies.</span>
+          </div>
+          <div class="field">
+            <label for="ai_tone">Tone</label>
+            <select id="ai_tone">
+              <option value="warm">Warm: friendly, personal, a little chatty</option>
+              <option value="playful">Playful: light jokes, emoji, high energy</option>
+              <option value="professional">Professional: polite, precise, no slang</option>
+              <option value="concise">Concise: short answers, straight to the point</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="ai_system_prompt">Instructions</label>
+            <textarea id="ai_system_prompt" rows="6" maxlength="2000" placeholder="Who you are, what you sell, and what the assistant must never promise."></textarea>
+            <span class="hint">Who she is, what she sells, what the assistant must never promise.</span>
+          </div>
+          <div class="field">
+            <label for="ai_first_contact_line">First contact line</label>
+            <input type="text" id="ai_first_contact_line" maxlength="120" placeholder="hey, I'm around…">
+            <span class="hint">Sent to brand-new chats (optional).</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="ai_disclose">
+            <span class="track"></span>
+            <span>Tell fans it's an AI<small>One line on first contact.</small></span>
+          </label>
+          <label class="switch">
+            <input type="checkbox" id="ai_enabled" checked>
+            <span class="track"></span>
+            <span>Assistant enabled<small>Master switch for this account's bot</small></span>
+          </label>
+          <div class="action-row">
+            <button class="btn primary" id="aiSaveBtn">Save persona</button>
+            <button class="btn ghost" id="aiResetBtn" style="display:none">Reset to creator default</button>
+          </div>
+        </div>
       </div>
     </div>
 
-    <div class="panel">
-      <div class="panel-head"><h2>AI Persona</h2></div>
-      <div class="panel-body" id="personaPanel">
-        <div class="loading"><div class="spinner"></div>Loading persona…</div>
-      </div>
-    </div>
   </div>
 </div>
 
@@ -260,8 +300,7 @@ async function loadAccount(){
     $('#loading').style.display = 'none';
     $('#content').style.display = 'block';
     
-    // Load persona (placeholder - integrate with your existing AI panel component)
-    loadPersona();
+    // Load persona lazily when the AI tab is opened (setupTabs does it)
     
     // Activate bot button
     $('#activate_bot_btn').addEventListener('click', async () => {
@@ -344,6 +383,8 @@ function setupTabs(){
       $$('.tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === tab));
       $('#tab-edit').style.display = tab === 'edit' ? 'block' : 'none';
       $('#tab-connection').style.display = tab === 'connection' ? 'block' : 'none';
+      $('#tab-ai').style.display = tab === 'ai' ? 'block' : 'none';
+      if(tab === 'ai') loadAccountPersona();
     });
   });
 }
@@ -358,6 +399,8 @@ function setupEvents(){
     }
   };
   $('#saveBtn').onclick = saveChanges;
+  $('#aiSaveBtn').onclick = saveAccountPersona;
+  $('#aiResetBtn').onclick = resetAccountPersona;
 }
 
 function hasChanges(){
@@ -397,18 +440,86 @@ async function saveChanges(){
   }
 }
 
-async function loadPersona(){
-  // Placeholder - integrate with your existing AI persona loading logic
-  // For now, show a simple message
-  setTimeout(() => {
-    $('#personaPanel').innerHTML = `
-      <p style="color:var(--ink-2);margin:0">
-        AI persona settings for this bot. Configure voice, personality traits, and response style.
-        <br><br>
-        <em style="color:var(--ink-3)">Persona editor coming soon.</em>
-      </p>
-    `;
-  }, 500);
+/* ---------- per-account AI persona (account_personas) ---------- */
+let personaOwn = false;
+
+async function loadAccountPersona(){
+  const src = $('#personaSource');
+  src.innerHTML = '<em>Loading…</em>';
+  try{
+    // account-level override first
+    const { data: own, error: e1 } = await sb.from('account_personas')
+      .select('*').eq('telegram_account_id', ACC_ID).maybeSingle();
+    if(e1) throw e1;
+    let p = own;
+    if(p){
+      personaOwn = true;
+      $('#aiResetBtn').style.display = 'inline-flex';
+      src.innerHTML = 'This account has its <b>own persona</b> — it does not follow the creator default.';
+    } else {
+      // fall back to the creator default
+      const cid = accData ? accData.creator_id : null;
+      const { data: base, error: e2 } = await sb.from('ai_profiles')
+        .select('*').eq('creator_id', cid).maybeSingle();
+      if(e2) throw e2;
+      p = base || {};
+      personaOwn = false;
+      $('#aiResetBtn').style.display = 'none';
+      src.innerHTML = 'Using the <b>creator default</b> persona. Saving here gives this account its own voice.';
+    }
+    $('#ai_display_name').value = p.display_name || '';
+    $('#ai_tone').value = p.tone || 'warm';
+    $('#ai_system_prompt').value = p.system_prompt || '';
+    $('#ai_first_contact_line').value = p.first_contact_line || '';
+    $('#ai_disclose').checked = !!p.disclose_on_first_contact;
+    $('#ai_enabled').checked = p.enabled !== undefined ? !!p.enabled : true;
+  }catch(e){
+    src.innerHTML = `<span style="color:var(--bad)">Could not load persona: ${esc(e.message || 'unknown error')}</span>`;
+  }
+}
+
+async function saveAccountPersona(){
+  const btn = $('#aiSaveBtn');
+  btn.disabled = true; btn.classList.add('busy');
+  try{
+    const row = {
+      creator_id: accData.creator_id,
+      display_name: $('#ai_display_name').value || null,
+      tone: $('#ai_tone').value,
+      system_prompt: $('#ai_system_prompt').value || null,
+      first_contact_line: $('#ai_first_contact_line').value || null,
+      disclose_on_first_contact: $('#ai_disclose').checked,
+      enabled: $('#ai_enabled').checked,
+      updated_at: new Date().toISOString()
+    };
+    const { error } = await sb.from('account_personas')
+      .upsert({ ...row, telegram_account_id: ACC_ID }, { onConflict: 'telegram_account_id' });
+    if(error) throw error;
+    say('Persona saved.', 'ok');
+    setTimeout(() => say('', ''), 2000);
+    loadAccountPersona();
+  }catch(e){
+    say(e.message || 'Failed to save persona.', 'err');
+  }finally{
+    btn.disabled = false; btn.classList.remove('busy');
+  }
+}
+
+async function resetAccountPersona(){
+  const btn = $('#aiResetBtn');
+  btn.disabled = true; btn.classList.add('busy');
+  try{
+    const { error } = await sb.from('account_personas')
+      .delete().eq('telegram_account_id', ACC_ID);
+    if(error) throw error;
+    say('Reset to creator default.', 'ok');
+    setTimeout(() => say('', ''), 2000);
+    loadAccountPersona();
+  }catch(e){
+    say(e.message || 'Failed to reset persona.', 'err');
+  }finally{
+    btn.disabled = false; btn.classList.remove('busy');
+  }
 }
 
 init();

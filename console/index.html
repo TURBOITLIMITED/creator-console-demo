@@ -680,9 +680,23 @@ const Data = {
       const { data, error } = await state.sb.from('ai_profiles').upsert({ ...fields, creator_id:cid || uid() }, { onConflict:'creator_id' }).select().single();
     if(error) throw error; return data;
   },
-  async saveAIForAccount(fields, accountId){
-      const { data, error } = await state.sb.from('ai_profiles').upsert({ ...fields, telegram_account_id:accountId }, { onConflict:'telegram_account_id' }).select().single();
+  /* Per-account persona. Falls back to the creator's ai_profiles row when this
+     account has no override, so every account starts as "same as creator". */
+  async getAccountPersona(accountId, cid){
+    const { data, error } = await state.sb.from('account_personas').select('*').eq('telegram_account_id', accountId).maybeSingle();
+    if(error) throw error;
+    if(data) return { ...data, own:true };
+    const base = await this.getAI(cid);
+    return base ? { ...base, telegram_account_id:accountId, own:false } : { telegram_account_id:accountId, own:false,
+      display_name:'', tone:'warm', system_prompt:'', first_contact_line:'', disclose_on_first_contact:false, enabled:false };
+  },
+  async saveAccountPersona(accountId, fields){
+    const { data, error } = await state.sb.from('account_personas').upsert({ ...fields, telegram_account_id:accountId }, { onConflict:'telegram_account_id' }).select().single();
     if(error) throw error; return data;
+  },
+  async deleteAccountPersona(accountId){
+    const { error } = await state.sb.from('account_personas').delete().eq('telegram_account_id', accountId);
+    if(error) throw error;
   },
   async updateCreator(patch){
       const { data, error } = await state.sb.from('creators').update(patch).eq('id', uid()).select().single();
@@ -896,6 +910,7 @@ async function openAccount(id){
         <div class="tabs" role="tablist">
           <button type="button" role="tab" data-act="acc-tab" data-tab="persona" aria-selected="${tab==='persona'}">Persona</button>
           <button type="button" role="tab" data-act="acc-tab" data-tab="connection" aria-selected="${tab==='connection'}">Connection</button>
+          <button type="button" role="tab" data-act="acc-tab" data-tab="ai" aria-selected="${tab==='ai'}">AI Personality</button>
         </div>
         <button class="act" data-act="acc-close" title="Close">${ic('x')}</button>
       </span>
@@ -907,7 +922,13 @@ async function openAccount(id){
     body.innerHTML = spinner('Loading personality…');
     const holder = document.createElement('div'); holder.id = 'acc-personality';
     body.appendChild(holder);
-    loadAIPanel('#acc-personality');
+    loadAccountPersonaPanel('#acc-personality', a);
+  } else if(tab === 'ai'){
+    const body = $('#acc-tab-body');
+    body.innerHTML = spinner('Loading AI personality…');
+    const holder = document.createElement('div'); holder.id = 'acc-personality';
+    body.appendChild(holder);
+    loadAccountPersonaPanel('#acc-personality', a);
   } else {
     renderAccConnection(a);
   }
@@ -1314,6 +1335,28 @@ async function loadAIPanel(slotSel, accountId = null){
   slot.innerHTML = aiFormHTML(p, accountId);
   updateAIPreview();
 }
+/* Per-account persona panel: same form, but bound to account_personas for THIS
+   account. Shows where the persona comes from (own vs creator default) and can
+   be reset back to the creator default. */
+async function loadAccountPersonaPanel(slotSel, account){
+  const slot = $(slotSel); if(!slot) return;
+  const cid = ownerTarget();
+  let p;
+  try{ p = await Data.getAccountPersona(account.id, cid); }
+  catch(e){ slot.innerHTML = `<div class="panel">${errorState(e,'accounts')}</div>`; return; }
+  p.persona_name = p.display_name || '';
+  slot.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+      <span style="font-size:12.5px;color:var(--dim)">
+        ${p.own ? 'This account has its <b>own persona</b> — it no longer follows the creator default.'
+                : 'Using the <b>creator default</b> persona. Saving here gives this account its own voice.'}
+      </span>
+      ${p.own ? `<button type="button" class="btn" data-act="acc-persona-reset" data-id="${account.id}">${ic('x')}Reset to creator default</button>` : ''}
+    </div>
+    ${aiFormHTML(p)}
+    <input type="hidden" name="own_flag" value="${p.own?1:0}">`;
+  updateAIPreview();
+}
 async function renderAI(){
   const target = ownerTarget();
   const head = 'How your assistant talks to fans when you are away. Changes apply to new replies straight away.';
@@ -1390,6 +1433,9 @@ view.addEventListener('click', async e => {
     case 'acc-open': openAccount(id); break;
     case 'acc-close': $('#acc-detail').innerHTML = ''; state.accTab = null; break;
     case 'acc-tab': state.accTab = a.dataset.tab; if(state.accOpenId) openAccount(state.accOpenId); break;
+    case 'acc-persona-reset':
+      if(await withBusy(a, async () => { await Data.deleteAccountPersona(id); }, 'Reset to creator default')) openAccount(id);
+      break;
     case 'acc-connect': showConnectWizard(); break;
     case 'wiz-close': $('#connect-wizard')?.remove(); break;
     case 'acc-del': if(armed(a) && await withBusy(a, () => Data.remove('telegram_accounts', id), 'Account removed')) loadAccounts(); break;
@@ -1511,6 +1557,16 @@ view.addEventListener('submit', async e => {
   if(kind === 'ai'){
     const data = { display_name:f.persona_name.value.trim()||null, tone:f.tone.value, system_prompt:f.system_prompt.value.trim(),
       first_contact_line:f.first_contact_line?.value.trim()||null, disclose_on_first_contact:f.disclose_on_first_contact?.checked||false, enabled:f.enabled.checked };
+    /* Per-account persona panel: the form lives under #acc-personality and saves
+       to account_personas for the open account instead of the creator default. */
+    const accSlot = f.closest('#acc-personality');
+    if(accSlot && state.accOpenId){
+      const saved = await withBusy(btn, () => Data.saveAccountPersona(state.accOpenId, {
+        ...data, creator_id: ownerTarget(),
+      }), 'Account persona saved');
+      if(saved) loadAccountPersonaPanel('#acc-personality', { id: state.accOpenId });
+      return;
+    }
     if(await withBusy(btn, () => Data.saveAI(data, ownerTarget()), 'Personality saved')) renderAI();
   }
   if(kind === 'wallet'){
