@@ -238,6 +238,44 @@ export default {
     // Console reply: send a message as the creator through her business
     // connection. Sits before whoami() (console-admin auth only) because the
     // sender is the OWNER acting on a conversation, not a creator login.
+    // Telegram media proxy: the console passes a stored file_id, we fetch the
+    // file path from Telegram and stream the bytes back. Admin-gated.
+    if (url.pathname === "/tgfile" && request.method === "GET") {
+      if (!(await consoleAdmin(env, request))) return json({ error: "not allowed" }, 403, origin);
+      const f = url.searchParams.get("f") || "";
+      const bc = url.searchParams.get("bc") || "";
+      if (!f || !bc) return json({ error: "file_id and bc required" }, 400, origin);
+      const conn = await sb(env, "business_connections?id=eq." + encodeURIComponent(bc) +
+        "&select=id,creator_id,telegram_account_id").catch(() => null);
+      const c = conn && conn[0];
+      if (!c) return json({ error: "unknown connection" }, 404, origin);
+      // bot token for this account (bots table keyed by persona username)
+      let token = null;
+      {
+        const acc = await sb(env, "telegram_accounts?id=eq." +
+          encodeURIComponent(c.telegram_account_id) + "&select=username").catch(() => null);
+        const uname = acc && acc[0] && acc[0].username ? acc[0].username.toLowerCase() : null;
+        if (uname) {
+          const rows = await sb(env, "bots?persona=eq." + encodeURIComponent(uname) + "&select=token").catch(() => null);
+          if (rows && rows[0] && rows[0].token) token = rows[0].token;
+        }
+      }
+      if (!token) return json({ error: "no bot token" }, 404, origin);
+      try {
+        const info = await (await fetch("https://api.telegram.org/bot" + token + "/getFile?file_id=" + encodeURIComponent(f))).json();
+        if (!info || !info.ok || !info.result || !info.result.file_path) {
+          return json({ error: "telegram getFile failed" }, 502, origin);
+        }
+        const file = await fetch("https://api.telegram.org/file/bot" + token + "/" + info.result.file_path);
+        return new Response(file.body, {
+          headers: { "Content-Type": file.headers.get("Content-Type") || "application/octet-stream",
+                     "Cache-Control": "private, max-age=3600" },
+        });
+      } catch (e) {
+        return json({ error: "proxy failed: " + String(e).slice(0, 120) }, 502, origin);
+      }
+    }
+
     if (url.pathname === "/conversations/reply" && request.method === "POST") {
       if (!(await consoleAdmin(env, request))) {
         return json({ error: "not allowed" }, 403, origin);

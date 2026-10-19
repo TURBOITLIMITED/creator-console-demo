@@ -218,7 +218,14 @@ async function onMessage(env, sb, msg, edited) {
     body_nonce: sealed.body_nonce,
     body_preview: preview(text),
     raw: { date: msg.date, is_from_offline: msg.is_from_offline || false,
-           has_sender_business_bot: !!msg.sender_business_bot },
+           has_sender_business_bot: !!msg.sender_business_bot,
+           // media file ids so the console can render the actual image/video
+           file_id: (msg.photo && msg.photo.length ? msg.photo[msg.photo.length-1].file_id : null)
+                    || (msg.video && msg.video.file_id) || (msg.document && msg.document.file_id)
+                    || (msg.animation && msg.animation.file_id) || (msg.sticker && msg.sticker.file_id)
+                    || (msg.voice && msg.voice.file_id) || (msg.audio && msg.audio.file_id) || null,
+           file_unique_id: (msg.photo && msg.photo.length ? msg.photo[msg.photo.length-1].file_unique_id : null)
+                    || (msg.video && msg.video.file_unique_id) || (msg.document && msg.document.file_unique_id) || null },
     sent_at: msg.date ? new Date(msg.date * 1000).toISOString() : new Date().toISOString(),
     edited_at: edited ? new Date().toISOString() : null,
     delivered: true,

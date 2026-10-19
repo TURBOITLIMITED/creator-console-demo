@@ -328,6 +328,7 @@ input[type=range]{accent-color:var(--accent);width:100%}
 .gal-lightbox .gal-lb-body{max-width:min(1100px,92vw);max-height:82vh;display:grid;place-items:center}
 .gal-lightbox img,.gal-lightbox video{max-width:100%;max-height:82vh;border-radius:10px;background:#000}
 .gal-lightbox .gal-lb-close{position:absolute;top:16px;right:16px;background:var(--panel)}
+.msg-img{max-width:220px;max-height:220px;border-radius:8px;display:block;margin:2px 0}
 .conv.is-unread .c-top b{color:var(--ink)}
 .conv.is-unread p{color:var(--ink);font-weight:500}
 .thread{display:flex;flex-direction:column;min-width:0}
@@ -1245,7 +1246,11 @@ async function refreshThread(id){
     box.innerHTML = msgs.length ? msgs.map(m => {
       const day = new Date(m.sent_at).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
       const sep = day !== lastDay ? `<span class="day-sep">${day}</span>` : ''; lastDay = day;
-      return `${sep}<div class="bubble ${m.direction==='out'?'out':'in'}">${esc(m.body_preview)}<time>${m.sender==='ai'?'<span class="ai">AI</span>':''}${fmtTime(m.sent_at)}</time></div>`;
+      const fid = m.raw && m.raw.file_id;
+      const mediaHtml = fid
+        ? `<img class="msg-img" src="https://api-telebotcreator.turboit.uk/tgfile?f=${encodeURIComponent(fid)}&bc=${encodeURIComponent(state.inbox.activeBc || '')}" alt="" loading="lazy">`
+        : esc(m.body_preview);
+      return `${sep}<div class="bubble ${m.direction==='out'?'out':'in'}">${mediaHtml}<time>${m.sender==='ai'?'<span class="ai">AI</span>':''}${fmtTime(m.sent_at)}</time></div>`;
     }).join('') : box.innerHTML;
     box.scrollTop = box.scrollHeight;
   }catch(e){ /* polling errors are silent; the full openConversation shows them */ }
@@ -1259,6 +1264,7 @@ async function loadConversations(){
 async function openConversation(id){
   const conv = convCache.find(c => c.id === id); if(!conv) return;
   state.inbox.active = id;
+  state.inbox.activeBc = conv.business_connection_id || '';
   document.querySelectorAll('.conv').forEach(b => b.setAttribute('aria-current', b.dataset.id===id));
   $('#inbox').dataset.open = 'true';
   const who = nameOf(conv.customers);
@@ -1284,7 +1290,11 @@ async function openConversation(id){
     $('#msgs').innerHTML = msgs.length ? msgs.map(m => {
       const day = new Date(m.sent_at).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
       const sep = day !== lastDay ? `<span class="day-sep">${day}</span>` : ''; lastDay = day;
-      return `${sep}<div class="bubble ${m.direction==='out'?'out':'in'}">${esc(m.body_preview)}<time>${m.sender==='ai'?'<span class="ai">AI</span>':''}${fmtTime(m.sent_at)}</time></div>`;
+      const fid = m.raw && m.raw.file_id;
+      const mediaHtml = fid
+        ? `<img class="msg-img" src="https://api-telebotcreator.turboit.uk/tgfile?f=${encodeURIComponent(fid)}&bc=${encodeURIComponent(state.inbox.activeBc || '')}" alt="" loading="lazy">`
+        : esc(m.body_preview);
+      return `${sep}<div class="bubble ${m.direction==='out'?'out':'in'}">${mediaHtml}<time>${m.sender==='ai'?'<span class="ai">AI</span>':''}${fmtTime(m.sent_at)}</time></div>`;
     }).join('') : `<div class="thread-empty">${empty('message','No messages','Say hello to start the conversation.')}</div>`;
     const box = $('#msgs'); box.scrollTop = box.scrollHeight;
     if(conv.unread_count){
