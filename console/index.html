@@ -673,8 +673,16 @@ const Data = {
       const { data, error } = await state.sb.from('ai_profiles').select('*').eq('creator_id', cid || uid()).maybeSingle();
     if(error) throw error; return data;
   },
+  async getAIForAccount(accountId){
+      const { data, error } = await state.sb.from('ai_profiles').select('*').eq('telegram_account_id', accountId).maybeSingle();
+    if(error) throw error; return data;
+  },
   async saveAI(fields, cid){
       const { data, error } = await state.sb.from('ai_profiles').upsert({ ...fields, creator_id:cid || uid() }, { onConflict:'creator_id' }).select().single();
+    if(error) throw error; return data;
+  },
+  async saveAIForAccount(fields, accountId){
+      const { data, error } = await state.sb.from('ai_profiles').upsert({ ...fields, telegram_account_id:accountId }, { onConflict:'telegram_account_id' }).select().single();
     if(error) throw error; return data;
   },
   async updateCreator(patch){
@@ -1062,7 +1070,7 @@ function showConnectWizard(){
 /* ---------- Inbox ---------- */
 async function renderInbox(){
   setView(`
-    ${secHead('Every DM from your connected accounts. Messages tagged AI were answered by your assistant.')}
+    ${secHead('Every DM from your connected accounts. Messages tagged AI were answered by your assistant.')}\
     <section class="panel inbox" id="inbox" data-open="false">
       <div class="conv-list">
         <div class="panel-head"><div class="tabs" role="tablist" id="inbox-tabs">
@@ -1076,6 +1084,13 @@ async function renderInbox(){
       <div class="thread" id="thread"><div class="thread-empty">${empty('message','Pick a conversation','Choose a chat on the left to read the thread and reply.')}</div></div>
     </section>`);
   loadConversations();
+  // Start live polling for new messages (every 5 seconds)
+  state.inboxPoll = setInterval(() => {
+    if (state.section === 'inbox') {
+      loadConversations();
+      if (state.inbox.active) loadMessages(state.inbox.active);
+    }
+  }, 5000);
 }
 let convCache = [];
 async function loadConversations(){
@@ -1285,13 +1300,19 @@ function aiFormHTML(p){
       <div class="phone" id="ai-preview"></div></aside>
   </div>`;
 }
-async function loadAIPanel(slotSel){
+async function loadAIPanel(slotSel, accountId = null){
   const slot = $(slotSel); if(!slot) return;
   let p;
-  try{ p = await Data.getAI(ownerTarget()); }catch(e){ slot.innerHTML = `<div class="panel">${errorState(e,'ai')}</div>`; return; }
+  try{
+    if(accountId){
+      p = await Data.getAIForAccount(accountId);
+    } else {
+      p = await Data.getAI(ownerTarget());
+    }
+  }catch(e){ slot.innerHTML = `<div class="panel">${errorState(e,'ai')}</div>`; return; }
   p = p || { display_name:'', tone:'warm', system_prompt:'', first_contact_line:'', disclose_on_first_contact:false, enabled:false };
   p.persona_name = p.display_name || p.persona_name || '';
-  slot.innerHTML = aiFormHTML(p);
+  slot.innerHTML = aiFormHTML(p, accountId);
   updateAIPreview();
 }
 async function renderAI(){
