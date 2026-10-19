@@ -446,11 +446,24 @@ async function maybeSendFreeItem(env, sb, conn, conv, msg) {
   const token = await botTokenFor(env, sb, conn);
   if (!token) return null;
 
-  // Signed URL the Telegram servers can fetch the file from.
-  const exp = Math.floor(Date.now() / 1000) + 3600;
-  const sig = await signMedia(item.media_key, exp, env.MEDIA_SECRET);
-  const fileUrl = "https://api-telebotcreator.turboit.uk/m/" +
-    encodeURIComponent(item.media_key) + "?e=" + exp + "&s=" + sig;
+  // Signed URL the Telegram servers can fetch the file from. Console uploads
+  // live in Supabase Storage (content-store), not the Worker's R2 bucket, so
+  // /m/ would 404 here; mint a Supabase signed URL instead.
+  let fileUrl = null;
+  try {
+    const r = await fetch(env.SUPABASE_URL + "/storage/v1/object/sign/content-store/" +
+      item.media_key.split("/").map(encodeURIComponent).join("/"), {
+      method: "POST",
+      headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY,
+                 "Content-Type": "application/json" },
+      body: JSON.stringify({ expiresIn: 3600 }),
+    });
+    const d = await r.json();
+    if (d && d.signedURL) fileUrl = env.SUPABASE_URL + "/storage/v1" + d.signedURL;
+  } catch (e) {
+    console.log(JSON.stringify({ evt: "tg.free_item.sign_failed", err: String(e).slice(0, 150) }));
+  }
+  if (!fileUrl) return null;
   // Telegram media methods take a kind: image->photo, video->video, else document.
   const tgKind = item.kind === "image" ? "photo" : item.kind === "video" ? "video" : "document";
 
