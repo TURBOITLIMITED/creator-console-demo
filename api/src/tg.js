@@ -334,7 +334,7 @@ async function generateReply(env, system, history, incoming) {
     ...history.map(h => ({ role: h.dir === "in" ? "user" : "assistant", content: h.text })),
     { role: "user", content: incoming },
   ];
-  const out = await env.AI.run(env.AI_MODEL || "@cf/meta/llama-3.3-70b-instruct-fp", {
+  const out = await env.AI.run(env.AI_MODEL || "@cf/mistralai/mistral-small-3.1-24b-instruct", {
     messages, max_tokens: 200,
   });
   const text = typeof out === "string" ? out : (out && out.response) || "";
