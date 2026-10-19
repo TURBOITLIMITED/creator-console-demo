@@ -750,11 +750,13 @@ async function matchLiveItem(env, sb, conn, text) {
 async function onCallback(env, sb, cq, persona) {
   const data = String(cq.data || "");
   const m = data.match(/^(buy|free):([0-9a-f-]{36})$/i);
-  if (!m) {
+  const pm = data.match(/^pay:(ton|paypal|bank):([0-9a-f-]{36})$/i);
+  if (!m && !pm) {
     console.log(JSON.stringify({ evt: "tg.callback.unknown", data: data.slice(0, 40) }));
     return { skipped: "unknown callback" };
   }
-  const action = m[1], mediaId = m[2];
+  const action = m ? m[1] : "pay";
+  const mediaId = m ? m[2] : pm[2];
 
   const rows = await sb(env, "media_items?id=eq." + encodeURIComponent(mediaId) + "&select=*").catch(() => null);
   const item = rows && rows[0];
@@ -804,6 +806,46 @@ async function onCallback(env, sb, cq, persona) {
   }
   if (!conv) return { skipped: "no conversation" };
 
+  if (action === "pay") {
+    const method = pm[1];
+    try { await tg.answerCallbackQuery(token, cq.id); } catch (e) {
+      console.log(JSON.stringify({ evt: "tg.callback.ack_failed", err: String(e).slice(0, 120) })); }
+    let detail = null;
+    if (method === "ton") {
+      const prof2 = await sb(env, "ai_profiles?creator_id=eq." +
+        encodeURIComponent(conn.creator_id) + "&select=wallet_address").catch(() => null);
+      const w = prof2 && prof2[0] && prof2[0].wallet_address;
+      detail = w ? `send it to my wallet 👉\n${w}\nand once it's through just say done 😊`
+                 : "I'll send you my TON wallet in a sec, just checking it 😊";
+    } else if (method === "paypal") {
+      detail = "you can PayPal me at info@turboit.uk 📝 (friends & family please babe)\nand once it's in just say done 😊";
+    } else if (method === "bank") {
+      detail = "bank transfer 🏦\nsort code 00-00-00, account 56483213 (Turbo IT)\nand once it's in just say done 😊";
+    }
+    try {
+      await tg.sendMessage(token, conn.id, chatId, detail);
+      await sb(env, "messages", {
+        method: "POST",
+        headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+        body: JSON.stringify({
+          conversation_id: conv.id,
+          creator_id: conn.creator_id,
+          direction: "out",
+          sender: "ai",
+          kind: "text",
+          body_preview: "[pay details] " + method + " · " + item.title,
+          sent_at: new Date().toISOString(),
+          raw: { via: "pay-details", method, item_id: item.id },
+        }),
+      }).catch(() => {});
+      console.log(JSON.stringify({ evt: "tg.pay_details.sent", method, item: item.id }));
+      return { pay_details: method };
+    } catch (e) {
+      console.log(JSON.stringify({ evt: "tg.pay_details.failed", err: String(e).slice(0, 200) }));
+      return null;
+    }
+  }
+
   if (action === "free") {
     try { await tg.answerCallbackQuery(token, cq.id, "Sending it over 😊"); } catch (e) {
       console.log(JSON.stringify({ evt: "tg.callback.ack_failed", err: String(e).slice(0, 120) })); }
@@ -839,23 +881,19 @@ async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
   const ton = Number(item.price_ton) || 0;
   const gbp = Number(item.price_gbp) || ton;   // GBP column wins when set
   const price = "£" + gbp;
-  let payText = `ooh good choice 😏 ${item.title} is ${price} babe
-`;
-  if (wallet) {
-    payText += `
-you can send TON to my wallet 👉
-${wallet}
-`;
-  }
-  payText += `
-or PayPal me 📝 (info@turboit.uk)
-`;
-  payText += `or bank transfer 🏦 sort code 00-00-00, account 56483213
-`;
-  payText += `
-once it's in, just say done and it's all yours 😊`;
+  const payText = `ooh good choice 😏 ${item.title} is ${price} babe, how d'you wanna pay?`;
+  // Payment-method buttons: tapping one sends just that method's details,
+  // in her voice. Methods without details configured are still offered so
+  // the conversation can continue either way.
+  const methods = [[
+    { text: "👉 TON", callback_data: "pay:ton:" + item.id },
+    { text: "📝 PayPal", callback_data: "pay:paypal:" + item.id },
+    { text: "🏦 Bank transfer", callback_data: "pay:bank:" + item.id },
+  ]];
   try {
-    const sent = await tg.sendMessage(token, conn.id, msg.chat.id, payText);
+    const sent = await tg.sendMessage(token, conn.id, msg.chat.id, payText, {
+      reply_markup: { inline_keyboard: methods },
+    });
     await sb(env, "messages", {
       method: "POST",
       headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
