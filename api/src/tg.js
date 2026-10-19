@@ -698,7 +698,8 @@ async function onCallback(env, sb, cq, persona) {
   if (!conv) return { skipped: "no conversation" };
 
   if (action === "free") {
-    await tg.answerCallbackQuery(token, cq.id, "Sending it over 😊");
+    try { await tg.answerCallbackQuery(token, cq.id, "Sending it over 😊"); } catch (e) {
+    console.log(JSON.stringify({ evt: "tg.callback.ack_failed", err: String(e).slice(0, 120) })); }
     const fakeMsg = { chat: { id: chatId }, message_id: cq.message ? cq.message.message_id : null };
     const sentFree = await maybeSendFreeItem(env, sb, conn, conv, fakeMsg);
     if (sentFree) return { free_item: mediaId };
@@ -709,7 +710,8 @@ async function onCallback(env, sb, cq, persona) {
 
   // buy: send the payment request. Payout wallet lives on the creator's
   // ai_profiles row; without it we still name the price so nothing is lost.
-  await tg.answerCallbackQuery(token, cq.id, item.title + " · " + Number(item.price_ton) + " TON");
+  try { await tg.answerCallbackQuery(token, cq.id, item.title + " · " + Number(item.price_ton) + " TON"); } catch (e) {
+    console.log(JSON.stringify({ evt: "tg.callback.ack_failed", err: String(e).slice(0, 120) })); }
   let wallet = null;
   const prof = await sb(env, "ai_profiles?creator_id=eq." +
     encodeURIComponent(conn.creator_id) + "&select=wallet_address").catch(() => null);
