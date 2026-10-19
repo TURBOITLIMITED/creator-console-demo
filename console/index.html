@@ -297,6 +297,28 @@ input[type=range]{accent-color:var(--accent);width:100%}
 .crumb-back{border:0;background:none;font:inherit;color:var(--accent);cursor:pointer;padding:0}
 .crumb-back:hover{text-decoration:underline}
 .crumb-sep{color:var(--ink-3)}
+/* library girl cards + gallery grid */
+.lib-girls{display:grid;gap:10px}
+.girl-card{display:flex;align-items:center;gap:12px;padding:14px 16px;background:var(--panel);border:1px solid var(--rule);border-radius:12px;cursor:pointer;width:100%;text-align:left;transition:border-color .15s}
+.girl-card:hover{border-color:var(--accent-line)}
+.girl-card .avatar{width:40px;height:40px;font-size:15px}
+.girl-card .gc-body{flex:1;min-width:0}
+.girl-card .gc-top{display:flex;align-items:baseline;gap:8px}
+.girl-card .gc-top b{font-size:14px}
+.girl-card .gc-top small{color:var(--ink-3)}
+.girl-card p{margin:2px 0 0;font-size:13px;color:var(--ink-2)}
+.girl-card .i{color:var(--ink-3)}
+.gal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
+.gal-card{background:var(--panel);border:1px solid var(--rule);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+.gal-card.is-hidden{opacity:.62}
+.gal-thumb{height:110px;display:grid;place-items:center;background:var(--sunk);border-bottom:1px solid var(--rule)}
+.gal-thumb.image{color:var(--ok)}
+.gal-thumb.video{color:var(--accent)}
+.gal-thumb.document{color:var(--warn)}
+.gal-meta{padding:10px 12px 6px;flex:1;min-width:0}
+.gal-meta b{display:block;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gal-meta small{color:var(--ink-3);font-size:11.5px}
+.gal-actions{display:flex;gap:4px;padding:8px 10px 10px;border-top:1px solid var(--rule-2)}
 .conv.is-unread .c-top b{color:var(--ink)}
 .conv.is-unread p{color:var(--ink);font-weight:500}
 .thread{display:flex;flex-direction:column;min-width:0}
@@ -460,6 +482,7 @@ input[type=range]{accent-color:var(--accent);width:100%}
       <a href="#inbox" data-sec="inbox" title="Inbox"><svg class="i"><use href="#i-inbox"/></svg><span class="nav-label">Inbox</span><span class="count" id="nav-unread" hidden>0</span></a>
       <div class="nav-group">CONTENT</div>
       <a href="#library" data-sec="library" title="Library"><svg class="i"><use href="#i-layers"/></svg><span class="nav-label">Library</span></a>
+      <a href="#gallery" data-sec="gallery" title="Gallery"><svg class="i"><use href="#i-image"/></svg><span class="nav-label">Gallery</span></a>
       <div class="nav-group">SETTINGS</div>
       <a href="#wallet" data-sec="wallet" title="TON Wallet"><svg class="i"><use href="#i-wallet"/></svg><span class="nav-label">TON Wallet</span></a>
       <a href="#links" data-sec="links" title="Creator Links"><svg class="i"><use href="#i-copy"/></svg><span class="nav-label">Creator Links</span></a>
@@ -807,6 +830,7 @@ const SECTIONS = {
   accounts:{ title:'Accounts', group:'Telegram', render:renderAccounts },
   inbox:{ title:'Inbox', group:'Telegram', render:renderInbox },
   library:{ title:'Library', group:'Content', render:renderLibrary },
+  gallery:{ title:'Gallery', group:'Content', render:renderGallery },
   bundles:{ title:'Bundles', group:'Content', render:renderLibrary },
   ai:{ title:'AI Personality', group:'Settings', render:renderAI },
   wallet:{ title:'TON Wallet', group:'Settings', render:renderWallet },
@@ -1258,13 +1282,85 @@ async function openConversation(id){
 }
 
 /* ---------- Library ---------- */
+/* Library = the girls (their bot accounts). Click a girl to open her detail:
+   everything she has live, with hide/edit/remove. All uploads land in the
+   Gallery; adding to live is done from there (or per girl here). */
 async function renderLibrary(){
   setView(`
-    ${secHead('Content for each girl: her photos, videos and bundles, all in one place. Drafts stay hidden from fans and the AI until you make them live.', `<button class="btn primary" data-act="lib-new">${ic('plus')}New item</button>`)}\
+    ${secHead("Each girl's live content: photos, videos and bundles. Click a girl to manage hers, or open the Gallery to add more.")}
     ${ownerPicker()}
-    <div id="lib-sections">${spinner('Loading library…')}</div>
-    <aside class="panel form-panel" id="lib-form-wrap" style="margin-top:16px">${libForm()}</aside>`);
+    <div id="lib-sections">${spinner('Loading…')}</div>
+    <div id="lib-detail"></div>`);
   loadLibrary();
+}
+/* Level 1: girl cards only. */
+async function loadLibrary(){
+  const el = $('#lib-sections'); if(!el) return;
+  el.innerHTML = spinner('Loading…');
+  try{
+    const { rows: accounts } = await Data.list('telegram_accounts', { select:'id, username, first_name, last_name, connected, creator_id', size:50, scopeOwner:true });
+    const { rows: media } = await Data.list('media_items', { select:'id, creator_id, visible, kind', size:300, scopeOwner:true });
+    const { rows: bundles } = await Data.list('content_bundles', { select:'id, creator_id, active', size:200, scopeOwner:true });
+    el.innerHTML = accounts.length ? `<div class="lib-girls">` + accounts.map(g => {
+      const items = media.filter(m => m.creator_id === g.creator_id);
+      const live = items.filter(m => m.visible).length;
+      const buns = bundles.filter(b => b.creator_id === g.creator_id);
+      const name = g.first_name || g.username || 'Creator';
+      return `<button type="button" class="girl-card" data-act="lib-girl" data-id="${esc(g.id)}" data-girl="${esc(g.creator_id)}">
+        <div class="avatar">${esc(name[0].toUpperCase())}</div>
+        <div class="gc-body"><div class="gc-top"><b>${esc(name)}</b>${g.username?`<small>@${esc(g.username)}</small>`:''}</div>
+          <p>${live} live item${live===1?'':'s'}${items.length>live?` · ${items.length-live} hidden`:''}${buns.length?` · ${buns.length} bundle${buns.length===1?'':'s'}`:''}</p></div>
+        ${ic('right')}
+      </button>`;
+    }).join('') + `</div>` : empty('layers','No girls yet','Connect a Telegram account first; her content will live here.', `<a class="btn sm primary" href="#accounts">${ic('plus')}Accounts</a>`);
+  }catch(e){ el.innerHTML = errorState(e,'library'); }
+}
+/* Level 2: one girl's detail, live items + bundles, manage inline. */
+async function openGirlLibrary(accountId, creatorId){
+  const el = $('#lib-detail'); if(!el) return;
+  state.libGirl = creatorId;
+  state.libOpen = { accountId, creatorId };
+  el.innerHTML = spinner('Loading her content…');
+  try{
+    const { data:a, error } = await state.sb.from('telegram_accounts').select('first_name, username').eq('id', accountId).maybeSingle();
+    if(error) throw error;
+    const name = a?.first_name || a?.username || 'Creator';
+    const { data: media, error:e1 } = await state.sb.from('media_items').select('*').eq('creator_id', creatorId).order('uploaded_at',{ascending:false}).limit(200);
+    if(e1) throw e1;
+    const { data: buns, error:e2 } = await state.sb.from('content_bundles').select('*, bundle_items(media_id)').eq('creator_id', creatorId).order('created_at',{ascending:false}).limit(100);
+    if(e2) throw e2;
+    libCache = media || [];
+    el.innerHTML = `
+    <section class="panel" style="margin-top:16px">
+      <div class="panel-head">
+        <button class="icon-btn back-btn" data-act="lib-girl-back" aria-label="Back to girls">${ic('left')}</button>
+        <div class="cell-main"><div class="avatar">${esc(name[0].toUpperCase())}</div><div><b>${esc(name)}</b>${a?.username?`<small>@${esc(a.username)}</small>`:''}</div></div>
+        <span class="end"><button class="btn sm" data-act="lib-girl-add" data-girl="${esc(creatorId)}">${ic('plus')}Add item</button>
+        <button class="btn sm" data-act="bun-girl-new" data-girl="${esc(creatorId)}">${ic('package')}New bundle</button></span>
+      </div>
+      <div class="table-wrap">${(media||[]).length || (buns||[]).length ? `<table><tbody>
+        ${(media||[]).map(m => `<tr>
+          <td><div class="cell-main"><div class="thumb ${m.kind}">${ic(typeIcon(m.kind))}</div><div><b>${esc(m.title)}</b><small>${esc(m.kind)}</small></div></div></td>
+          <td class="num"><span class="price">${fmtTon(m.price_ton,false)}<small>TON</small></span></td>
+          <td>${pill(m.visible,'Live','Hidden','draft')}</td>
+          <td><div class="row-actions">
+            <button class="act" data-act="lib-toggle" data-id="${m.id}" data-on="${m.visible?1:0}">${ic('power')}${m.visible?'Remove from live':'Add to live'}</button>
+            <button class="act" data-act="lib-edit" data-id="${m.id}" title="Edit">${ic('edit')}</button>
+            <button class="act danger" data-act="lib-del" data-id="${m.id}" title="Delete">${ic('trash')}</button>
+          </div></td></tr>`).join('')}
+        ${(buns||[]).map(b => `<tr>
+          <td><div class="cell-main"><div class="thumb bundle">${ic('package')}</div><div><b>${esc(b.name)}</b><small>Bundle · ${(b.bundle_items||[]).length} items</small></div></div></td>
+          <td class="num"><span class="price">${fmtTon(b.price_ton,false)}<small>TON</small></span></td>
+          <td>${pill(b.active)}</td>
+          <td><div class="row-actions">
+            <button class="act" data-act="bun-toggle" data-id="${b.id}" data-on="${b.active?1:0}">${ic('power')}${b.active?'Deactivate':'Activate'}</button>
+            <button class="act" data-act="bun-edit" data-id="${b.id}" title="Edit">${ic('edit')}</button>
+            <button class="act danger" data-act="bun-del" data-id="${b.id}" title="Delete">${ic('trash')}</button>
+          </div></td></tr>`).join('')}
+      </tbody></table>` : empty('layers','Nothing here yet','Add her first photo or video, or pull one in from the Gallery.', `<button class="btn sm primary" data-act="lib-girl-add" data-girl="${esc(creatorId)}">${ic('plus')}Add item</button>`)}</div>
+    </section>
+    <aside class="panel form-panel" id="lib-form-wrap" style="margin-top:16px"></aside>`;
+  }catch(e){ el.innerHTML = errorState(e,'library'); }
 }
 function libForm(item=null){
   const t = item?.kind || 'video';
@@ -1283,55 +1379,58 @@ function libForm(item=null){
   </form>`;
 }
 let libCache = [];
-/* Load every girl's section: her name from her Telegram account (falling back
-   to the creators row), her media items, and her bundles in one panel. */
-async function loadLibrary(){
-  const el = $('#lib-sections'); if(!el) return;
-  el.innerHTML = spinner('Loading library…');
+
+/* ---------- Gallery ---------- */
+/* Every upload ever stored, per girl: photos and videos with previews.
+   Hidden drafts wait here until you add them to a girl's live library. */
+async function renderGallery(){
+  setView(`
+    ${secHead("Every photo and video in one place. Upload once, then add items to any girl's live library.", `<button class="btn primary" data-act="gal-upload">${ic('plus')}Upload</button>`)}
+    ${ownerPicker()}
+    <div id="gal-grid">${spinner('Loading gallery…')}</div>
+    <aside class="panel form-panel" id="gal-form-wrap" style="margin-top:16px"></aside>`);
+  loadGallery();
+}
+async function loadGallery(){
+  const el = $('#gal-grid'); if(!el) return;
+  el.innerHTML = spinner('Loading gallery…');
   try{
-    const { rows: accounts } = await Data.list('telegram_accounts', { select:'id, username, first_name, last_name, creator_id', size:50, scopeOwner:true });
-    const { rows: media } = await Data.list('media_items', { select:'*', size:200, scopeOwner:true, order:'uploaded_at', asc:true });
-    const { rows: bundles } = await Data.list('content_bundles', { select:'*, bundle_items(media_id), bundle_purchases(price_paid_ton)', size:200, scopeOwner:true });
-    libCache = media;
-    // creator rows for any creator with content but no connected account yet
-    const creatorIds = [...new Set([...media.map(m=>m.creator_id), ...bundles.map(b=>b.creator_id)])].filter(cid => !accounts.some(a=>a.creator_id===cid));
-    const extra = [];
-    for(const cid of creatorIds){
-      const { data:c } = await state.sb.from('creators').select('id, name').eq('id', cid).maybeSingle();
-      if(c) extra.push({ id:null, creator_id:cid, first_name:c.name, username:null });
-    }
-    const girls = [...accounts, ...extra];
-    el.innerHTML = girls.length ? girls.map(g => {
-      const items = media.filter(m => m.creator_id === g.creator_id);
-      const buns = bundles.filter(b => b.creator_id === g.creator_id);
-      const name = g.first_name || g.username || 'Creator';
-      return `<section class="panel" style="margin-bottom:16px" data-girl="${esc(g.creator_id)}">
-        <div class="panel-head"><div class="cell-main"><div class="avatar">${esc(name[0].toUpperCase())}</div><div><b>${esc(name)}</b>${g.username?`<small>@${esc(g.username)}</small>`:''}</div></div>
-          <span class="end"><button class="btn sm" data-act="lib-girl-add" data-girl="${esc(g.creator_id)}">${ic('plus')}Add item</button>
-          <button class="btn sm" data-act="bun-girl-new" data-girl="${esc(g.creator_id)}">${ic('package')}New bundle</button></span></div>
-        <div class="table-wrap">${items.length || buns.length ? `<table><tbody>
-          ${items.map(m => `<tr>
-            <td><div class="cell-main"><div class="thumb ${m.kind}">${ic(typeIcon(m.kind))}</div><div><b>${esc(m.title)}</b><small>${esc(m.kind)}</small></div></div></td>
-            <td class="num"><span class="price">${fmtTon(m.price_ton,false)}<small>TON</small></span></td>
-            <td>${pill(m.visible,'Live','Hidden','draft')}</td>
-            <td><div class="row-actions">
-              <button class="act" data-act="lib-toggle" data-id="${m.id}" data-on="${m.visible?1:0}">${ic('power')}${m.visible?'Hide':'Show'}</button>
-              <button class="act" data-act="lib-edit" data-id="${m.id}" title="Edit">${ic('edit')}</button>
-              <button class="act danger" data-act="lib-del" data-id="${m.id}" title="Delete">${ic('trash')}</button>
-            </div></td></tr>`).join('')}
-          ${buns.map(b => `<tr>
-            <td><div class="cell-main"><div class="thumb bundle">${ic('package')}</div><div><b>${esc(b.name)}</b><small>Bundle · ${(b.bundle_items||[]).length} items</small></div></div></td>
-            <td class="num"><span class="price">${fmtTon(b.price_ton,false)}<small>TON</small></span></td>
-            <td>${pill(b.active)}</td>
-            <td><div class="row-actions">
-              <button class="act" data-act="bun-toggle" data-id="${b.id}" data-on="${b.active?1:0}">${ic('power')}${b.active?'Deactivate':'Activate'}</button>
-              <button class="act" data-act="bun-edit" data-id="${b.id}" title="Edit">${ic('edit')}</button>
-              <button class="act danger" data-act="bun-del" data-id="${b.id}" title="Delete">${ic('trash')}</button>
-            </div></td></tr>`).join('')}
-        </tbody></table>` : empty('layers','Nothing here yet','Add her first photo or video to start her library.', `<button class="btn sm primary" data-act="lib-girl-add" data-girl="${esc(g.creator_id)}">${ic('plus')}Add item</button>`)}</div>
-      </section>`;
-    }).join('') : empty('layers','No creators yet','Connect an account first, then upload her content here.');
-  }catch(e){ el.innerHTML = errorState(e,'library'); }
+    const { rows: media } = await Data.list('media_items', { select:'*', size:300, scopeOwner:true, order:'uploaded_at' });
+    const { rows: accounts } = await Data.list('telegram_accounts', { select:'id, username, first_name, creator_id', size:50, scopeOwner:true });
+    const byCreator = new Map(accounts.map(a => [a.creator_id, a.first_name || a.username || 'Creator']));
+    el.innerHTML = media.length ? `<div class="gal-grid">` + media.map(m => {
+      const girl = byCreator.get(m.creator_id) || 'Unassigned';
+      return `<div class="gal-card ${m.visible?'':'is-hidden'}" data-id="${esc(m.id)}">
+        <div class="gal-thumb ${m.kind}">${m.media_key ? '' : ic(typeIcon(m.kind))}</div>
+        <div class="gal-meta"><b>${esc(m.title)}</b><small>${esc(girl)} · ${esc(m.kind)}</small></div>
+        <div class="gal-actions">
+          <button class="act" data-act="gal-live" data-id="${m.id}" data-on="${m.visible?1:0}" title="${m.visible?'Remove from live':'Add to live'}">${ic('power')}${m.visible?'Live':'Add to live'}</button>
+          <button class="act" data-act="gal-edit" data-id="${m.id}" title="Edit">${ic('edit')}</button>
+          <button class="act danger" data-act="gal-del" data-id="${m.id}" title="Delete">${ic('trash')}</button>
+        </div></div>`;
+    }).join('') + `</div>` : empty('image','Nothing uploaded yet','Upload her photos and videos here first, then add them to live.', `<button class="btn sm primary" data-act="gal-upload">${ic('plus')}Upload</button>`);
+  }catch(e){ el.innerHTML = errorState(e,'gallery'); }
+}
+/* Upload form (same insert path as library, always lands in the gallery). */
+function galUploadForm(){
+  return `<div class="panel-head form-title"><h2>Upload to gallery</h2></div>
+  <form class="form panel-body" data-form="media" autocomplete="off">
+    <div class="field"><label for="md-title">Title</label><input class="input" id="md-title" name="title" required maxlength="120" placeholder="Lisbon golden hour raw set"></div>
+    <div class="field"><span class="flabel">Type</span><div class="seg" role="radiogroup">
+      ${['video','image','document'].map(v=>`<input type="radio" name="kind" id="md-type-${v}" value="${v}" ${v==='image'?'checked':''}><label for="md-type-${v}">${ic(typeIcon(v))}${v[0].toUpperCase()+v.slice(1)}</label>`).join('')}
+    </div></div>
+    <div class="field"><label for="md-girl">Which girl</label><select class="input" id="md-girl" name="girl"></select></div>
+    <div class="field"><label for="md-price">Price</label><div class="input-affix"><input class="input mono" id="md-price" name="price_ton" type="number" min="0" step="0.1" value="" placeholder="9.5"><span>TON</span></div></div>
+    <div class="field"><label for="md-file">File</label><input class="input" id="md-file" name="file" type="file" accept="video/*,image/*,audio/*,.zip,.pdf" required></div>
+    <div class="field"><label for="md-desc">Description</label><textarea class="input" id="md-desc" name="description" maxlength="280" style="min-height:64px" placeholder="What fans get."></textarea></div>
+    <label class="switch" for="md-visible"><input type="checkbox" id="md-visible" name="visible"><span class="track"></span><span>Add to live now<small>Untick to keep it in the gallery only</small></span></label>
+    <div class="form-actions"><button class="btn primary" type="submit">${ic('check')}Upload</button></div>
+  </form>`;
+}
+async function fillGalGirlOptions(){
+  const sel = $('#md-girl'); if(!sel) return;
+  const { rows: accounts } = await Data.list('telegram_accounts', { select:'id, username, first_name, creator_id', size:50, scopeOwner:true });
+  sel.innerHTML = accounts.map(a => `<option value="${esc(a.creator_id)}">${esc(a.first_name||a.username||'Creator')}</option>`).join('') || '<option value="">Connect a girl first</option>';
 }
 
 /* ---------- Bundles ---------- */
@@ -1575,10 +1674,19 @@ view.addEventListener('click', async e => {
     case 'lib-type': state.libType = a.dataset.type; state.pages.library = 1;
       a.parentElement.querySelectorAll('button').forEach(b=>b.setAttribute('aria-selected', b===a)); loadLibrary(); break;
     case 'lib-new': $('#lib-form-wrap').innerHTML = libForm(); $('#md-title').focus(); break;
+    case 'lib-girl': { $('#lib-detail').innerHTML = ''; state.libOpen = { accountId:id, creatorId:a.dataset.girl }; openGirlLibrary(id, a.dataset.girl); break; }
+    case 'lib-girl-back': $('#lib-detail').innerHTML = ''; state.libGirl = null; state.libOpen = null; window.scrollTo({top:0,behavior:'smooth'}); break;
     case 'lib-girl-add': { state.libGirl = a.dataset.girl || ownerTarget();
-      $('#lib-form-wrap').innerHTML = libForm(); $('#lib-form-wrap').scrollIntoView({behavior:'smooth',block:'start'}); $('#md-title').focus(); break; }
+      const host = $('#lib-form-wrap') || (() => { const d = document.createElement('aside'); d.className='panel form-panel'; d.id='lib-form-wrap'; $('#lib-detail').append(d); return d; })();
+      host.innerHTML = libForm(); host.scrollIntoView({behavior:'smooth',block:'start'}); $('#md-title').focus(); break; }
+    case 'gal-upload': { const w = $('#gal-form-wrap'); w.innerHTML = galUploadForm(); fillGalGirlOptions(); w.scrollIntoView({behavior:'smooth',block:'start'}); $('#md-title').focus(); break; }
+    case 'gal-live': if(await withBusy(a, () => Data.update('media_items', id, { visible: a.dataset.on!=='1' }), a.dataset.on==='1'?'Removed from live':'Added to live')) loadGallery(); break;
+    case 'gal-edit': { state.libGirl = libCache.find(m=>m.id===id)?.creator_id || state.libGirl;
+      const w = $('#gal-form-wrap'); w.innerHTML = libForm(libCache.find(m=>m.id===id)); w.scrollIntoView({behavior:'smooth',block:'start'}); $('#md-title').focus(); break; }
+    case 'gal-del': if(armed(a) && await withBusy(a, () => Data.remove('media_items', id), 'Deleted from gallery')){ loadGallery(); $('#gal-form-wrap').innerHTML=''; } break;
     case 'lib-edit': $('#lib-form-wrap').innerHTML = libForm(libCache.find(m=>m.id===id)); $('#md-title').focus(); break;
-    case 'lib-toggle': if(await withBusy(a, () => Data.update('media_items', id, { visible: a.dataset.on!=='1' }), a.dataset.on==='1'?'Hidden from fans':'Item is live')) loadLibrary(); break;
+    case 'lib-toggle': if(await withBusy(a, () => Data.update('media_items', id, { visible: a.dataset.on!=='1' }), a.dataset.on==='1'?'Removed from live':'Item is live')){
+      if(state.libOpen) openGirlLibrary(state.libOpen.accountId, state.libOpen.creatorId); else loadLibrary(); } break;
     case 'lib-del': if(armed(a) && await withBusy(a, () => Data.remove('media_items', id), 'Item deleted')){ loadLibrary(); $('#lib-form-wrap').innerHTML = libForm(); } break;
     /* bundles */
     case 'bun-girl-new': { state.libGirl = a.dataset.girl || ownerTarget();
@@ -1657,18 +1765,23 @@ view.addEventListener('submit', async e => {
       let media_key = null;
       if(file){
         const safe = file.name.replace(/[^\w.\-]/g,'_');
-        const path = `${ownerTarget()}/${Date.now()}-${safe}`;
+        const target = f.girl?.value || f.dataset.girl || state.libGirl || ownerTarget();
+        const path = `${target}/${Date.now()}-${safe}`;
         const { error: upErr } = await state.sb.storage.from('content-store').upload(path, file, { contentType: file.type || 'application/octet-stream' });
         if(upErr) throw upErr;
         media_key = path;
       }
       const fields = { ...data, ...(media_key ? { media_key, media_type: file.type || 'application/octet-stream', media_size: file.size } : {}) };
-      const t = f.dataset.girl || state.libGirl || ownerTarget();
+      const t = f.girl?.value || f.dataset.girl || state.libGirl || ownerTarget();
       return id ? Data.update('media_items', id, fields) : state.sb.from('media_items').insert({ ...fields, creator_id:t }).select().single().then(({data:d, error}) => { if(error) throw error; return d; });
     };
-    if(await withBusy(btn, run, id ? 'Changes saved' : 'Added to library')){
-      if(!id) state.pages.library = 1;
-      $('#lib-form-wrap').innerHTML = libForm(); loadLibrary();
+    const inGallery = !!f.girl;
+    if(await withBusy(btn, run, id ? 'Changes saved' : 'Uploaded')){
+      if(inGallery){ $('#gal-form-wrap').innerHTML = ''; loadGallery(); }
+      else {
+        if(state.libOpen) openGirlLibrary(state.libOpen.accountId, state.libOpen.creatorId); else loadLibrary();
+        $('#lib-form-wrap') && ($('#lib-form-wrap').innerHTML = libForm());
+      }
     }
   }
   if(kind === 'bundle'){
