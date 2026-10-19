@@ -319,6 +319,14 @@ input[type=range]{accent-color:var(--accent);width:100%}
 .gal-meta b{display:block;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gal-meta small{color:var(--ink-3);font-size:11.5px}
 .gal-actions{display:flex;gap:4px;padding:8px 10px 10px;border-top:1px solid var(--rule-2)}
+.gal-thumb img,.gal-thumb video,.thumb img,.thumb video{width:100%;height:100%;object-fit:cover;border-radius:inherit;display:block;background:#000}
+.thumb{overflow:hidden}
+.gal-thumb{position:relative}
+.gal-thumb .badge{position:absolute;left:6px;top:6px;background:rgba(0,0,0,.55);color:#fff;border-radius:6px;font:600 10px/1 var(--f-mono);padding:3px 5px;pointer-events:none}
+.gal-lightbox{position:fixed;inset:0;background:rgba(8,9,12,.92);z-index:80;display:grid;place-items:center;padding:24px}
+.gal-lightbox .gal-lb-body{max-width:min(1100px,92vw);max-height:82vh;display:grid;place-items:center}
+.gal-lightbox img,.gal-lightbox video{max-width:100%;max-height:82vh;border-radius:10px;background:#000}
+.gal-lightbox .gal-lb-close{position:absolute;top:16px;right:16px;background:var(--panel)}
 .conv.is-unread .c-top b{color:var(--ink)}
 .conv.is-unread p{color:var(--ink);font-weight:500}
 .thread{display:flex;flex-direction:column;min-width:0}
@@ -1339,8 +1347,8 @@ async function openGirlLibrary(accountId, creatorId){
         <button class="btn sm" data-act="bun-girl-new" data-girl="${esc(creatorId)}">${ic('package')}New bundle</button></span>
       </div>
       <div class="table-wrap">${(media||[]).length || (buns||[]).length ? `<table><tbody>
-        ${(media||[]).map(m => `<tr>
-          <td><div class="cell-main"><div class="thumb ${m.kind}">${ic(typeIcon(m.kind))}</div><div><b>${esc(m.title)}</b><small>${esc(m.kind)}</small></div></div></td>
+      ${(media||[]).map(m => `<tr>
+        <td><div class="cell-main"><div class="thumb ${m.kind} lib-thumb" data-key="${esc(m.media_key||'')}" data-kind="${esc(m.kind)}">${m.media_key ? '' : ic(typeIcon(m.kind))}</div><div><b>${esc(m.title)}</b><small>${esc(m.kind)}</small></div></div></td>
           <td class="num"><span class="price">${fmtTon(m.price_ton,false)}<small>TON</small></span></td>
           <td>${pill(m.visible,'Live','Hidden','draft')}</td>
           <td><div class="row-actions">
@@ -1360,6 +1368,16 @@ async function openGirlLibrary(accountId, creatorId){
       </tbody></table>` : empty('layers','Nothing here yet','Add her first photo or video, or pull one in from the Gallery.', `<button class="btn sm primary" data-act="lib-girl-add" data-girl="${esc(creatorId)}">${ic('plus')}Add item</button>`)}</div>
     </section>
     <aside class="panel form-panel" id="lib-form-wrap" style="margin-top:16px"></aside>`;
+    // fill row thumbnails with real previews
+    const thumbs = [...el.querySelectorAll('.lib-thumb[data-key]:not([data-key=""])')];
+    await Promise.all(thumbs.map(async t => {
+      const url = await galSignedUrl(t.dataset.key);
+      galPreviewInto(t, t.dataset.kind, url);
+      if(url){
+        t.style.cursor = 'zoom-in';
+        t.addEventListener('click', () => galLightbox(url, t.dataset.kind === 'video' ? 'video' : 'image'));
+      }
+    }));
   }catch(e){ el.innerHTML = errorState(e,'library'); }
 }
 function libForm(item=null){
@@ -1379,6 +1397,31 @@ function libForm(item=null){
   </form>`;
 }
 let libCache = [];
+/* Signed URL for a stored file (content-store is private). Null on failure,
+   callers fall back to the type icon. */
+async function galSignedUrl(key){
+  if(!key) return null;
+  try{
+    const { data, error } = await state.sb.storage.from('content-store').createSignedUrl(key, 3600);
+    return (!error && data && data.signedUrl) ? data.signedUrl : null;
+  }catch{ return null; }
+}
+/* Fill a card/thumb element with the real preview (img for photos, muted
+   video element for clips). */
+function galPreviewInto(el, kind, url){
+  if(!el || !url) return;
+  if(kind === 'image') el.innerHTML = `<img src="${esc(url)}" alt="" loading="lazy">`;
+  else if(kind === 'video') el.innerHTML = `<video src="${esc(url)}" muted preload="metadata" playsinline></video>`;
+}
+/* Lightbox: click any preview to see it full size. */
+function galLightbox(url, kind){
+  document.querySelector('.gal-lightbox')?.remove();
+  const lb = document.createElement('div');
+  lb.className = 'gal-lightbox';
+  lb.innerHTML = `<div class="gal-lb-body">${kind === 'video' ? `<video src="${esc(url)}" controls autoplay playsinline></video>` : `<img src="${esc(url)}" alt="">`}</div><button class="icon-btn gal-lb-close" aria-label="Close">${ic('x')}</button>`;
+  lb.addEventListener('click', e => { if(e.target === lb || e.target.closest('.gal-lb-close')) lb.remove(); });
+  document.body.appendChild(lb);
+}
 
 /* ---------- Gallery ---------- */
 /* Every upload ever stored, per girl: photos and videos with previews.
@@ -1401,7 +1444,7 @@ async function loadGallery(){
     el.innerHTML = media.length ? `<div class="gal-grid">` + media.map(m => {
       const girl = byCreator.get(m.creator_id) || 'Unassigned';
       return `<div class="gal-card ${m.visible?'':'is-hidden'}" data-id="${esc(m.id)}">
-        <div class="gal-thumb ${m.kind}">${m.media_key ? '' : ic(typeIcon(m.kind))}</div>
+        <div class="gal-thumb ${m.kind}" data-key="${esc(m.media_key||'')}">${m.media_key ? '' : ic(typeIcon(m.kind))}</div>
         <div class="gal-meta"><b>${esc(m.title)}</b><small>${esc(girl)} · ${esc(m.kind)}</small></div>
         <div class="gal-actions">
           <button class="act" data-act="gal-live" data-id="${m.id}" data-on="${m.visible?1:0}" title="${m.visible?'Remove from live':'Add to live'}">${ic('power')}${m.visible?'Live':'Add to live'}</button>
@@ -1409,6 +1452,16 @@ async function loadGallery(){
           <button class="act danger" data-act="gal-del" data-id="${m.id}" title="Delete">${ic('trash')}</button>
         </div></div>`;
     }).join('') + `</div>` : empty('image','Nothing uploaded yet','Upload her photos and videos here first, then add them to live.', `<button class="btn sm primary" data-act="gal-upload">${ic('plus')}Upload</button>`);
+    // fill previews for stored files (photos first-class, videos muted)
+    const thumbs = [...document.querySelectorAll('.gal-thumb[data-key]:not([data-key=""])')];
+    await Promise.all(thumbs.map(async t => {
+      const url = await galSignedUrl(t.dataset.key);
+      galPreviewInto(t, t.classList.contains('image') ? 'image' : t.classList.contains('video') ? 'video' : 'document', url);
+      if(url){
+        t.style.cursor = 'zoom-in';
+        t.addEventListener('click', () => galLightbox(url, t.classList.contains('video') ? 'video' : 'image'));
+      }
+    }));
   }catch(e){ el.innerHTML = errorState(e,'gallery'); }
 }
 /* Upload form (same insert path as library, always lands in the gallery). */
