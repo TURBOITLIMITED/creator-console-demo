@@ -317,13 +317,13 @@ async function liveCatalogue(env, sb, conn) {
   if (!conn.telegram_account_id) return "";
   const rows = await sb(env, "media_items?telegram_account_id=eq." +
     encodeURIComponent(conn.telegram_account_id) +
-    "&visible=eq.true&select=title,kind,price_ton&order=price_ton.desc&limit=15").catch(() => null);
+    "&visible=eq.true&select=title,kind,price_ton,price_gbp&order=price_ton.desc&limit=15").catch(() => null);
   const items = (rows || []).filter(m => m.title);
   if (!items.length) return "";
   const lines = ["Your current live content for sale (the ONLY things you can offer, use these exact names and prices):"];
   for (const m of items) {
     lines.push("- " + m.title + " (" + (m.kind || "content") + ", " +
-      (Number(m.price_ton) > 0 ? Number(m.price_ton) + " TON" : "FREE - only send it if they ask for something free") + ")");
+      (Number(m.price_ton) > 0 ? "£" + (Number(m.price_gbp) || Number(m.price_ton)) : "FREE - only send it if they ask for something free") + ")");
   }
   lines.push("Never mention or invent any other content, and never write placeholders like [Insert Picture Link]. When they pick something, tell them the price and that you'll send it as soon as it's paid.");
   return lines.join("\n");
@@ -618,17 +618,17 @@ async function maybeSendMenu(env, sb, conn, conv, msg) {
   if (!conn.telegram_account_id) return null;
   const rows = await sb(env, "media_items?telegram_account_id=eq." +
     encodeURIComponent(conn.telegram_account_id) +
-    "&visible=eq.true&select=id,title,kind,price_ton" +
+    "&visible=eq.true&select=id,title,kind,price_ton,price_gbp" +
     "&order=price_ton.desc&limit=20").catch(() => null);
   const items = (rows || []).filter(m => m.title);
   if (!items.length) return null;
 
-  const fmt = t => Number(t) > 0 ? Number(t) + " TON" : null;
+  const fmt = (t, gbp) => Number(gbp) > 0 ? "£" + Number(gbp) : (Number(t) > 0 ? "£" + Number(t) : null);
   const paid = items.filter(m => Number(m.price_ton) > 0).slice(0, 8);
   const free = items.filter(m => !Number(m.price_ton));
   const lines = ["Here's what I've got right now 💕"];
   for (const m of paid) {
-    lines.push("• " + m.title + " - " + fmt(m.price_ton));
+    lines.push("• " + m.title + " - " + fmt(m.price_ton, m.price_gbp));
   }
   if (free.length) lines.push("I've also got a freebie if you'd like one, just ask 😊");
   lines.push("Want any of them?");
@@ -640,7 +640,7 @@ async function maybeSendMenu(env, sb, conn, conv, msg) {
     // Clickable menu: one button per paid item, a freebie button if she has
     // one. Taps arrive as callback_query (onCallback below).
     const buttons = paid.map(m => ([{
-      text: (m.title + " · " + fmt(m.price_ton)).slice(0, 60),
+      text: (m.title + " · " + fmt(m.price_ton, m.price_gbp)).slice(0, 60),
       callback_data: "buy:" + m.id,
     }]));
     if (free.length) buttons.push([{ text: "🎁 Free pic", callback_data: "free:" + free[0].id }]);
@@ -815,7 +815,7 @@ async function onCallback(env, sb, cq, persona) {
   }
 
   // buy: ack, then the shared payment-request flow.
-  try { await tg.answerCallbackQuery(token, cq.id, item.title + " · " + Number(item.price_ton) + " TON"); } catch (e) {
+  try { await tg.answerCallbackQuery(token, cq.id, item.title + " · £" + (Number(item.price_gbp) || Number(item.price_ton))); } catch (e) {
     console.log(JSON.stringify({ evt: "tg.callback.ack_failed", err: String(e).slice(0, 120) })); }
   const r = await sendPaymentRequest(env, sb, conn, conv, { chat: { id: chatId } }, item);
   await sb(env, "conversations?id=eq." + conv.id, {
@@ -834,23 +834,26 @@ async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
   const prof = await sb(env, "ai_profiles?creator_id=eq." +
     encodeURIComponent(conn.creator_id) + "&select=wallet_address").catch(() => null);
   if (prof && prof[0] && prof[0].wallet_address) wallet = prof[0].wallet_address;
-  const price = Number(item.price_ton) || 0;
-  // Two payment options: TON wallet when set, and bank transfer details
-  // (sort code + account number). The customer picks whichever suits them.
-  let payText = `You picked: ${item.title} · ${price} TON 💎
-
-How would you like to pay?
+  // Prices are shown to the customer in GBP. They can pay by TON,
+  // PayPal or bank transfer. Written in her voice, not like an invoice.
+  const ton = Number(item.price_ton) || 0;
+  const gbp = Number(item.price_gbp) || ton;   // GBP column wins when set
+  const price = "£" + gbp;
+  let payText = `ooh good choice 😏 ${item.title} is ${price} babe
 `;
   if (wallet) {
     payText += `
-👉 TON: send ${price} TON to
+you can send TON to my wallet 👉
 ${wallet}
 `;
   }
   payText += `
-📅 Bank transfer: sort code 00-00-00, account 56483213
-
-Once you've paid, reply "done" and I'll send it straight over 😊`;
+or PayPal me 📝 (info@turboit.uk)
+`;
+  payText += `or bank transfer 🏦 sort code 00-00-00, account 56483213
+`;
+  payText += `
+once it's in, just say done and it's all yours 😊`;
   try {
     const sent = await tg.sendMessage(token, conn.id, msg.chat.id, payText);
     await sb(env, "messages", {
@@ -863,7 +866,7 @@ Once you've paid, reply "done" and I'll send it straight over 😊`;
         direction: "out",
         sender: "ai",
         kind: "text",
-        body_preview: "[payment request] " + item.title + " · " + price + " TON",
+        body_preview: "[payment request] " + item.title + " · " + price,
         sent_at: new Date().toISOString(),
         raw: { via: "menu-buy", item_id: item.id, price_ton: price },
       }),
