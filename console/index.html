@@ -1165,17 +1165,20 @@ async function loadInboxLevel(){
   if(state.inboxCreator) return;                 // we are inside a creator: don't wipe it
   try{
     const { rows: accounts } = await Data.list('telegram_accounts', { select:'id, username, first_name, last_name, connected, creator_id', size:50, scopeOwner:true });
-    const { rows: convs } = await Data.list('conversations', { select:'id, creator_id, state, last_message_at', order:'last_message_at', size:100 });
+    const { rows: convs } = await Data.list('conversations', { select:'id, creator_id, state, last_message_at, business_connections(telegram_account_id)', order:'last_message_at', size:100 });
     // map creator_id -> { chats, lastAt, open }
     const byCreator = new Map();
     for(const c of convs){
-      const b = byCreator.get(c.creator_id) || { chats:0, open:0, lastAt:null };
+      // Per-girl counts: a chat belongs to the girl whose business connection
+      // carried it, never to whoever owns the creator row.
+      const key = (c.business_connections && c.business_connections.telegram_account_id) || c.creator_id;
+      const b = byCreator.get(key) || { chats:0, open:0, lastAt:null };
       b.chats++; if(c.state !== 'closed') b.open++;
       if(!b.lastAt || c.last_message_at > b.lastAt) b.lastAt = c.last_message_at;
-      byCreator.set(c.creator_id, b);
+      byCreator.set(key, b);
     }
     const rows = accounts.map(a => {
-      const stat = byCreator.get(a.creator_id) || { chats:0, open:0, lastAt:null };
+      const stat = byCreator.get(a.id) || { chats:0, open:0, lastAt:null };
       return `<button type="button" class="conv" data-act="inbox-creator" data-id="${esc(a.id)}" data-creator="${esc(a.creator_id)}">
         <div class="avatar">${esc((a.first_name||a.username||'?')[0].toUpperCase())}</div>
         <div class="c-body"><div class="c-top"><b>${esc(a.first_name||a.username||'Account')}</b><span>${stat.lastAt ? ago(stat.lastAt) : ''}</span></div>
@@ -1307,12 +1310,12 @@ async function loadLibrary(){
   el.innerHTML = spinner('Loading…');
   try{
     const { rows: accounts } = await Data.list('telegram_accounts', { select:'id, username, first_name, last_name, connected, creator_id', size:50, scopeOwner:true });
-    const { rows: media } = await Data.list('media_items', { select:'id, creator_id, visible, kind', size:300, scopeOwner:true });
-    const { rows: bundles } = await Data.list('content_bundles', { select:'id, creator_id, active', size:200, scopeOwner:true });
+    const { rows: media } = await Data.list('media_items', { select:'id, creator_id, visible, kind, telegram_account_id', size:300, scopeOwner:true });
+    const { rows: bundles } = await Data.list('content_bundles', { select:'id, creator_id, active, telegram_account_id', size:200, scopeOwner:true });
     el.innerHTML = accounts.length ? `<div class="lib-girls">` + accounts.map(g => {
-      const items = media.filter(m => m.creator_id === g.creator_id);
+      const items = media.filter(m => (m.telegram_account_id || m.creator_id) === (g.id || g.creator_id));
       const live = items.filter(m => m.visible).length;
-      const buns = bundles.filter(b => b.creator_id === g.creator_id);
+      const buns = bundles.filter(b => (b.telegram_account_id || b.creator_id) === (g.id || g.creator_id));
       const name = g.first_name || g.username || 'Creator';
       return `<button type="button" class="girl-card" data-act="lib-girl" data-id="${esc(g.id)}" data-girl="${esc(g.creator_id)}">
         <div class="avatar">${esc(name[0].toUpperCase())}</div>
@@ -1328,6 +1331,7 @@ async function openGirlLibrary(accountId, creatorId){
   const el = $('#lib-detail'); if(!el) return;
   state.libGirl = creatorId;
   state.libOpen = { accountId, creatorId };
+  state.libAccountId = accountId;
   el.innerHTML = spinner('Loading her content…');
   try{
     const { data:a, error } = await state.sb.from('telegram_accounts').select('first_name, username').eq('id', accountId).maybeSingle();
@@ -1337,7 +1341,12 @@ async function openGirlLibrary(accountId, creatorId){
     if(e1) throw e1;
     const { data: buns, error:e2 } = await state.sb.from('content_bundles').select('*, bundle_items(media_id)').eq('creator_id', creatorId).order('created_at',{ascending:false}).limit(100);
     if(e2) throw e2;
-    libCache = media || [];
+    // Per-girl: only rows tagged to THIS account (or untagged legacy rows that
+    // belong to no other girl).
+    const otherGirls = await Data.list('telegram_accounts', { select:'id', size:50, scopeOwner:true }).then(({rows}) => rows.map(x=>x.id)).catch(() => []);
+    const hers = (media||[]).filter(m => m.telegram_account_id === accountId || (!m.telegram_account_id && !otherGirls.some(oid => oid === accountId)));
+    const herBuns = (buns||[]).filter(b => b.telegram_account_id === accountId || (!b.telegram_account_id && !otherGirls.some(oid => oid === accountId)));
+    libCache = hers;
     el.innerHTML = `
     <section class="panel" style="margin-top:16px">
       <div class="panel-head">
@@ -1346,8 +1355,8 @@ async function openGirlLibrary(accountId, creatorId){
         <span class="end"><button class="btn sm" data-act="lib-girl-add" data-girl="${esc(creatorId)}">${ic('plus')}Add item</button>
         <button class="btn sm" data-act="bun-girl-new" data-girl="${esc(creatorId)}">${ic('package')}New bundle</button></span>
       </div>
-      <div class="table-wrap">${(media||[]).length || (buns||[]).length ? `<table><tbody>
-      ${(media||[]).map(m => `<tr>
+      <div class="table-wrap">${hers.length || herBuns.length ? `<table><tbody>
+      ${hers.map(m => `<tr>
         <td><div class="cell-main"><div class="thumb ${m.kind} lib-thumb" data-key="${esc(m.media_key||'')}" data-kind="${esc(m.kind)}">${m.media_key ? '' : ic(typeIcon(m.kind))}</div><div><b>${esc(m.title)}</b><small>${esc(m.kind)}</small></div></div></td>
           <td class="num"><span class="price">${fmtTon(m.price_ton,false)}<small>TON</small></span></td>
           <td>${pill(m.visible,'Live','Hidden','draft')}</td>
@@ -1356,7 +1365,7 @@ async function openGirlLibrary(accountId, creatorId){
             <button class="act" data-act="lib-edit" data-id="${m.id}" title="Edit">${ic('edit')}</button>
             <button class="act danger" data-act="lib-del" data-id="${m.id}" title="Delete">${ic('trash')}</button>
           </div></td></tr>`).join('')}
-        ${(buns||[]).map(b => `<tr>
+        ${herBuns.map(b => `<tr>
           <td><div class="cell-main"><div class="thumb bundle">${ic('package')}</div><div><b>${esc(b.name)}</b><small>Bundle · ${(b.bundle_items||[]).length} items</small></div></div></td>
           <td class="num"><span class="price">${fmtTon(b.price_ton,false)}<small>TON</small></span></td>
           <td>${pill(b.active)}</td>
@@ -1483,6 +1492,8 @@ function galUploadForm(){
 async function fillGalGirlOptions(){
   const sel = $('#md-girl'); if(!sel) return;
   const { rows: accounts } = await Data.list('telegram_accounts', { select:'id, username, first_name, creator_id', size:50, scopeOwner:true });
+  // creator_id -> account id map so saves can tag the right girl's account
+  state.girlAccounts = Object.fromEntries(accounts.map(a => [a.creator_id, a.id]));
   sel.innerHTML = accounts.map(a => `<option value="${esc(a.creator_id)}">${esc(a.first_name||a.username||'Creator')}</option>`).join('') || '<option value="">Connect a girl first</option>';
 }
 
@@ -1727,8 +1738,8 @@ view.addEventListener('click', async e => {
     case 'lib-type': state.libType = a.dataset.type; state.pages.library = 1;
       a.parentElement.querySelectorAll('button').forEach(b=>b.setAttribute('aria-selected', b===a)); loadLibrary(); break;
     case 'lib-new': $('#lib-form-wrap').innerHTML = libForm(); $('#md-title').focus(); break;
-    case 'lib-girl': { $('#lib-detail').innerHTML = ''; state.libOpen = { accountId:id, creatorId:a.dataset.girl }; openGirlLibrary(id, a.dataset.girl); break; }
-    case 'lib-girl-back': $('#lib-detail').innerHTML = ''; state.libGirl = null; state.libOpen = null; window.scrollTo({top:0,behavior:'smooth'}); break;
+    case 'lib-girl': { $('#lib-detail').innerHTML = ''; state.libOpen = { accountId:id, creatorId:a.dataset.girl }; state.libAccountId = id; openGirlLibrary(id, a.dataset.girl); break; }
+    case 'lib-girl-back': $('#lib-detail').innerHTML = ''; state.libGirl = null; state.libOpen = null; state.libAccountId = null; window.scrollTo({top:0,behavior:'smooth'}); break;
     case 'lib-girl-add': { state.libGirl = a.dataset.girl || ownerTarget();
       const host = $('#lib-form-wrap') || (() => { const d = document.createElement('aside'); d.className='panel form-panel'; d.id='lib-form-wrap'; $('#lib-detail').append(d); return d; })();
       host.innerHTML = libForm(); host.scrollIntoView({behavior:'smooth',block:'start'}); $('#md-title').focus(); break; }
@@ -1826,7 +1837,9 @@ view.addEventListener('submit', async e => {
       }
       const fields = { ...data, ...(media_key ? { media_key, media_type: file.type || 'application/octet-stream', media_size: file.size } : {}) };
       const t = f.girl?.value || f.dataset.girl || state.libGirl || ownerTarget();
-      return id ? Data.update('media_items', id, fields) : state.sb.from('media_items').insert({ ...fields, creator_id:t }).select().single().then(({data:d, error}) => { if(error) throw error; return d; });
+      const acct = state.girlAccounts?.[t] || state.libAccountId || null;
+      const payload = id ? fields : { ...fields, creator_id:t, telegram_account_id:acct };
+      return id ? Data.update('media_items', id, fields) : state.sb.from('media_items').insert(payload).select().single().then(({data:d, error}) => { if(error) throw error; return d; });
     };
     const inGallery = !!f.girl;
     if(await withBusy(btn, run, id ? 'Changes saved' : 'Uploaded')){
