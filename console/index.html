@@ -1153,17 +1153,18 @@ async function renderInbox(){
   // plus the open thread. Never rebuilds a level we are not on.
   state.inboxPoll = setInterval(() => {
     if (state.section !== 'inbox') return;
-    if (state.inboxCreator) loadCreatorChats(state.inboxCreator.accountId, state.inboxCreator.creatorId);
-    else loadInboxLevel();
+    if (state.inboxCreator) loadCreatorChats(state.inboxCreator.accountId, state.inboxCreator.creatorId, true);
+    else loadInboxLevel(true);
     if (state.inbox.active) refreshThread(state.inbox.active);
   }, 5000);
 }
 /* Level 1: the creator list, derived from Telegram accounts (one account = one
    girl = one creator persona). Shows per-creator chat counts when there are
    conversations, and stays honest when there are none yet. */
-async function loadInboxLevel(){
+async function loadInboxLevel(silent){
   const el = $('#conv-list'); if(!el) return;
   if(state.inboxCreator) return;                 // we are inside a creator: don't wipe it
+  if(!silent) el.innerHTML = spinner('Loading conversations…');
   try{
     const { rows: accounts } = await Data.list('telegram_accounts', { select:'id, username, first_name, last_name, connected, creator_id', size:50, scopeOwner:true });
     const { rows: convs } = await Data.list('conversations', { select:'id, creator_id, state, last_message_at, business_connections(telegram_account_id)', order:'last_message_at', size:100 });
@@ -1194,9 +1195,9 @@ async function loadInboxLevel(){
   }catch(e){ el.innerHTML = errorState(e,'inbox'); }
 }
 /* Level 2: chats for one creator (from the account's business connections). */
-async function loadCreatorChats(accountId, creatorId){
+async function loadCreatorChats(accountId, creatorId, silent){
   const el = $('#conv-list'); if(!el) return;
-  el.innerHTML = spinner('Loading chats…');
+  if(!silent) el.innerHTML = spinner('Loading chats…');
   try{
     const { data: bcs, error } = await state.sb.from('business_connections').select('id, telegram_account_id').eq('telegram_account_id', accountId);
     if(error) throw error;
