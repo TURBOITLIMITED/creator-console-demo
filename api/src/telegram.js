@@ -169,6 +169,15 @@ export function sendChatAction(token, businessConnectionId, chatId, action) {
   });
 }
 
+/** Acknowledge a button tap so Telegram stops the spinner on it. */
+export function answerCallbackQuery(token, callbackQueryId, text, showAlert) {
+  return call(token, "answerCallbackQuery", {
+    callback_query_id: callbackQueryId,
+    text: text || undefined,
+    show_alert: !!showAlert,
+  });
+}
+
 /** Media sends that accept business_connection_id (verified against 10.3). */
 export const MEDIA_METHODS = {
   photo: "sendPhoto",

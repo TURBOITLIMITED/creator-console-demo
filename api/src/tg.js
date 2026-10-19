@@ -528,7 +528,16 @@ async function maybeSendMenu(env, sb, conn, conv, msg) {
   const token = await botTokenFor(env, sb, conn);
   if (!token) return null;
   try {
-    const sent = await tg.sendMessage(token, conn.id, msg.chat.id, menuText);
+    // Clickable menu: one button per paid item, a freebie button if she has
+    // one. Taps arrive as callback_query (onCallback below).
+    const buttons = paid.map(m => ([{
+      text: (m.title + " · " + fmt(m.price_ton)).slice(0, 60),
+      callback_data: "buy:" + m.id,
+    }]));
+    if (free.length) buttons.push([{ text: "🎁 Free pic", callback_data: "free:" + free[0].id }]);
+    const sent = await tg.sendMessage(token, conn.id, msg.chat.id, menuText, {
+      reply_markup: { inline_keyboard: buttons },
+    });
     await sb(env, "messages", {
       method: "POST",
       headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
@@ -584,9 +593,118 @@ async function onDeleted(env, sb, d) {
 
 // ---------------------------------------------------------------------------
 // Direct message to the BOT itself (someone opened @Michelle0161bot and typed).
-// Routed through the account's business connection so it lands in the same
-// conversation thread and gets the same persona-driven auto-reply.
 // ---------------------------------------------------------------------------
+// callback_query: a customer tapped a menu button. buy:<media_id> asks for
+// payment (TON transfer to her wallet), free:<media_id> sends the freebie.
+// ---------------------------------------------------------------------------
+async function onCallback(env, sb, cq, persona) {
+  const data = String(cq.data || "");
+  const m = data.match(/^(buy|free):([0-9a-f-]{36})$/i);
+  if (!m) {
+    console.log(JSON.stringify({ evt: "tg.callback.unknown", data: data.slice(0, 40) }));
+    return { skipped: "unknown callback" };
+  }
+  const action = m[1], mediaId = m[2];
+
+  const rows = await sb(env, "media_items?id=eq." + encodeURIComponent(mediaId) + "&select=*").catch(() => null);
+  const item = rows && rows[0];
+  if (!item) return { skipped: "item not found" };
+
+  // The connection that owns this chat. callback_query.message carries
+  // business_connection_id when the menu was sent through one.
+  const bcId = (cq.message && cq.message.business_connection_id) || null;
+  let conn = null;
+  if (bcId) {
+    const c = await sb(env, "business_connections?id=eq." + encodeURIComponent(bcId) +
+      "&select=id,creator_id,telegram_account_id,tg_user_id,is_enabled,rights").catch(() => null);
+    conn = c && c[0];
+  }
+  if (!conn && item.telegram_account_id) {
+    const c = await sb(env, "business_connections?telegram_account_id=eq." +
+      encodeURIComponent(item.telegram_account_id) + "&is_enabled=eq.true" +
+      "&select=id,creator_id,telegram_account_id,tg_user_id,is_enabled,rights").catch(() => null);
+    conn = c && c[0];
+  }
+  if (!conn) return { skipped: "no connection for callback" };
+
+  const token = await botTokenFor(env, sb, conn);
+  const chatId = cq.message ? cq.message.chat.id : null;
+  if (!token || !chatId) return { skipped: "no token or chat" };
+
+  const upsertCust = await upsert(sb, env, "customers", "creator_id,tg_user_id", {
+    creator_id: conn.creator_id,
+    tg_user_id: cq.from.id,
+    username: cq.from.username || null,
+    first_name: cq.from.first_name || null,
+    last_name: cq.from.last_name || null,
+    last_seen_at: new Date().toISOString(),
+  });
+  const cust = upsertCust && upsertCust[0];
+  const convs = await upsert(sb, env, "conversations", "business_connection_id,chat_id", {
+    business_connection_id: conn.id,
+    chat_id: chatId,
+    creator_id: conn.creator_id,
+    customer_id: cust ? cust.id : null,
+    customer_ref: String(cq.from.id),
+    last_message_at: new Date().toISOString(),
+  });
+  let conv = convs && convs[0];
+  if (!conv) {
+    const found = await sb(env, "conversations?business_connection_id=eq." +
+      encodeURIComponent(conn.id) + "&chat_id=eq." + chatId + "&select=*");
+    conv = found && found[0];
+  }
+  if (!conv) return { skipped: "no conversation" };
+
+  if (action === "free") {
+    await tg.answerCallbackQuery(token, cq.id, "Sending it over 😊");
+    const fakeMsg = { chat: { id: chatId }, message_id: cq.message ? cq.message.message_id : null };
+    const sentFree = await maybeSendFreeItem(env, sb, conn, conv, fakeMsg);
+    if (sentFree) return { free_item: mediaId };
+    // No usable free file left: apologise briefly.
+    await tg.sendMessage(token, conn.id, chatId, "Sorry, that one's not available right now 💔");
+    return { free_fallback: true };
+  }
+
+  // buy: send the payment request. Payout wallet lives on the creator's
+  // ai_profiles row; without it we still name the price so nothing is lost.
+  await tg.answerCallbackQuery(token, cq.id, item.title + " · " + Number(item.price_ton) + " TON");
+  let wallet = null;
+  const prof = await sb(env, "ai_profiles?creator_id=eq." +
+    encodeURIComponent(conn.creator_id) + "&select=wallet_address").catch(() => null);
+  if (prof && prof[0] && prof[0].wallet_address) wallet = prof[0].wallet_address;
+
+  const price = Number(item.price_ton) || 0;
+  let payText = `You picked: ${item.title} · ${price} TON 💎\n`;
+  if (wallet) {
+    payText += `Send ${price} TON to my wallet and reply "done" — I'll send it right over 😊\n\n${wallet}`;
+  } else {
+    payText += `Reply "I'll take it" and I'll sort out payment 😊`;
+  }
+  const sent = await tg.sendMessage(token, conn.id, chatId, payText);
+  await sb(env, "messages", {
+    method: "POST",
+    headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+    body: JSON.stringify({
+      conversation_id: conv.id,
+      creator_id: conn.creator_id,
+      tg_message_id: sent && sent.message_id ? sent.message_id : null,
+      direction: "out",
+      sender: "ai",
+      kind: "text",
+      body_preview: "[payment request] " + item.title + " · " + price + " TON",
+      sent_at: new Date().toISOString(),
+      raw: { via: "menu-buy", item_id: item.id, price_ton: price },
+    }),
+  }).catch(() => {});
+  await sb(env, "conversations?id=eq." + conv.id, {
+    method: "PATCH", headers: { Prefer: "return=minimal" },
+    body: JSON.stringify({ purchase_intent_at: new Date().toISOString() }),
+  }).catch(() => {});
+  console.log(JSON.stringify({ evt: "tg.menu.buy_pressed", item: item.id, price }));
+  return { buy_pressed: item.id };
+}
+
 async function onDirectMessage(env, sb, msg, persona) {
   const uname = String(persona || "").toLowerCase();
   const acc = await sb(env, "telegram_accounts?username=ilike." + encodeURIComponent(uname) +
@@ -653,6 +771,7 @@ export async function handleWebhook(request, env, sb, persona) {
     else if (kind === "edited_business_message") result = await onMessage(env, sb, update.edited_business_message, true);
     else if (kind === "deleted_business_messages") result = await onDeleted(env, sb, update.deleted_business_messages);
     else if (kind === "message")              result = await onDirectMessage(env, sb, update.message, persona);
+    else if (kind === "callback_query")         result = await onCallback(env, sb, update.callback_query, persona);
     else result = { skipped: "unhandled kind: " + kind };
   } catch (e) {
     error = String(e && e.message ? e.message : e).slice(0, 400);
