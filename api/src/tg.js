@@ -343,6 +343,7 @@ function personaSystemPrompt(p, conn, catalogue) {
   if (catalogue) lines.push(catalogue);
   lines.push(
     "You are here to sell your content: weave what you offer into the chat naturally, flirt a little and invite them to buy. Never say you are 'not here for that' or push away from selling; selling is the whole point.",
+    "Payment, when they ask how to pay: they can pay by TON (you'll send the wallet), PayPal to info@turboit.uk, or bank transfer (sort code 00-00-00, account 56483213). NEVER invent a wallet address, account number or email; if you don't know a detail, tell them you'll send it in a moment.",
     "Write like a real human woman texting: natural, warm, playful, small imperfections are fine.",
     "Replies should be 2 to 4 sentences, chatty and engaging, not one-word answers.",
     "Never mention being a bot or AI unless directly asked.",
@@ -408,6 +409,22 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   if (askingMenu && !askingFree) {
     const menu = await maybeSendMenu(env, sb, conn, conv, msg);
     if (menu) { stopTyping(); return menu; }
+  }
+
+  // "how do I pay?" -> re-send the payment-method buttons for the last item
+  // they were quoted, instead of letting the model invent details.
+  const askingHowPay = /how (do|can) i pay|how.*(pay|payment)|payment (method|options|details)?|ways? to pay|pay options/.test(lower);
+  if (askingHowPay && !askingFree && !askingMenu) {
+    const lastReq = await sb(env, "messages?conversation_id=eq." + conv.id +
+      "&direction=eq.out&select=body_preview,raw&order=sent_at.desc&limit=10").catch(() => null);
+    const req = (lastReq || []).find(m => m.raw && m.raw.via === "menu-buy" && m.raw.item_id);
+    if (req) {
+      const it = await sb(env, "media_items?id=eq." + encodeURIComponent(req.raw.item_id) + "&select=*").catch(() => null);
+      if (it && it[0]) {
+        const payReq = await sendPaymentRequest(env, sb, conn, conv, msg, it[0]);
+        if (payReq) { stopTyping(); return payReq; }
+      }
+    }
   }
 
   // BUY INTENT: they picked or named a specific item ("the video please",
