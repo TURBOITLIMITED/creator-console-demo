@@ -18,6 +18,7 @@ import * as tg from "./telegram.js";
 import { getDek, seal, preview } from "./crypto.js";
 import { isAskingIfBot, isAskingForHuman, hasAgeSignal, COPY_VERSION } from "./copy.js";
 import { pickBotAnswer, isSeriousRequest, isPurchaseContext } from "./persona.js";
+import { sign as signMedia } from "./media.js";
 
 const ok = () => new Response("", { status: 200 });
 
@@ -349,6 +350,15 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   const p = persona.row;
   if (p && p.enabled === false) return null;   // persona off: stay quiet
 
+  // FREE CONTENT: "anything free?" -> send a live, price-0 item from this
+  // account's library, once per conversation until they ask again later.
+  const lower = String(text || "").toLowerCase();
+  const askingFree = /(free|4free|for free|anything for me|freebie|sample|preview)/.test(lower);
+  if (askingFree) {
+    const sentFree = await maybeSendFreeItem(env, sb, conn, conv, msg);
+    if (sentFree) return sentFree;              // media sent; no text needed
+  }
+
   // Recent history (decrypted previews are enough context for tone).
   const hist = await sb(env, "messages?conversation_id=eq." + conv.id +
     "&direction=in.(" + encodeURIComponent("in,out") + ")&select=direction,body_preview,sent_at" +
@@ -410,8 +420,67 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   }
 }
 
-async function botTokenFor(env, sb, conn) {
-  // The bot token lives in the bots table, keyed by persona. We try the
+/**
+ * Send one free (price 0, live) library item when the customer asks for
+ * something free. Media goes out through the business connection via a signed
+ * URL; the row is recorded so history and the console show it.
+ * Returns the send result, or null when nothing suitable / send failed.
+ */
+async function maybeSendFreeItem(env, sb, conn, conv, msg) {
+  if (!conn.telegram_account_id) return null;
+  // Live, price-0 items tagged to THIS girl's account.
+  const rows = await sb(env, "media_items?telegram_account_id=eq." +
+    encodeURIComponent(conn.telegram_account_id) +
+    "&visible=eq.true&price_ton=eq.0&select=id,title,kind,media_key" +
+    "&order=uploaded_at.desc&limit=5").catch(() => null);
+  const items = (rows || []).filter(m => m.media_key);   // need a real file
+  if (!items.length) return null;
+  // Don't spam the same file repeatedly: skip if we sent this item's media in
+  // the last 10 messages of this conversation.
+  const recent = await sb(env, "messages?conversation_id=eq." + conv.id +
+    "&direction=eq.out&select=tg_message_id,media_key&order=sent_at.desc&limit=10").catch(() => null);
+  const recentKeys = new Set((recent || []).map(m => m.media_key).filter(Boolean));
+  const item = items.find(m => !recentKeys.has(m.media_key)) || null;
+  if (!item) return null;
+
+  const token = await botTokenFor(env, sb, conn);
+  if (!token) return null;
+
+  // Signed URL the Telegram servers can fetch the file from.
+  const exp = Math.floor(Date.now() / 1000) + 3600;
+  const sig = await signMedia(item.media_key, exp, env.MEDIA_SECRET);
+  const fileUrl = "https://api-telebotcreator.turboit.uk/m/" +
+    encodeURIComponent(item.media_key) + "?e=" + exp + "&s=" + sig;
+  // Telegram media methods take a kind: image->photo, video->video, else document.
+  const tgKind = item.kind === "image" ? "photo" : item.kind === "video" ? "video" : "document";
+
+  try {
+    const sent = await tg.sendMedia(token, conn.id, msg.chat.id, tgKind, fileUrl, "for you 💜");
+    await sb(env, "messages", {
+      method: "POST",
+      headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+      body: JSON.stringify({
+        conversation_id: conv.id,
+        creator_id: conn.creator_id,
+        tg_message_id: sent && sent.message_id ? sent.message_id : null,
+        direction: "out",
+        sender: "ai",
+        kind: "text",
+        body_preview: "[free] " + item.title,
+        media_key: item.media_key,
+        sent_at: new Date().toISOString(),
+        raw: { via: "free-item", item_id: item.id },
+      }),
+    }).catch(() => {});
+    console.log(JSON.stringify({ evt: "tg.free_item.sent", item: item.id, kind: tgKind }));
+    return { free_item: item.id };
+  } catch (e) {
+    console.log(JSON.stringify({ evt: "tg.free_item.send_failed", err: String(e).slice(0, 200) }));
+    return null;                                  // fall back to a text reply
+  }
+}
+
+async function botTokenFor(env, sb, conn) {  // The bot token lives in the bots table, keyed by persona. We try the
   // telegram account username first, then the connection's account username.
   const unames = [];
   if (conn.telegram_account_id) {
