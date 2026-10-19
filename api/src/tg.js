@@ -442,6 +442,34 @@ async function onDeleted(env, sb, d) {
 }
 
 // ---------------------------------------------------------------------------
+// Direct message to the BOT itself (someone opened @Michelle0161bot and typed).
+// Routed through the account's business connection so it lands in the same
+// conversation thread and gets the same persona-driven auto-reply.
+// ---------------------------------------------------------------------------
+async function onDirectMessage(env, sb, msg, persona) {
+  const uname = String(persona || "").toLowerCase();
+  const acc = await sb(env, "telegram_accounts?username=ilike." + encodeURIComponent(uname) +
+    "&select=id,creator_id,connected").catch(() => null);
+  const account = acc && acc[0];
+  if (!account || !account.creator_id) return { skipped: "direct message to unknown account" };
+  if (msg.chat && msg.chat.type !== "private") return { skipped: "non-private chat" };
+  const from = msg.from || {};
+  if (from.is_bot) return { skipped: "from a bot" };
+
+  // Find the active business connection for this account; it carries
+  // user_chat_id (the owner's chat with the bot) used as the customer id.
+  const rows = await sb(env, "business_connections?telegram_account_id=eq." +
+    encodeURIComponent(account.id) + "&is_enabled=eq.true" +
+    "&select=id,creator_id,telegram_account_id,tg_user_id,user_chat_id,is_enabled,rights");
+  const conn = rows && rows[0];
+  if (!conn) return { skipped: "no active business connection" };
+
+  // Reuse the full business_message path: same customer/conversation/message
+  // bookkeeping, same persona auto-reply.
+  return await onMessage(env, sb, { ...msg, business_connection_id: conn.id }, false);
+}
+
+// ---------------------------------------------------------------------------
 
 export async function handleWebhook(request, env, sb, persona) {
   // 1. Authenticate Telegram before reading the body.
@@ -483,6 +511,7 @@ export async function handleWebhook(request, env, sb, persona) {
     else if (kind === "business_message")      result = await onMessage(env, sb, update.business_message, false);
     else if (kind === "edited_business_message") result = await onMessage(env, sb, update.edited_business_message, true);
     else if (kind === "deleted_business_messages") result = await onDeleted(env, sb, update.deleted_business_messages);
+    else if (kind === "message")              result = await onDirectMessage(env, sb, update.message, persona);
     else result = { skipped: "unhandled kind: " + kind };
   } catch (e) {
     error = String(e && e.message ? e.message : e).slice(0, 400);
