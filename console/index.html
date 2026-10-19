@@ -1586,7 +1586,7 @@ function aiFormHTML(p){
           ${Object.entries(TONES).map(([k,[t,d]])=>`<input type="radio" name="tone" id="ai-tone-${k}" value="${k}" ${p.tone===k?'checked':''}><label for="ai-tone-${k}"><b>${t}</b><span>${d}</span></label>`).join('')}
         </div></div>
         <div class="field"><label for="ai-prompt">Instructions</label>
-          <textarea class="input" id="ai-prompt" name="system_prompt" maxlength="2000" rows="6" placeholder="Who you are, what you sell, and what the assistant must never promise.">${esc(p.system_prompt||'')}</textarea>
+          <textarea class="input" id="ai-prompt" name="system_prompt" rows="12" style="min-height:180px" placeholder="Who you are, what you sell, and what the assistant must never promise. No length limit.">${esc(p.system_prompt||'')}</textarea>
           <div class="counter"><span id="ai-chars">${(p.system_prompt||'').length}</span> / 2000</div></div>
         <label class="switch" for="ai-disclose"><input type="checkbox" id="ai-disclose" name="disclose_on_first_contact" ${p.disclose_on_first_contact?'checked':''}><span class="track"></span><span>Tell fans it's an AI<small>One line on first contact. Off = the bot replies as you, undetectable.</small></span></label>
         <label class="switch" for="ai-enabled"><input type="checkbox" id="ai-enabled" name="enabled" ${p.enabled?'checked':''}><span class="track"></span><span>Assistant enabled<small>Master switch for every connected account</small></span></label>
