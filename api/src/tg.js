@@ -743,10 +743,80 @@ async function matchLiveItem(env, sb, conn, text) {
   return null;
 }
 
-/* Payment request for a specific item (shared by buy button and text). */
-async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
+// ---------------------------------------------------------------------------
+// callback_query: a customer tapped a menu button. buy:<media_id> asks for
+// payment (TON transfer to her wallet), free:<media_id> sends the freebie.
+// ---------------------------------------------------------------------------
+async function onCallback(env, sb, cq, persona) {
+  const data = String(cq.data || "");
+  const m = data.match(/^(buy|free):([0-9a-f-]{36})$/i);
+  if (!m) {
+    console.log(JSON.stringify({ evt: "tg.callback.unknown", data: data.slice(0, 40) }));
+    return { skipped: "unknown callback" };
+  }
+  const action = m[1], mediaId = m[2];
+
+  const rows = await sb(env, "media_items?id=eq." + encodeURIComponent(mediaId) + "&select=*").catch(() => null);
+  const item = rows && rows[0];
+  if (!item) return { skipped: "item not found" };
+
+  const bcId = (cq.message && cq.message.business_connection_id) || null;
+  let conn = null;
+  if (bcId) {
+    const c = await sb(env, "business_connections?id=eq." + encodeURIComponent(bcId) +
+      "&select=id,creator_id,telegram_account_id,tg_user_id,is_enabled,rights").catch(() => null);
+    conn = c && c[0];
+  }
+  if (!conn && item.telegram_account_id) {
+    const c = await sb(env, "business_connections?telegram_account_id=eq." +
+      encodeURIComponent(item.telegram_account_id) + "&is_enabled=eq.true" +
+      "&select=id,creator_id,telegram_account_id,tg_user_id,is_enabled,rights").catch(() => null);
+    conn = c && c[0];
+  }
+  if (!conn) return { skipped: "no connection for callback" };
+
   const token = await botTokenFor(env, sb, conn);
-  if (!token) return null;
+  const chatId = cq.message ? cq.message.chat.id : null;
+  if (!token || !chatId) return { skipped: "no token or chat" };
+
+  const upsertCust = await upsert(sb, env, "customers", "creator_id,tg_user_id", {
+    creator_id: conn.creator_id,
+    tg_user_id: cq.from.id,
+    username: cq.from.username || null,
+    first_name: cq.from.first_name || null,
+    last_name: cq.from.last_name || null,
+    last_seen_at: new Date().toISOString(),
+  });
+  const cust = upsertCust && upsertCust[0];
+  const convs = await upsert(sb, env, "conversations", "business_connection_id,chat_id", {
+    business_connection_id: conn.id,
+    chat_id: chatId,
+    creator_id: conn.creator_id,
+    customer_id: cust ? cust.id : null,
+    customer_ref: String(cq.from.id),
+    last_message_at: new Date().toISOString(),
+  });
+  let conv = convs && convs[0];
+  if (!conv) {
+    const found = await sb(env, "conversations?business_connection_id=eq." +
+      encodeURIComponent(conn.id) + "&chat_id=eq." + chatId + "&select=*");
+    conv = found && found[0];
+  }
+  if (!conv) return { skipped: "no conversation" };
+
+  if (action === "free") {
+    try { await tg.answerCallbackQuery(token, cq.id, "Sending it over 😊"); } catch (e) {
+      console.log(JSON.stringify({ evt: "tg.callback.ack_failed", err: String(e).slice(0, 120) })); }
+    const fakeMsg = { chat: { id: chatId }, message_id: cq.message ? cq.message.message_id : null };
+    const sentFree = await maybeSendFreeItem(env, sb, conn, conv, fakeMsg);
+    if (sentFree) return { free_item: mediaId };
+    await tg.sendMessage(token, conn.id, chatId, "Sorry, that one's not available right now 💔");
+    return { free_fallback: true };
+  }
+
+  // buy: ack, then the shared payment-request flow.
+  try { await tg.answerCallbackQuery(token, cq.id, item.title + " · " + Number(item.price_ton) + " TON"); } catch (e) {
+    console.log(JSON.stringify({ evt: "tg.callback.ack_failed", err: String(e).slice(0, 120) })); }
   const r = await sendPaymentRequest(env, sb, conn, conv, { chat: { id: chatId } }, item);
   await sb(env, "conversations?id=eq." + conv.id, {
     method: "PATCH", headers: { Prefer: "return=minimal" },
@@ -754,6 +824,49 @@ async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
   }).catch(() => {});
   console.log(JSON.stringify({ evt: "tg.menu.buy_pressed", item: item.id, price: item.price_ton }));
   return r || { buy_pressed: item.id };
+}
+
+/* Payment request for a specific item (shared by buy button and text). */
+async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
+  const token = await botTokenFor(env, sb, conn);
+  if (!token) return null;
+  let wallet = null;
+  const prof = await sb(env, "ai_profiles?creator_id=eq." +
+    encodeURIComponent(conn.creator_id) + "&select=wallet_address").catch(() => null);
+  if (prof && prof[0] && prof[0].wallet_address) wallet = prof[0].wallet_address;
+  const price = Number(item.price_ton) || 0;
+  let payText = `You picked: ${item.title} · ${price} TON 💎
+`;
+  if (wallet) {
+    payText += `Send ${price} TON to my wallet and reply "done" - I'll send it right over 😊
+
+${wallet}`;
+  } else {
+    payText += `Reply "I'll take it" and I'll sort out payment 😊`;
+  }
+  try {
+    const sent = await tg.sendMessage(token, conn.id, msg.chat.id, payText);
+    await sb(env, "messages", {
+      method: "POST",
+      headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+      body: JSON.stringify({
+        conversation_id: conv.id,
+        creator_id: conn.creator_id,
+        tg_message_id: sent && sent.message_id ? sent.message_id : null,
+        direction: "out",
+        sender: "ai",
+        kind: "text",
+        body_preview: "[payment request] " + item.title + " · " + price + " TON",
+        sent_at: new Date().toISOString(),
+        raw: { via: "menu-buy", item_id: item.id, price_ton: price },
+      }),
+    }).catch(() => {});
+    console.log(JSON.stringify({ evt: "tg.pay_request.sent", item: item.id, price }));
+    return { buy_pressed: item.id };
+  } catch (e) {
+    console.log(JSON.stringify({ evt: "tg.pay_request.failed", err: String(e).slice(0, 200) }));
+    return null;
+  }
 }
 
 async function onDirectMessage(env, sb, msg, persona) {
