@@ -470,9 +470,9 @@ async function setupLearnButton(accountId){
     for(const f of files){
       try{
         const key = 'persona-screens/' + Date.now() + '-' + Math.random().toString(36).slice(2,8) + '-' + f.name.replace(/[^a-zA-Z0-9.]/g,'_').slice(-30);
-        const { data, error } = await state.sb.storage.from('content-store').upload(key, f, { upsert: true });
+        const { data, error } = await sb.storage.from('content-store').upload(key, f, { upsert: true });
         if(!error){
-          const { data: signed } = await state.sb.storage.from('content-store').createSignedUrl(key, 3600);
+          const { data: signed } = await sb.storage.from('content-store').createSignedUrl(key, 3600);
           if(signed && signed.signedUrl) uploaded.push(signed.signedUrl);
         }
       }catch(e){ /* skip bad file */ }
@@ -483,10 +483,9 @@ async function setupLearnButton(accountId){
   btn.addEventListener('click', async () => {
     btn.disabled = true; btn.textContent = 'Reading her chats…';
     try{
-      const session = state.sb.auth.session();
       const r = await fetch('https://api-telebotcreator.turboit.uk/persona/learn', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (await state.sb.auth.session()).access_token },
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (await sb.auth.getSession()).data.session.access_token },
         body: JSON.stringify({ account_id: accountId, images: uploaded }),
       });
       const d = await r.json();
