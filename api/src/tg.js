@@ -395,9 +395,14 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   const hist = await sb(env, "messages?conversation_id=eq." + conv.id +
     "&direction=in.(" + encodeURIComponent("in,out") + ")&select=direction,body_preview,sent_at" +
     "&order=sent_at.desc&limit=8").catch(() => null);
+  // Internal rows carry console-only labels like "[free] PIC TITLE" or
+  // "[menu] 2 paid". They are bookkeeping, not chat the girl said, so strip
+  // them before the model sees them - otherwise it parrots the tag verbatim.
+  const stripInternal = s => String(s || "").replace(/\s*\[[^\]]{1,40}\]\s*/g, " ").replace(/\s+/g, " ").trim();
   const history = (hist || []).reverse()
     .filter(m => m.body_preview && m.body_preview !== text)
-    .map(m => ({ dir: m.direction, text: m.body_preview }));
+    .map(m => ({ dir: m.direction, text: stripInternal(m.body_preview) }))
+    .filter(m => m.text);
 
   // Generate. A forced intercept answer skips the model.
   let replyText = null, via = null;
