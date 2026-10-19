@@ -384,7 +384,7 @@ function setupTabs(){
       $('#tab-edit').style.display = tab === 'edit' ? 'block' : 'none';
       $('#tab-connection').style.display = tab === 'connection' ? 'block' : 'none';
       $('#tab-ai').style.display = tab === 'ai' ? 'block' : 'none';
-      if(tab === 'ai') loadAccountPersona();
+      if(tab === 'ai'){ loadAccountPersona(); setupLearnButton(new URLSearchParams(location.search).get('id')); }
     });
   });
 }
@@ -442,6 +442,57 @@ async function saveChanges(){
 
 /* ---------- per-account AI persona (account_personas) ---------- */
 let personaOwn = false;
+
+async function setupLearnButton(accountId){
+  const btn = document.getElementById('learn_btn');
+  const fileInput = document.getElementById('persona_imgs');
+  const list = document.getElementById('persona_img_list');
+  if(!btn) return;
+  let uploaded = [];
+
+  fileInput?.addEventListener('change', async () => {
+    uploaded = [];
+    list.textContent = '';
+    const files = [...(fileInput.files || [])].slice(0, 6);
+    if(!files.length) return;
+    list.textContent = 'Uploading ' + files.length + ' screenshot(s)…';
+    for(const f of files){
+      try{
+        const key = 'persona-screens/' + Date.now() + '-' + Math.random().toString(36).slice(2,8) + '-' + f.name.replace(/[^a-zA-Z0-9.]/g,'_').slice(-30);
+        const { data, error } = await state.sb.storage.from('content-store').upload(key, f, { upsert: true });
+        if(!error){
+          const { data: signed } = await state.sb.storage.from('content-store').createSignedUrl(key, 3600);
+          if(signed && signed.signedUrl) uploaded.push(signed.signedUrl);
+        }
+      }catch(e){ /* skip bad file */ }
+    }
+    list.textContent = uploaded.length ? uploaded.length + ' screenshot(s) ready' : 'Upload failed, try again';
+  });
+
+  btn.addEventListener('click', async () => {
+    btn.disabled = true; btn.textContent = 'Reading her chats…';
+    try{
+      const session = state.sb.auth.session();
+      const r = await fetch('https://api-telebotcreator.turboit.uk/persona/learn', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (await state.sb.auth.session()).access_token },
+        body: JSON.stringify({ account_id: accountId, images: uploaded }),
+      });
+      const d = await r.json();
+      if(d && d.persona){
+        document.getElementById('ai_system_prompt').value = d.persona;
+        btn.textContent = 'Learned! Review and save below';
+        setTimeout(() => { btn.textContent = 'Learn from chats'; }, 4000);
+      } else {
+        btn.textContent = 'Failed: ' + (d && d.error ? d.error : 'unknown');
+      }
+    }catch(e){
+      btn.textContent = 'Failed: ' + (e.message || 'error');
+    }finally{
+      btn.disabled = false;
+    }
+  });
+}
 
 async function loadAccountPersona(){
   const src = $('#personaSource');

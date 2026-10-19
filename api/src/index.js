@@ -276,6 +276,68 @@ export default {
       }
     }
 
+    // Persona learning: analyse real chats (stored history + uploaded
+    // screenshots of conversations) and draft a persona prompt.
+    if (url.pathname === "/persona/learn" && request.method === "POST") {
+      if (!(await consoleAdmin(env, request))) return json({ error: "not allowed" }, 403, origin);
+      const b = await request.json().catch(() => ({}));
+      const accountId = String(b.account_id || "");
+      if (!accountId) return json({ error: "account_id required" }, 400, origin);
+
+      // 1. Stored chat history for this account's business connection.
+      let historyLines = [];
+      try {
+        const conns = await sb(env, "business_connections?telegram_account_id=eq." +
+          encodeURIComponent(accountId) + "&select=id,creator_id");
+        for (const c of conns || []) {
+          const msgs = await sb(env, "messages?order=sent_at.desc&limit=200&select=direction,sender,body_preview,sent_at" +
+            "&conversation_id=in.(" + encodeURIComponent(
+              (await sb(env, "conversations?business_connection_id=eq." + encodeURIComponent(c.id) +
+                "&select=id")).map(r => r.id).join(",") || "00000000-0000-0000-0000-000000000000") + ")").catch(() => []);
+          for (const m of msgs || []) {
+            if (!m.body_preview) continue;
+            const who = m.direction === "in" ? "customer" : (m.sender === "ai" ? "her(bot)" : "her");
+            historyLines.push(who + ": " + m.body_preview);
+          }
+        }
+        historyLines = historyLines.slice(-150); // most recent 150, oldest first
+      } catch (e) { /* history is optional */ }
+
+      // 2. Uploaded chat screenshots (public or signed URLs).
+      const images = Array.isArray(b.images) ? b.images.filter(u => typeof u === "string" && u.startsWith("http")).slice(0, 6) : [];
+
+      // 3. Ask the model to write the persona.
+      const userText =
+        "Write a persona prompt for a Telegram chat bot that will keep replying EXACTLY like her.\n\n" +
+        "Real messages from her account (her style to copy):\n" +
+        (historyLines.length ? historyLines.join("\n") : "(none stored yet)") + "\n\n" +
+        "Screenshots of her chats are attached if provided.\n\n" +
+        "Write the persona as a concise instruction list: her name/character, how she flirts, her emoji and slang habits, " +
+        "typical message length, how she prices and sells content, what she would never say. Plain text, no markdown headers. " +
+        "Only use what the chats show; do not invent products, prices or biographical facts.";
+
+      const model = env.AI_MODEL || "@cf/mistralai/mistral-small-3.1-24b-instruct";
+      let out;
+      try {
+        out = await env.AI.run(model, {
+          messages: [{ role: "user", content: images.length && images.slice(0,3).map(u => ({ type: "image_url", image_url: { url: u } })) ? [
+            { type: "text", text: userText },
+            ...images.slice(0, 3).map(u => ({ type: "image_url", image_url: { url: u } })),
+          ] : userText }],
+          max_tokens: 800,
+        });
+      } catch (e) {
+        // Vision attempt failed; fall back to text-only on the history.
+        out = await env.AI.run(model, {
+          messages: [{ role: "user", content: userText }],
+          max_tokens: 800,
+        }).catch(() => null);
+      }
+      const text = typeof out === "string" ? out : (out && out.response) || "";
+      if (!text.trim()) return json({ error: "model returned nothing" }, 502, origin);
+      return json({ persona: String(text).trim() }, 200, origin);
+    }
+
     if (url.pathname === "/conversations/reply" && request.method === "POST") {
       if (!(await consoleAdmin(env, request))) {
         return json({ error: "not allowed" }, 403, origin);
