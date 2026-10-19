@@ -4,7 +4,10 @@
 const enc = new TextEncoder();
 
 export async function sign(key, exp, secret) {
-  const k = await crypto.subtle.importKey("raw", enc.encode(secret || "dev"),
+  // Fail closed: a missing MEDIA_SECRET must never fall back to a public string,
+  // because the signature is the only gate on paid media in R2.
+  if (!secret) throw new Error("MEDIA_SECRET not set");
+  const k = await crypto.subtle.importKey("raw", enc.encode(secret),
     { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const mac = await crypto.subtle.sign("HMAC", k, enc.encode(key + "|" + exp));
   return [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 32);
