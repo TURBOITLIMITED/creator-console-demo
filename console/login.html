@@ -298,6 +298,25 @@ $('#form').addEventListener('submit', async e => {
   try{
     const { error } = await sb.auth.signInWithPassword({ email, password });
     if(error) throw error;
+    // TOTP step: a password-only session (aal1) cannot open the console now that
+    // the API checks admin properly and requires aal2.
+    const lvl = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
+    if(lvl?.data?.nextLevel === 'aal2' && lvl?.data?.currentLevel !== 'aal2'){
+      const { data:fl } = await sb.auth.mfa.listFactors();
+      const f = (fl?.totp || []).find(x => x.status === 'verified');
+      if(f){
+        for(let i=0;i<3;i++){
+          const code = prompt('Enter your 6 digit authenticator code');
+          if(!code) throw new Error('Authenticator check cancelled.');
+          const ch = await sb.auth.mfa.challenge({ factorId: f.id });
+          if(ch.error) throw ch.error;
+          const vr = await sb.auth.mfa.verify({ factorId: f.id, challengeId: ch.data.id, code: code.trim() });
+          if(!vr.error) break;
+          say('That code was not accepted. Try the next one.');
+          if(i === 2) throw new Error('Authenticator check failed.');
+        }
+      }
+    }
     location.replace(consoleUrl);
   }catch(err){
     say(/invalid login/i.test(err.message) ? 'That email and password don\'t match. Try again or reset below.' : err.message);

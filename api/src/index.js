@@ -1,5 +1,7 @@
 // Creator CRM API: content, prices and style for a creator, stored in KV, media in R2.
-// Auth: creator token in the Authorization header (or ?t= for read-only convenience).
+// Auth: a Supabase session (console admin), or the operator token, in the
+// Authorization header only. Query-string tokens and creator tokens were removed
+// on 2026-10-20.
 const CORS = (o) => ({
   "Access-Control-Allow-Origin": o || "*",
   "Access-Control-Allow-Methods": "GET,PUT,POST,OPTIONS",
@@ -26,16 +28,43 @@ const sbHeaders = (env) => ({
   "Content-Type": "application/json",
 });
 
-// a signed in console admin: their Supabase token, checked against the admin list
+// a signed in console admin: their Supabase token, verified, then checked against
+// the console admin predicate. FAILS CLOSED: a token is only "ok" when Supabase
+// accepts it AND is_console_admin() returns true for THAT user. A string that
+// merely looks like a JWT (three dot-separated parts) is not an identity: before
+// 2026-10-20 this function accepted any such string, and eleven call sites then
+// tested the returned object for truthiness, so the guard never fired.
+//
+// The predicate is called with the CALLER's token, never the service key: as
+// postgres the predicate would evaluate for the wrong principal and always pass.
 async function consoleAdmin(env, request) {
   const auth = request.headers.get("Authorization") || "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
   if (!token) return { ok: false, reason: "no token" };
-  // Quick check: just verify it looks like a JWT (3 parts)
-  const parts = token.split(".");
-  if (parts.length !== 3) return { ok: false, reason: "invalid token format" };
-  // Accept any valid-looking JWT - /bots/hook already verified the user
-  return { ok: true, email: "authenticated" };
+  // The operator's own token stays valid on console routes (scripts and the bot
+  // use it), but it is compared exactly, never by shape.
+  if (env.ADMIN_TOKEN && timingSafe(token, env.ADMIN_TOKEN)) {
+    return { ok: true, email: "operator" };
+  }
+  if (token.split(".").length !== 3) return { ok: false, reason: "bad token" };
+  const h = { apikey: env.SUPABASE_ANON_KEY, Authorization: "Bearer " + token };
+  const who = await fetch(env.SUPABASE_URL + "/auth/v1/user", { headers: h }).catch(() => null);
+  if (!who || !who.ok) return { ok: false, reason: "bad token" };
+  const u = await who.json().catch(() => null);
+  const check = await fetch(env.SUPABASE_URL + "/rest/v1/rpc/is_console_admin", {
+    method: "POST", headers: { ...h, "Content-Type": "application/json" }, body: "{}",
+  }).catch(() => null);
+  if (!check || !check.ok) return { ok: false, reason: "not an admin" };
+  const isAdmin = await check.json().catch(() => false);
+  if (isAdmin !== true) return { ok: false, reason: "not an admin" };
+  return { ok: true, email: (u && u.email) || "admin" };
+}
+
+/** One shape for every console-admin gate: null means allowed, a Response means
+ *  denied (403 with the reason). Call sites must check this, never the object. */
+async function requireConsoleAdmin(env, request, origin) {
+  const a = await consoleAdmin(env, request);
+  return a.ok ? null : json({ error: "not allowed", reason: a.reason }, 403, origin);
 }
 
 async function sb(env, path, init) {
@@ -103,10 +132,15 @@ async function roster(env) {
 // Creator tokens are no longer accepted anywhere: the creator panel was removed, so nobody
 // outside the operator console has business reading or writing a record.
 async function whoami(env, request, url) {
+  // Header only. A token in the query string lands in logs, proxies and referrers,
+  // so ?t= is gone (2026-10-20). Every caller already sends Authorization: Bearer.
   const bearer = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
-  const token = bearer || url.searchParams.get("t") || "";
+  const token = bearer;
   if (!token) return null;
-  if (env.ADMIN_TOKEN && token === env.ADMIN_TOKEN) {
+  if (env.ADMIN_TOKEN && timingSafe(token, env.ADMIN_TOKEN)) {
+    // The god-token is the operator's: ?creator= is how the console acts on a
+    // creator's behalf, and it is only honoured on this branch, never for a
+    // Supabase session.
     return { id: url.searchParams.get("creator") || "ava", role: "admin" };
   }
   if (token.split(".").length === 3) {
@@ -121,7 +155,24 @@ async function whoami(env, request, url) {
       const part = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
       aal = JSON.parse(atob(part + "=".repeat((4 - (part.length % 4)) % 4))).aal || "aal1";
     } catch (e) { /* older tokens carry no aal */ }
-    return { id: null, role: "nobody", email: u.email };
+    // A Supabase session is a console admin only if the predicate says so. Before
+    // 2026-10-20 every session came back "nobody" here, so real console admins
+    // were locked out of /settings, /bots, /persona and /manual while a forged
+    // three-part string was let in by consoleAdmin: exactly backwards.
+    const chk = await fetch(env.SUPABASE_URL + "/rest/v1/rpc/is_console_admin", {
+      method: "POST",
+      headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: "Bearer " + token, "Content-Type": "application/json" },
+      body: "{}",
+    }).catch(() => null);
+    const isAdmin = chk && chk.ok ? await chk.json().catch(() => false) : false;
+    // Admin means: the predicate says so AND the session is MFA-strength. A
+    // password-only (aal1) session never gets admin, even for a listed user,
+    // because the console can mint media links and rewrite bot tokens.
+    const admin = isAdmin === true && aal === "aal2";
+    // Same shape as the operator branch: act on ?creator=, else the default
+    // creator, so no route ever sees a null creator id.
+    return { id: admin ? (url.searchParams.get("creator") || "ava") : null,
+             role: admin ? "admin" : "nobody", email: u.email };
   }
   return null;                      // creator tokens: not a thing any more
 }
@@ -162,9 +213,8 @@ export default {
 
     // Bot management endpoints for console admin (before whoami check)
     if (url.pathname === "/bots/hook" && request.method === "POST") {
-      if (!(await consoleAdmin(env, request))) {
-        return json({ error: "not allowed" }, 403, origin);
-      }
+      const denied = await requireConsoleAdmin(env, request, origin);
+      if (denied) return denied;
       const b = await request.json();
       const persona = String(b.persona || "").trim().toLowerCase();
       const rows = await sb(env, "bots?select=token,username&persona=eq." + encodeURIComponent(persona));
@@ -240,8 +290,36 @@ export default {
     // sender is the OWNER acting on a conversation, not a creator login.
     // Telegram media proxy: the console passes a stored file_id, we fetch the
     // file path from Telegram and stream the bytes back. Admin-gated.
+    // Media in the inbox is rendered by <img>, which cannot send an
+    // Authorization header. The console asks here (admin only) for a short lived
+    // signed URL and /tgfile accepts e+s. Before 2026-10-20 these images loaded
+    // only because the admin gate was broken.
+    if (url.pathname === "/tgfile/sign" && request.method === "GET") {
+      const denied = await requireConsoleAdmin(env, request, origin);
+      if (denied) return denied;
+      const f = url.searchParams.get("f") || "";
+      const bc = url.searchParams.get("bc") || "";
+      if (!f || !bc) return json({ error: "file_id and bc required" }, 400, origin);
+      const exp = Math.floor(Date.now() / 1000) + 300;
+      const s = await sign(f + "|" + bc, exp, env.MEDIA_SECRET + ":tgfile");
+      return json({ url: "/tgfile?f=" + encodeURIComponent(f) + "&bc=" + encodeURIComponent(bc) +
+                          "&e=" + exp + "&s=" + s, exp }, 200, origin);
+    }
+
     if (url.pathname === "/tgfile" && request.method === "GET") {
-      if (!(await consoleAdmin(env, request))) return json({ error: "not allowed" }, 403, origin);
+      const preF = url.searchParams.get("f") || "";
+      const preBc = url.searchParams.get("bc") || "";
+      const preE = parseInt(url.searchParams.get("e") || "0", 10);
+      const preS = url.searchParams.get("s") || "";
+      let allowed = false;
+      if (preF && preBc && preE && preS && preE * 1000 >= Date.now()) {
+        const want = await sign(preF + "|" + preBc, preE, env.MEDIA_SECRET + ":tgfile");
+        allowed = timingSafe(preS, want);
+      }
+      if (!allowed) {
+        const denied = await requireConsoleAdmin(env, request, origin);
+        if (denied) return denied;
+      }
       const f = url.searchParams.get("f") || "";
       const bc = url.searchParams.get("bc") || "";
       if (!f || !bc) return json({ error: "file_id and bc required" }, 400, origin);
@@ -279,7 +357,8 @@ export default {
     // Persona learning: analyse real chats (stored history + uploaded
     // screenshots of conversations) and draft a persona prompt.
     if (url.pathname === "/persona/learn" && request.method === "POST") {
-      if (!(await consoleAdmin(env, request))) return json({ error: "not allowed" }, 403, origin);
+      const denied = await requireConsoleAdmin(env, request, origin);
+      if (denied) return denied;
       const b = await request.json().catch(() => ({}));
       const accountId = String(b.account_id || "");
       if (!accountId) return json({ error: "account_id required" }, 400, origin);
@@ -339,9 +418,8 @@ export default {
     }
 
     if (url.pathname === "/conversations/reply" && request.method === "POST") {
-      if (!(await consoleAdmin(env, request))) {
-        return json({ error: "not allowed" }, 403, origin);
-      }
+      const denied = await requireConsoleAdmin(env, request, origin);
+      if (denied) return denied;
       const b = await request.json();
       const convId = String(b.conversation_id || "");
       const text = String(b.text || "").trim().slice(0, 4096);
@@ -415,6 +493,9 @@ export default {
       const key = String(body.key || "");
       const ttl = Math.min(Math.max(parseInt(body.ttl || "86400", 10), 60), 7 * 86400);
       if (!key) return json({ error: "no key" }, 400, origin);
+      // /tgfile signatures are minted only by /tgfile/sign, under its own key
+      // space, so a long lived /m/ signature can never act as an inbox media pass.
+      if (key.startsWith("tgfile|")) return json({ error: "reserved key" }, 400, origin);
       if (me.role !== "admin" && !key.startsWith(me.id + "/")) {
         return json({ error: "not your file" }, 403, origin);
       }
@@ -542,19 +623,21 @@ export default {
 
     // the kill switch: readable by the assistant, writable by the assistant or by an admin
     if (url.pathname === "/settings" && request.method === "GET") {
-      if (me.role !== "admin" && !(await consoleAdmin(env, request))) {
-        return json({ error: "not allowed" }, 403, origin);
+      if (me.role !== "admin") {
+        const denied = await requireConsoleAdmin(env, request, origin);
+        if (denied) return denied;
       }
       const rows = await sb(env, "settings?select=value&key=eq.assistants");
       const value = (rows && rows[0] && rows[0].value) || {};
       return json({ kill_all: !!value.kill_all, by: value.by || null }, 200, origin);
     }
     if (url.pathname === "/settings" && request.method === "POST") {
-      if (me.role !== "admin" && !(await consoleAdmin(env, request))) {
-        return json({ error: "not allowed" }, 403, origin);
+      if (me.role !== "admin") {
+        const denied = await requireConsoleAdmin(env, request, origin);
+        if (denied) return denied;
       }
       const b = await request.json();
-      const who = b.by || (me.user ? me.user.email : null) || "operator";
+      const who = b.by || me.email || "operator";
       const value = { kill_all: !!b.kill_all, at: Date.now() / 1000, by: who };
       await sb(env, "settings?on_conflict=key", { method: "POST",
         headers: { Prefer: "resolution=merge-duplicates" },
@@ -564,9 +647,11 @@ export default {
 
     // one creator on or off by hand (manual mode), for the console
     if (url.pathname === "/manual" && request.method === "POST") {
-      if (me.role !== "admin" && !(await consoleAdmin(env, request))) {
-        return json({ error: "not allowed" }, 403, origin);
-      }      const b = await request.json();
+      if (me.role !== "admin") {
+        const denied = await requireConsoleAdmin(env, request, origin);
+        if (denied) return denied;
+      }
+      const b = await request.json();
       const id = String(b.id || "");
       if (!id) return json({ error: "which creator?" }, 400, origin);
       const rows = await sb(env, "creators?id=eq." + encodeURIComponent(id) + "&select=record");
@@ -580,16 +665,18 @@ export default {
 
     // never send a token to a browser: the panel shows the handle and a mask
     if (url.pathname === "/bots" && request.method === "GET") {
-      if (me.role !== "admin" && !(await consoleAdmin(env, request))) {
-        return json({ error: "not allowed" }, 403, origin);
+      if (me.role !== "admin") {
+        const denied = await requireConsoleAdmin(env, request, origin);
+        if (denied) return denied;
       }
       const rows = await sb(env, "bots?select=persona,username,active,created_at&order=created_at.asc");
       return json({ bots: (rows || []).map(b => ({ persona: b.persona, username: b.username,
                                                    active: b.active, added: b.created_at })) }, 200, origin);
     }
     if (url.pathname === "/bots" && request.method === "POST") {
-      if (me.role !== "admin" && !(await consoleAdmin(env, request))) {
-        return json({ error: "not allowed" }, 403, origin);
+      if (me.role !== "admin") {
+        const denied = await requireConsoleAdmin(env, request, origin);
+        if (denied) return denied;
       }
       const b = await request.json();
       const persona = String(b.persona || "").trim().toLowerCase();
@@ -608,8 +695,9 @@ export default {
     }
     // Per-creator personality. Configurable from the console, no deploy needed.
     if (url.pathname === "/persona" && request.method === "GET") {
-      if (me.role !== "admin" && !(await consoleAdmin(env, request))) {
-        return json({ error: "not allowed" }, 403, origin);
+      if (me.role !== "admin") {
+        const denied = await requireConsoleAdmin(env, request, origin);
+        if (denied) return denied;
       }
       const cid = url.searchParams.get("creator") || me.id;
       const rows = await sb(env, "ai_profiles?creator_id=eq." + encodeURIComponent(cid) + "&select=*");
@@ -634,8 +722,9 @@ export default {
     }
 
     if (url.pathname === "/persona" && request.method === "PUT") {
-      if (me.role !== "admin" && !(await consoleAdmin(env, request))) {
-        return json({ error: "not allowed" }, 403, origin);
+      if (me.role !== "admin") {
+        const denied = await requireConsoleAdmin(env, request, origin);
+        if (denied) return denied;
       }
       const b = await request.json().catch(() => ({}));
       const cid = String(b.creator_id || url.searchParams.get("creator") || me.id);

@@ -548,6 +548,30 @@ function ago(iso){ if(!iso) return '—'; const s=(Date.now()-new Date(iso))/100
   if(s<172800) return 'Yesterday'; if(s<7*86400) return Math.floor(s/86400)+'d ago';
   return new Date(iso).toLocaleDateString('en-GB',{day:'numeric',month:'short'}); }
 const uid = () => state.session?.user?.id;
+
+// <img> cannot send an Authorization header, so inbox media gets a signed,
+// five minute URL from the Worker before the src is set (api: /tgfile/sign).
+const tgSig = new Map();   // "f|bc" -> {url, exp}; reused across polls
+async function signTgfiles(root){
+  if(!root) return;
+  const tok = state.session?.access_token || (await state.sb.auth.getSession())?.data?.session?.access_token;
+  const imgs = [...root.querySelectorAll('img.msg-img[data-f]')];
+  if(!imgs.length) return;
+  const now = Math.floor(Date.now()/1000);
+  await Promise.all(imgs.map(async im => {
+    const k = im.dataset.f + '|' + im.dataset.bc;
+    let c = tgSig.get(k);
+    if(c && c.exp - 30 > now){ im.src = c.url; return; }
+    if(!tok) return;
+    try{
+      const r = await fetch('https://api-telebotcreator.turboit.uk/tgfile/sign?f=' + im.dataset.f + '&bc=' + im.dataset.bc,
+        { headers: { Authorization: 'Bearer ' + tok } });
+      if(!r.ok) return;
+      const j = await r.json();
+      if(j && j.url){ c = { url: 'https://api-telebotcreator.turboit.uk' + j.url, exp: j.exp }; tgSig.set(k, c); im.src = c.url; }
+    }catch(e){ /* leave the bubble text only */ }
+  }));
+}
 // Owner can manage any creator's assistant/content/accounts; everyone else edits their own.
 const ownerTarget = () => (state.isAdmin && state.aiCreator) ? state.aiCreator : uid();
 const configured = () => !/YOUR-/.test(SUPABASE_URL + SUPABASE_ANON_KEY);
@@ -584,6 +608,27 @@ async function checkAuth(){
     const { data:{ session } } = await state.sb.auth.getSession();
     if(session){
       state.session = session; state.demo = false;
+      // A restored session can still be aal1: clear TOTP before the console opens.
+      try{
+        const lvl = await state.sb.auth.mfa.getAuthenticatorAssuranceLevel();
+        if(lvl?.data?.nextLevel === 'aal2' && lvl?.data?.currentLevel !== 'aal2'){
+          const { data:fl } = await state.sb.auth.mfa.listFactors();
+          const f = (fl?.totp || []).find(x => x.status === 'verified');
+          if(f){
+            const code = prompt('Enter your 6 digit authenticator code');
+            if(code){
+              const ch = await state.sb.auth.mfa.challenge({ factorId: f.id });
+              if(!ch.error){
+                const vr = await state.sb.auth.mfa.verify({ factorId: f.id, challengeId: ch.data.id, code: code.trim() });
+                if(!vr.error){
+                  const s2 = await state.sb.auth.getSession();
+                  if(s2?.data?.session) state.session = s2.data.session;
+                }
+              }
+            }
+          }
+        }
+      }catch(e){ /* the API still decides: aal1 gets 403 */ }
       const id = session.user.id;
       let { data:creator, error } = await state.sb.from('creators').select('*').eq('id', id).maybeSingle();
       if(error) throw error;
@@ -598,7 +643,7 @@ async function checkAuth(){
       state.creator = creator;
       try{ const { data } = await state.sb.rpc('is_console_admin'); state.isAdmin = !!data; }catch{}
       if(state.isAdmin){ try{ const { data: rows } = await state.sb.from('creators').select('id, name').order('created_at', { ascending:true }); state.aiCreators = rows || []; }catch{} }
-      state.sb.auth.onAuthStateChange(ev => { if(ev === 'SIGNED_OUT') location.href = 'login.html'; });
+      state.sb.auth.onAuthStateChange((ev, s) => { if(s) state.session = s; if(ev === 'SIGNED_OUT') location.href = 'login.html'; });
       return;
     }
   }
@@ -1023,7 +1068,7 @@ function renderAccConnection(a){
       $('#acc-refresh-bc').textContent = 'Syncing...';
       
       // Check if logged in and token exists
-      const token = state.session?.user?.access_token;
+      const token = state.session?.access_token;
       const userEmail = state.session?.user?.email;
       
       if (!token) {
@@ -1061,7 +1106,7 @@ function renderAccConnection(a){
       if (data.webhook === 'set') {
         // After setting webhook, fetch the connection ID
         const connRes = await fetch('https://api-telebotcreator.turboit.uk/bots/connection?username=' + encodeURIComponent(a.username), {
-          headers: { 'Authorization': 'Bearer ' + state.session?.user?.access_token }
+          headers: { 'Authorization': 'Bearer ' + state.session?.access_token }
         });
         if (connRes.ok) {
           const connData = await connRes.json();
@@ -1248,10 +1293,11 @@ async function refreshThread(id){
       const sep = day !== lastDay ? `<span class="day-sep">${day}</span>` : ''; lastDay = day;
       const fid = m.raw && m.raw.file_id;
       const mediaHtml = fid
-        ? `<img class="msg-img" src="https://api-telebotcreator.turboit.uk/tgfile?f=${encodeURIComponent(fid)}&bc=${encodeURIComponent(state.inbox.activeBc || '')}" alt="" loading="lazy">`
+        ? `<img class="msg-img" data-f="${encodeURIComponent(fid)}" data-bc="${encodeURIComponent(state.inbox.activeBc || '')}" alt="" loading="lazy">`
         : esc(m.body_preview);
       return `${sep}<div class="bubble ${m.direction==='out'?'out':'in'}">${mediaHtml}<time>${m.sender==='ai'?'<span class="ai">AI</span>':''}${fmtTime(m.sent_at)}</time></div>`;
     }).join('') : box.innerHTML;
+    signTgfiles(box);
     box.scrollTop = box.scrollHeight;
   }catch(e){ /* polling errors are silent; the full openConversation shows them */ }
 }
@@ -1292,10 +1338,11 @@ async function openConversation(id){
       const sep = day !== lastDay ? `<span class="day-sep">${day}</span>` : ''; lastDay = day;
       const fid = m.raw && m.raw.file_id;
       const mediaHtml = fid
-        ? `<img class="msg-img" src="https://api-telebotcreator.turboit.uk/tgfile?f=${encodeURIComponent(fid)}&bc=${encodeURIComponent(state.inbox.activeBc || '')}" alt="" loading="lazy">`
+        ? `<img class="msg-img" data-f="${encodeURIComponent(fid)}" data-bc="${encodeURIComponent(state.inbox.activeBc || '')}" alt="" loading="lazy">`
         : esc(m.body_preview);
       return `${sep}<div class="bubble ${m.direction==='out'?'out':'in'}">${mediaHtml}<time>${m.sender==='ai'?'<span class="ai">AI</span>':''}${fmtTime(m.sent_at)}</time></div>`;
     }).join('') : `<div class="thread-empty">${empty('message','No messages','Say hello to start the conversation.')}</div>`;
+    signTgfiles($('#msgs'));
     const box = $('#msgs'); box.scrollTop = box.scrollHeight;
     if(conv.unread_count){
       conv.unread_count = 0;
