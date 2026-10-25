@@ -407,12 +407,15 @@ async function pollFab(env){
           const sentBefore = await sb(env, `fabswingers_messages?fabswingers_account_id=eq.${acct.id}&fs_user_id=eq.${encodeURIComponent(row.user)}&direction=eq.out&select=id`).catch(() => []);
           const turn = (sentBefore || []).length;
           const meetAsk = fsMeetAsk(row.snippet);
+          // a man who writes a proper message is already engaged, so he gets
+          // the invite straight away instead of waiting for a second exchange
+          const warm = String(row.snippet || "").length >= 90 || /\?/.test(row.snippet || "");
           text = await fsDraftFor(env, acct, persona, row, thread, turn, meetAsk);
           // getting him onto Telegram is the whole point of this account, so it
           // does not depend on the model remembering
           const handle = "@" + acct.telegram_username;
-          if(acct.telegram_username && (turn >= 1 || meetAsk) && text && !text.toLowerCase().includes(handle.toLowerCase())){
-            const retry = await fsDraftFor(env, acct, persona, row, thread, turn, meetAsk, true);
+          if(acct.telegram_username && (turn >= 1 || meetAsk || warm) && text && !text.toLowerCase().includes(handle.toLowerCase())){
+            const retry = await fsDraftFor(env, acct, persona, row, thread, Math.max(turn, 1), meetAsk, true);
             text = retry && retry.toLowerCase().includes(handle.toLowerCase())
               ? retry
               : text.replace(/[\s.]+$/, "") + ` anyway, why don't you add me on telegram ${handle} x`;
