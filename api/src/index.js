@@ -264,7 +264,10 @@ async function pollFab(env){
         continue;
       }
       // she is online whenever the phone is, day or night: the night is when
-      // this earns, and a person answering at 01:00 is normal on this site
+      // this earns, and a person answering at 01:00 is normal on this site.
+      // Not every tick sends: a person picks the phone up when they pick it up,
+      // so gaps between answers wander instead of landing every sixty seconds.
+      if (Math.random() > Number(env.FS_SEND_CHANCE || 0.55)) continue;
 
       let cookie = await fsLoadCookie(env, acct.id);
       let snap = null;
@@ -318,8 +321,10 @@ async function pollFab(env){
       }
       const minWait = Number(env.FS_MIN_WAIT || 45) * 1000;
       const ready = (doneRows || []).filter((r) => r.notes === "pending" && Date.now() - new Date(r.created_at).getTime() >= minWait);
+      // one message per tick, never a burst: the next thread waits for the
+      // next minute even when several are queued
       const todo = ready.length
-        ? snap.rows.filter((r) => r.unread && ready.some((d) => d.fs_user_id === r.user)).slice(0, 3)
+        ? snap.rows.filter((r) => r.unread && ready.some((d) => d.fs_user_id === r.user)).slice(0, 1)
         : [];
       for(const row of todo){
         const reason = fsStopReason(row.snippet);
