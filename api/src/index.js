@@ -190,23 +190,36 @@ async function whoami(env, request, url) {
 const FS_STOP = [
   [/\b0\d{9,10}\b|\b\+44\s?\d/, "phone number"],
   [/\b(pay|payment|deposit|bank transfer|paypal|amazon voucher|cash)\b/i, "money talk"],
-  [/\b(meet|meeting|come round|your address|where do you live|postcode)\b/i, "meet request"],
+  // meet and address asks are not a stop any more: they are the pivot. See
+  // fsMeetAsk: he is answered with the Telegram invitation, never a plan.
   [/\b(under ?18|underage|school|teen|15|16|17)\b/i, "age doubt"],
   [/\b(blackmail|screenshot|i know (where|who)|expose)\b/i, "threat"],
 ];
+const FS_MEET_RE = /\b(meet|meeting|meet up|come round|come over|your address|where do you live|postcode|hotel|hook ?up|free tonight|free this week|fancy a coffee|drink sometime)\b/i;
+function fsMeetAsk(text){ return FS_MEET_RE.test(String(text || "")); }
+
 function fsStopReason(text){
   const t = String(text || "");
   for (const [re, why] of FS_STOP) if (re.test(t)) return why;
   return null;
 }
 
-async function fsDraftFor(env, acct, persona, row, thread){
+async function fsDraftFor(env, acct, persona, row, thread, turn, meetAsk, force){
   const rules = [
     persona.system_prompt || "You are a real woman chatting on FabSwingers. Be cheeky, playful and short.",
     persona.tone ? `Tone: ${persona.tone}.` : "",
     persona.emoji_level ? `Emoji use: ${persona.emoji_level}.` : "",
     persona.message_length ? `Message length: ${persona.message_length}.` : "",
-    acct.telegram_username ? `Your Telegram is @${acct.telegram_username}. Flirt a little first, then when the chat is going well drop that handle into a normal message, once, in your own words, the way "obvs if you want to chat more, @${acct.telegram_username}" lands. Never as a message on its own and never repeat it. If he wants to be degraded, only tease him about it here: "you'd have to ask me nicely somewhere private". The real thing waits until he is on Telegram, never on FabSwingers.` : "",
+    force && acct.telegram_username
+      ? `Your message must end with a casual invitation to Telegram and must contain @${acct.telegram_username}. Something like "why don't you add me on telegram, I hate it on here x". Clear and offhand.`
+      : "",
+    meetAsk && acct.telegram_username
+      ? `He is asking to meet. Do not agree, do not discuss where, when or a hotel, not one word about it. Turn it into the invite, casual and clear, the way "why don't you add me on telegram, I hate it on here x" lands, with @${acct.telegram_username} in it.`
+      : "",
+    acct.telegram_username ? (Number(turn || 0) >= 1
+      ? `This is your ${Number(turn) + 1}${Number(turn) + 1 === 2 ? 'nd' : Number(turn) + 1 === 3 ? 'rd' : 'th'} message to him, so it is time to move him to Telegram. Work it into this message in your own words, something like "why don't we talk properly on telegram, add me @${acct.telegram_username}". Flirty, offhand, one line, part of the message, never a message on its own.`
+      : `Do not mention Telegram in this first message. Just be cheeky and let him come back.`)
+      + ` Your handle is @${acct.telegram_username}. If he wants to be degraded, only tease him about it here: "you'd have to ask me nicely somewhere private". The real thing waits until he is on Telegram, never on FabSwingers.` : "",
     "Reply with the message text only. No quotes, no labels, no explanation.",
   ].filter(Boolean).join("\n");
   const history = (thread.messages || []).slice(-8).map((m) => m.text).join("\n") || row.snippet;
@@ -391,7 +404,19 @@ async function pollFab(env){
             redirect: "follow",
           }).then((r) => r.text());
           const thread = parseThread(tr);
-          text = await fsDraftFor(env, acct, persona, row, thread);
+          const sentBefore = await sb(env, `fabswingers_messages?fabswingers_account_id=eq.${acct.id}&fs_user_id=eq.${encodeURIComponent(row.user)}&direction=eq.out&select=id`).catch(() => []);
+          const turn = (sentBefore || []).length;
+          const meetAsk = fsMeetAsk(row.snippet);
+          text = await fsDraftFor(env, acct, persona, row, thread, turn, meetAsk);
+          // getting him onto Telegram is the whole point of this account, so it
+          // does not depend on the model remembering
+          const handle = "@" + acct.telegram_username;
+          if(acct.telegram_username && (turn >= 1 || meetAsk) && text && !text.toLowerCase().includes(handle.toLowerCase())){
+            const retry = await fsDraftFor(env, acct, persona, row, thread, turn, meetAsk, true);
+            text = retry && retry.toLowerCase().includes(handle.toLowerCase())
+              ? retry
+              : text.replace(/[\s.]+$/, "") + ` anyway, why don't you add me on telegram ${handle} x`;
+          }
           const drafted = fsStopReason(text);
           if(!text){ status = "skipped: empty draft"; }
           else if(drafted){ status = "skipped: own reply mentioned " + drafted; }
