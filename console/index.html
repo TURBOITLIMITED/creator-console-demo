@@ -2013,6 +2013,7 @@ async function renderFabSwingers() {
       <span class="end">
         <span class="pill ${open.enabled ? 'ok' : 'draft'}">${open.enabled ? 'On' : 'Off'}</span>
         <button class="btn sm" data-act="fs-run">${ic('refresh')}Run a check</button>
+        <button class="act" data-act="fs-edit" data-id="${esc(open.id)}" title="Edit login and personality">${ic('edit')}Edit</button>
         <button class="act" data-act="fs-toggle" data-id="${esc(open.id)}" data-on="${open.enabled ? 1 : 0}">${ic('power')}${open.enabled ? 'Turn off' : 'Turn on'}</button>
       </span></div>
       <div class="panel-body" style="padding-top:0"><p class="muted" style="margin:0;font-size:12.5px">@${esc(open.telegram_username)} · ${esc(open.last_error ? open.last_error.slice(0, 120) : (open.last_poll_at ? 'last checked ' + ago(open.last_poll_at) : 'not checked yet'))}</p></div>
