@@ -98,6 +98,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 .audit-count[hidden]{display:none}
 .app[data-collapsed="true"] .audit-btn{position:relative;justify-content:center;padding:0}
 .app[data-collapsed="true"] .audit-count{position:absolute;top:3px;right:3px;padding:0 5px;font-size:9.5px}
+#fs-detail:empty,#fs-alerts:empty,#fs-manual:empty{display:none}
 .audit-list{list-style:none;margin:0;padding:0}
 .audit-list li{display:flex;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule-2)}
 .audit-list li:last-child{border-bottom:0}
@@ -735,7 +736,7 @@ document.addEventListener('gesturechange', e => e.preventDefault(), { passive:fa
       <a href="#accounts" data-sec="accounts" title="Accounts"><svg class="i"><use href="#i-send"/></svg><span class="nav-label">Accounts</span></a>
       <a href="#inbox" data-sec="inbox" title="Inbox"><svg class="i"><use href="#i-inbox"/></svg><span class="nav-label">Inbox</span><span class="count" id="nav-unread" hidden>0</span></a>
       <div class="nav-group">FABSWINGERS</div>
-      <a href="#fabswingers" data-sec="fabswingers" title="FabSwingers"><svg class="i"><use href="#i-chat"/></svg><span class="nav-label">FabSwingers</span></a>
+      <a href="#fabswingers" data-sec="fabswingers" title="FabSwingers"><svg class="i"><use href="#i-chat"/></svg><span class="nav-label">FabSwingers</span><span class="count" id="nav-fab" hidden style="background:var(--bad);color:#fff">0</span></a>
       <div class="nav-group">CONTENT</div>
       <a href="#library" data-sec="library" title="Library"><svg class="i"><use href="#i-layers"/></svg><span class="nav-label">Library</span></a>
       <a href="#gallery" data-sec="gallery" title="Gallery"><svg class="i"><use href="#i-image"/></svg><span class="nav-label">Gallery</span></a>
@@ -1971,6 +1972,7 @@ async function renderFabSwingers() {
         <button class="btn sm" data-act="fs-run">${ic('refresh')}Run a check now</button>
         <button class="btn sm primary" data-act="fs-link">${ic('plus')}Add account</button></span></div>
       <div id="fs-list">${spinner('Loading accounts...')}</div></div>
+    <div id="fs-manual"></div>
     <div id="fs-detail"></div>
     <div id="fs-alerts"></div>
     <section class="panel" style="margin-top:16px">
@@ -1988,6 +1990,19 @@ async function renderFabSwingers() {
   fsUpgradeAlerts('#fs-alerts');
 }
 
+/* Anything the stop rules caught is a human's job, so it is counted on the
+   nav and shown in red until it has been answered. */
+function fsFlagged(rows){ return (rows || []).filter(r => /^(flagged|send failed)/i.test(r.notes || '')); }
+async function refreshFabBadge(){
+  const el = document.getElementById('nav-fab');
+  try{
+    const { data } = await state.sb.from('fabswingers_conversations').select('notes').limit(200);
+    const n = fsFlagged(data).length;
+    if(el){ el.textContent = n > 99 ? '99+' : String(n); el.hidden = !n; }
+    return n;
+  }catch(e){ if(el) el.hidden = true; return 0; }
+}
+
 /* The log the owner actually needs: who was answered, what she said, and who
    was left alone because something did not smell right. */
 async function fsLoadActivity(){
@@ -1998,15 +2013,26 @@ async function fsLoadActivity(){
       .order('last_message_at', { ascending:false, nullsFirst:false }).limit(20);
     const list = rows || [];
     $('#fs-activity-count').textContent = list.length ? `${list.length} recent` : '';
+    const manualRows = (list || []).filter(r => /^(flagged|send failed)/i.test(r.notes || ''));
+    const bar = $('#fs-manual');
+    if(bar) bar.innerHTML = manualRows.length ? `<div class="panel" style="border-color:var(--bad);margin-bottom:16px">
+      <div class="panel-body" style="display:flex;gap:10px;align-items:center;flex-wrap:nowrap;padding:10px 12px">
+        <span class="a-kind" style="background:var(--bad);color:#fff;flex:none">MANUAL REPLY</span>
+        <span style="flex:1 1 auto;min-width:0;font-size:13px"><b>${manualRows.length}</b> ${manualRows.length === 1 ? 'thread needs' : 'threads need'} you</span>
+        <button class="btn sm" style="flex:none" data-act="fs-inbox-check">Open inbox</button>
+      </div></div>` : '';
+    refreshFabBadge();
     if(!list.length){ el.innerHTML = `<div class="panel-body"><p class="muted" style="margin:0">Nothing yet. Once she starts answering, each thread appears here with what she said or why she stopped.</p></div>`; return; }
     el.innerHTML = `<ul class="audit-list">${list.map(r => {
       const note = r.notes || 'answered';
-      const flagged = /^(flagged|skipped|send failed|rate|UPGRADE)/i.test(note);
-      const label = note === 'pending' ? 'WAITING' : flagged ? 'STOPPED' : note === 'answered' ? 'ANSWERED' : note.toUpperCase();
+      const manual = /^(flagged|send failed)/i.test(note);
+      const flagged = manual || /^(skipped|rate|UPGRADE)/i.test(note);
+      const label = manual ? 'MANUAL REPLY' : note === 'pending' ? 'WAITING' : flagged ? 'STOPPED' : note === 'answered' ? 'ANSWERED' : note.toUpperCase();
       return `<li><span class="a-kind" style="background:${flagged ? 'var(--bad-soft)' : note === 'pending' ? 'var(--sunk)' : 'var(--ok-soft)'};color:${flagged ? 'var(--bad)' : note === 'pending' ? 'var(--ink-3)' : 'var(--ok)'}">${esc(label)}</span>
         <div class="a-body"><p><b>${esc(r.fs_user_name || r.fs_user_id)}</b> <small>${r.last_message_at ? esc(ago(r.last_message_at)) : ''}</small></p>
         ${r.conversation_summary ? `<p style="color:var(--ink-2)">${esc(r.conversation_summary)}</p>` : ''}
-        ${flagged ? `<small>Left for you: ${esc(note)}</small>` : ''}</div></li>`;
+        ${flagged ? `<small>Left for you: ${esc(note)}</small>` : ''}
+        ${manual ? `<button class="btn sm" style="margin-top:6px" data-act="fs-reply-user" data-user="${esc(r.fs_user_id)}">${ic('send')}Reply by hand</button>` : ''}</div></li>`;
     }).join('')}</ul>`;
   }catch(e){ el.innerHTML = `<div class="panel-body"><p class="muted">${esc(e.message)}</p></div>`; }
 }
@@ -2212,7 +2238,14 @@ async function fsSend(guid, user, btn){
   const acc = (state.fsAccounts || [])[0]; if(!acc) return;
   if(!text){ toast('Write something first', 'error'); return; }
   const r = await withBusy(btn, () => fsCall('/fabswingers/send', { method:'POST', body: JSON.stringify({ id: acc.id, guid, user, text }) }));
-  if(r && r.ok){ toast('Sent on FabSwingers', 'success'); fsInboxLoad(); }
+  if(r && r.ok){
+    // a manual answer clears the flag, so the red bar and the badge go away
+    try{ await state.sb.from('fabswingers_conversations')
+      .update({ notes:'answered (manual)', last_message_at:new Date().toISOString() })
+      .eq('fabswingers_account_id', acc.id).eq('fs_user_id', user); }catch(e){}
+    toast('Sent on FabSwingers', 'success');
+    fsInboxLoad(); refreshFabBadge(); fsLoadActivity();
+  }
   else if(r) toast('FabSwingers refused it', 'error', r.error || ('Status ' + r.status));
 }
 
@@ -2756,6 +2789,14 @@ view.addEventListener('click', async e => {
     }
     /* fabswingers inbox */
     case 'fs-inbox-check': fsInboxLoad(); break;
+    case 'fs-reply-user': {
+      const who = a.dataset.user;
+      await fsInboxLoad();
+      const m = (state.fsInbox || []).find(x => x.user === who);
+      if(m) { await fsDraft(m.guid, m.user); document.getElementById('fs-inbox')?.scrollIntoView({ behavior:'smooth', block:'center' }); }
+      else toast('That thread is not in the inbox now', 'error', 'It may have been removed on FabSwingers.');
+      break;
+    }
     case 'fs-run': {
       const a2 = a;
       try{
