@@ -12,6 +12,10 @@
   ],
   "ai": { "binding": "AI" },
 
+  // Every five minutes the Fab poller looks for unread threads on switched-on
+  // accounts. The poll itself is capped, so a quiet run costs one login.
+  "triggers": { "crons": ["*/5 * * * *"] },
+
   "vars": {
     // Declared on the live worker but NEVER referenced anywhere in the source.
     "DEMO": ""

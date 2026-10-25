@@ -179,6 +179,104 @@ async function whoami(env, request, url) {
   return null;                      // creator tokens: not a thing any more
 }
 
+
+/* ============================================================
+   FabSwingers poller
+   Runs on the cron trigger. Only switched-on accounts, only unread threads
+   that have not been answered yet, at most two per run. Anything that smells
+   wrong (a phone number, money, a meet, or someone who might be under 18) is
+   never answered: the thread is recorded with a reason and left for a human.
+   ============================================================ */
+const FS_STOP = [
+  [/\b0\d{9,10}\b|\b\+44\s?\d/, "phone number"],
+  [/\b(pay|payment|deposit|bank transfer|paypal|amazon voucher|cash)\b/i, "money talk"],
+  [/\b(meet|meeting|come round|your address|where do you live|postcode)\b/i, "meet request"],
+  [/\b(under ?18|underage|school|teen|15|16|17)\b/i, "age doubt"],
+  [/\b(blackmail|screenshot|i know (where|who)|expose)\b/i, "threat"],
+];
+function fsStopReason(text){
+  const t = String(text || "");
+  for (const [re, why] of FS_STOP) if (re.test(t)) return why;
+  return null;
+}
+
+async function fsDraftFor(env, acct, persona, row, thread){
+  const rules = [
+    persona.system_prompt || "You are a real woman chatting on FabSwingers. Be cheeky, playful and short.",
+    persona.tone ? `Tone: ${persona.tone}.` : "",
+    persona.emoji_level ? `Emoji use: ${persona.emoji_level}.` : "",
+    persona.message_length ? `Message length: ${persona.message_length}.` : "",
+    persona.pivot_message ? `If the moment is right and you have already chatted a little, you may move them to Telegram with: ${persona.pivot_message}` : "",
+    "Reply with the message text only. No quotes, no labels, no explanation.",
+  ].filter(Boolean).join("\n");
+  const history = (thread.messages || []).slice(-8).map((m) => m.text).join("\n") || row.snippet;
+  const out = await env.AI.run(env.AI_MODEL || "@cf/mistralai/mistral-small-3.1-24b-instruct", {
+    messages: [
+      { role: "system", content: rules },
+      { role: "user", content: `His profile: ${row.name}, ${row.meta}.\nWhat he has written:\n${history}\n\nWrite her next message to him.` },
+    ],
+    max_tokens: 220,
+  });
+  return String(typeof out === "string" ? out : (out && out.response) || "").trim().replace(/^["']|["']$/g, "");
+}
+
+async function pollFab(env){
+  const accounts = await sb(env, "fabswingers_accounts?enabled=eq.true&select=*").catch(() => null);
+  if(!accounts || !accounts.length) return;
+  for(const acct of accounts){
+    try{
+      const personas = await sb(env, `fabswingers_personas?fabswingers_account_id=eq.${acct.id}&select=*`);
+      const persona = personas && personas[0];
+      if(!persona){
+        await sb(env, `fabswingers_accounts?id=eq.${acct.id}`, { method:"PATCH", headers:{Prefer:"return=minimal"},
+          body: JSON.stringify({ last_error: "No personality saved yet" }) }).catch(() => null);
+        continue;
+      }
+      const snap = await inboxSnapshot(env, acct);
+      const done = await sb(env, `fabswingers_conversations?fabswingers_account_id=eq.${acct.id}&select=fs_user_id`).catch(() => []);
+      const seen = new Set((done || []).map((r) => r.fs_user_id));
+      const todo = snap.rows.filter((r) => r.unread && !seen.has(r.user)).slice(0, 2);
+      let sent = 0;
+      for(const row of todo){
+        const reason = fsStopReason(row.snippet);
+        let status = "sent", text = null;
+        if(reason){
+          status = "flagged: " + reason;
+        } else {
+          const tr = await fetch("https://www.fabswingers.com/my/messagesnew/" + row.guid, {
+            headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36", Cookie: snap.cookie, Accept: "text/html" },
+            redirect: "follow",
+          }).then((r) => r.text());
+          const thread = parseThread(tr);
+          text = await fsDraftFor(env, acct, persona, row, thread);
+          const drafted = fsStopReason(text);
+          if(!text){ status = "skipped: empty draft"; }
+          else if(drafted){ status = "skipped: own reply mentioned " + drafted; }
+          else {
+            const res = await sendReply(snap.cookie, row.user, row.guid, text);
+            if(!res.ok){ status = "send failed: " + res.status; }
+            else sent++;
+          }
+        }
+        await sb(env, "fabswingers_conversations?on_conflict=fabswingers_account_id,fs_user_id", {
+          method:"POST", headers:{Prefer:"resolution=merge-duplicates,return=minimal"},
+          body: JSON.stringify({
+            fabswingers_account_id: acct.id, fs_user_id: row.user, fs_user_name: row.name,
+            message_count: 1, last_message_at: new Date().toISOString(),
+            conversation_summary: text ? text.slice(0, 200) : null,
+            notes: status === "sent" ? null : status,
+          }),
+        }).catch(() => null);
+      }
+      await sb(env, `fabswingers_accounts?id=eq.${acct.id}`, { method:"PATCH", headers:{Prefer:"return=minimal"},
+        body: JSON.stringify({ last_poll_at: new Date().toISOString(), last_error: null }) }).catch(() => null);
+    }catch(e){
+      await sb(env, `fabswingers_accounts?id=eq.${acct.id}`, { method:"PATCH", headers:{Prefer:"return=minimal"},
+        body: JSON.stringify({ last_poll_at: new Date().toISOString(), last_error: String((e && e.message) || e).slice(0, 300) }) }).catch(() => null);
+    }
+  }
+}
+
 export default {
   async fetch(request, env) {
    try {
@@ -868,12 +966,13 @@ export default {
       return json({ ok: true, persona: Array.isArray(row) ? row[0] : row }, 200, origin);
     }
 
-    // Poll trigger. The scraper is not deployed yet, so this reports that honestly
-    // instead of pretending a poll happened.
+    // Manual poll: the same run the cron does, so a stuck timer can be poked
+    // from the console without waiting for the next tick.
     if (url.pathname === "/fabswingers/poll" && request.method === "POST") {
       const denied = await requireConsoleAdmin(env, request, origin);
       if (denied) return denied;
-      return json({ ok: false, error: "FabSwingers auto-reply is not live yet: the account and personality save, the scraper is still to be built." }, 501, origin);
+      await pollFab(env);
+      return json({ ok: true, ran: new Date().toISOString() }, 200, origin);
     }
 
     if (url.pathname === "/fabswingers/conversations" && request.method === "GET") {
@@ -1218,5 +1317,9 @@ export default {
      return new Response(JSON.stringify({ error: String(e).slice(0, 300) }),
        { status: 500, headers: { "Content-Type": "application/json" } });
    }
+  },
+
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(pollFab(env));
   },
 };
