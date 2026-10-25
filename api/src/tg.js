@@ -417,8 +417,8 @@ function personaSystemPrompt(p, conn, catalogue, wallet, saidAlready) {
   // Emoji is a per-account setting in the console. It was never read, which is
   // how every account lost its emoji and started reading flat.
   const emoji = { low: "rarely, once every few messages at most",
-                  medium: "one or two in most messages, the way she texts: 😏 😘 💋 😈 🍑, never the same one twice in a row",
-                  high: "two or three a message, flirty, but still like a woman texting" }[(p && p.emoji_level) || "medium"];
+                  medium: "one or two in most messages, and always pick one that fits what you are saying: 🍆 for cock, 🥵 when you are horny, 😈 when you are filthy, 👀 when you are teasing or looking him over, 💦 when it is wet, plus 😏 😘 💋 🍑. Never the same one twice in a row",
+                  high: "two or three a message, flirty, and always picked to fit: 🍆 for cock, 🥵 horny, 😈 filthy, 👀 teasing, 💦 wet, plus 😏 😘 💋 🍑. Still like a woman texting, never a row of them" }[(p && p.emoji_level) || "medium"];
   const lines = [
     // The most common failure is a flirty line that never answers what he
     // asked. This rule comes first for that reason.
@@ -460,7 +460,7 @@ function personaSystemPrompt(p, conn, catalogue, wallet, saidAlready) {
   }
   // The stored persona carries its own length rule and is longer than this
   // prompt, so the format is restated last, where a small model actually reads.
-  lines.push("Format, whatever the notes above say: one line, two at most, under twenty words, with one or two emoji from her usual set 😏 😘 💋 😈. Never flat, never a paragraph, never the same emoji twice in a row.");
+  lines.push("Format, whatever the notes above say: one line, two at most, under twenty words, with an emoji in most messages, picked to fit: 🍆 for cock, 🥵 when horny, 😈 when filthy, 👀 when teasing, 💦 when wet. Never flat, never a paragraph, never the same emoji twice in a row.");
   return lines.join(" ");
 }
 
@@ -537,6 +537,22 @@ async function generateReply(env, system, history, incoming) {
    the model rarely repeats byte for byte, it rephrases. */
 const normaliseLine = s => String(s || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
 const wordsOf = s => new Set(normaliseLine(s).split(" ").filter(w => w.length > 2));
+
+/* The owner wants the emoji there, not left to the model's mood. If a reply
+   arrives with none, add one that fits what she just said, before the trailing
+   x so it still reads like her texting. */
+const EMOJI_ANY = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2764}]/u;
+function ensureEmoji(text, level) {
+  const t = String(text || "").trim();
+  if (!t || level === "low" || EMOJI_ANY.test(t)) return t;
+  let e;
+  if (/\b(cock|dick)\b/i.test(t)) e = "🍆";
+  else if (/\b(horny|wet|hard|turned on|want you|thinking about you)\b/i.test(t)) e = "🥵";
+  else if (/\b(filthy|slut|naughty|dirty|bad girl)\b/i.test(t)) e = "😈";
+  else if (/\b(look|watch|see|show|peek)\b/i.test(t)) e = "👀";
+  else e = ["😏", "💋", "😘"][t.length % 3];
+  return /\sx$/i.test(t) ? t.replace(/\sx$/i, " " + e + " x") : t + " " + e;
+}
 
 function repeatsSomething(candidate, previous) {
   const c = normaliseLine(candidate);
@@ -688,6 +704,7 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
           replyText = retry;
         }
       }
+      if (replyText) replyText = ensureEmoji(replyText, p && p.emoji_level);
       if (!replyText) { stopTyping(); return null; }
     }
   } catch (e) {
@@ -1298,4 +1315,4 @@ export async function handleWebhook(request, env, sb, persona) {
 }
 
 // Exported for the reply-quality regression tests.
-export { generateReply, repeatsSomething, personaSystemPrompt };
+export { generateReply, repeatsSomething, personaSystemPrompt, ensureEmoji };

@@ -3,7 +3,7 @@
 // just an identical string. The owner's complaint is "she is very repetitive".
 import test from "node:test";
 import assert from "node:assert/strict";
-import { generateReply, repeatsSomething } from "../src/tg.js";
+import { generateReply, repeatsSomething, ensureEmoji } from "../src/tg.js";
 
 test("a repeat, and a close rephrase, are both caught", () => {
   const prev = ["I bet you're good at it. I love a bit of vape smoke. Do you do it for a living?"];
@@ -48,7 +48,7 @@ test("emoji and warmth survive the length rule", async () => {
   const { personaSystemPrompt } = await import("../src/tg.js");
   const prompt = personaSystemPrompt({ display_name: "Michaela", emoji_level: "medium" }, {}, "", "", []);
   assert.match(prompt, /Emoji: one or two in most messages/);
-  assert.match(prompt, /never the same one twice in a row/);
+  assert.match(prompt, /same one twice in a row/);
   assert.match(prompt, /two short lines at most, under twenty words/);
   assert.doesNotMatch(prompt, /three to six words/);
 });
@@ -71,4 +71,13 @@ test("DeepSeek is used first when its key is set, with thinking switched off", a
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+test("a reply with no emoji gets one that fits, before the trailing x", () => {
+  assert.equal(ensureEmoji("play with that cock x", "medium"), "play with that cock 🍆 x");
+  assert.equal(ensureEmoji("i'm so horny for you", "medium"), "i'm so horny for you 🥵");
+  assert.equal(ensureEmoji("you filthy boy", "medium"), "you filthy boy 😈");
+  assert.equal(ensureEmoji("let me look at you", "medium"), "let me look at you 👀");
+  assert.equal(ensureEmoji("already got one 😏", "medium"), "already got one 😏");
+  assert.equal(ensureEmoji("hey x", "low"), "hey x");
 });
