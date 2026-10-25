@@ -491,6 +491,8 @@ input[type=range]{accent-color:var(--accent);width:100%}
       <div class="nav-group">TELEGRAM</div>
       <a href="#accounts" data-sec="accounts" title="Accounts"><svg class="i"><use href="#i-send"/></svg><span class="nav-label">Accounts</span></a>
       <a href="#inbox" data-sec="inbox" title="Inbox"><svg class="i"><use href="#i-inbox"/></svg><span class="nav-label">Inbox</span><span class="count" id="nav-unread" hidden>0</span></a>
+      <div class="nav-group">FABSWINGERS</div>
+      <a href="#fabswingers" data-sec="fabswingers" title="FabSwingers"><svg class="i"><use href="#i-chat"/></svg><span class="nav-label">FabSwingers</span></a>
       <div class="nav-group">CONTENT</div>
       <a href="#library" data-sec="library" title="Library"><svg class="i"><use href="#i-layers"/></svg><span class="nav-label">Library</span></a>
       <a href="#gallery" data-sec="gallery" title="Gallery"><svg class="i"><use href="#i-image"/></svg><span class="nav-label">Gallery</span></a>
@@ -885,6 +887,7 @@ const SECTIONS = {
   overview:{ title:'Overview', group:'Dashboard', render:renderOverview },
   accounts:{ title:'Accounts', group:'Telegram', render:renderAccounts },
   inbox:{ title:'Inbox', group:'Telegram', render:renderInbox },
+  fabswingers:{ title:'FabSwingers', group:'FabSwingers', render:renderFabSwingers },
   library:{ title:'Library', group:'Content', render:renderLibrary },
   gallery:{ title:'Gallery', group:'Content', render:renderGallery },
   bundles:{ title:'Bundles', group:'Content', render:renderLibrary },
@@ -1002,6 +1005,7 @@ async function openAccount(id){
           <button type="button" role="tab" data-act="acc-tab" data-tab="persona" aria-selected="${tab==='persona'}">Persona</button>
           <button type="button" role="tab" data-act="acc-tab" data-tab="connection" aria-selected="${tab==='connection'}">Connection</button>
           <button type="button" role="tab" data-act="acc-tab" data-tab="ai" aria-selected="${tab==='ai'}">AI Personality</button>
+          <button type="button" role="tab" data-act="acc-tab" data-tab="fabswingers" aria-selected="${tab==='fabswingers'}">FabSwingers</button>
         </div>
         <button class="act" data-act="acc-close" title="Close">${ic('x')}</button>
       </span>
@@ -1020,6 +1024,8 @@ async function openAccount(id){
     const holder = document.createElement('div'); holder.id = 'acc-personality';
     body.appendChild(holder);
     loadAccountPersonaPanel('#acc-personality', a);
+  } else if(tab === 'fabswingers'){
+    fsAccountPanel(a, '#acc-tab-body');
   } else {
     renderAccConnection(a);
   }
@@ -1152,32 +1158,66 @@ function renderAccConnection(a){
     }
   });
 }
-/* Connect wizard: first thing shown when Connect account is pressed. */
+/* Connect wizard: three steps so an account is fully set up (bot, FabSwingers,
+   personality) without leaving the flow. FabSwingers and its personality are
+   optional; every step can be skipped and finished later from the account. */
 function showConnectWizard(){
   const old = $('#connect-wizard'); if(old) old.remove();
+  state.wizAccountId = null;
   const w = document.createElement('div');
   w.id = 'connect-wizard';
   w.innerHTML = `<div class="panel" style="margin-top:16px;border-color:var(--accent)">
-    <div class="panel-head"><h2>Connect an account</h2><span class="end"><button class="act" data-act="wiz-close" title="Close">${ic('x')}</button></span></div>
-    <div class="panel-body">
-      <form class="form" data-form="account" autocomplete="off">
-        <div class="field"><label for="wiz-bc">Bot token <span class="muted">(from @BotFather)</span></label>
-          <input class="input mono" id="wiz-bc" name="connection" placeholder="123456789:ABCdefGhIjKlMnOpQrStUvWxYz">
-          <span class="hint">Create a bot with @BotFather for this creator, then paste its token here. We verify it with Telegram before saving.</span></div>
-        <label class="switch" for="wiz-enabled"><input type="checkbox" id="wiz-enabled" name="is_enabled" checked><span class="track"></span><span>Enabled<small>Sync chats and allow AI replies</small></span></label>
-        <div class="form-actions"><button class="btn primary" type="submit">${ic('plus')}Connect account</button></div>
-      </form>
-      <ol class="wiz-steps" style="margin:14px 0 0;padding-left:20px;color:var(--dim);line-height:2;font-size:13px">
-        <li>Paste the bot token — we check it live with Telegram.</li>
-        <li>She adds the bot in her Telegram: <b>Settings → Business → Chatbots</b>.</li>
-        <li>Set her persona in the account after connecting.</li>
-      </ol>
-    </div>
-  </div>`;
+    <div class="panel-head"><h2>Connect an account</h2>
+      <span class="end"><span class="muted" id="wiz-count">Step 1 of 3</span>
+        <button class="act" data-act="wiz-close" title="Close">${ic('x')}</button></span></div>
+    <div class="panel-body" id="wiz-body"></div></div>`;
   const view = $('#view');
   view.insertBefore(w, view.firstChild.nextSibling);
-  $('#wiz-bc')?.focus();
+  wizStep(1);
 }
+function wizStep(step){
+  const body = $('#wiz-body'); if(!body) return;
+  const count = $('#wiz-count'); if(count) count.textContent = `Step ${step} of 3`;
+  if(step === 1){
+    body.innerHTML = `<form class="form" data-form="account" autocomplete="off">
+      <div class="field"><label for="wiz-bc">Bot token <span class="muted">(from @BotFather)</span></label>
+        <input class="input mono" id="wiz-bc" name="connection" placeholder="123456789:ABCdefGhIjKlMnOpQrStUvWxYz">
+        <span class="hint">Checked with Telegram before saving, so a typo never becomes a dead account.</span></div>
+      <label class="switch" for="wiz-enabled"><input type="checkbox" id="wiz-enabled" name="is_enabled" checked><span class="track"></span><span>Enabled<small>Sync chats and allow AI replies</small></span></label>
+      <div class="form-actions"><button class="btn primary" type="submit">${ic('arrow')}Check token and continue</button></div>
+    </form>`;
+    $('#wiz-bc')?.focus();
+  }
+  if(step === 2){
+    body.innerHTML = `<form class="form" data-form="fs-login-wiz" autocomplete="off">
+      <p class="muted">Her FabSwingers login. Skip this if the account is Telegram only.</p>
+      ${fsLoginFields(null)}
+      <div id="fs-test-out" class="hint"></div>
+      <div class="form-actions" style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn primary" type="submit">${ic('arrow')}Save and continue</button>
+        <button class="btn" type="button" data-act="fs-wiz-test">${ic('refresh')}Test login</button>
+        <button class="btn ghost" type="button" data-act="wiz-skip">Skip this step</button>
+      </div></form>`;
+  }
+  if(step === 3){
+    body.innerHTML = `<form class="form" data-form="fs-persona-wiz" autocomplete="off">
+      <p class="muted">How the FabSwingers bot should chat as her.</p>
+      ${fsPersonaFields(null)}
+      <div class="form-actions" style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn primary" type="submit">${ic('check')}Save and finish</button>
+        <button class="btn ghost" type="button" data-act="wiz-finish">Skip this step</button>
+      </div></form>`;
+  }
+}
+function wizFinish(message){
+  const acc = state.wizAccountId;
+  $('#connect-wizard')?.remove();
+  state.wizAccountId = null;
+  loadAccounts();
+  toast('Account ready', 'success', message || 'Open it to check the details.');
+  if(acc) openAccount(acc);
+}
+
 /* ---------- Inbox ---------- */
 /* Two levels: creators (each girl's Telegram account) -> their chats.
    Data path: telegram_accounts(owner-scoped) -> business_connections ->
@@ -1351,6 +1391,230 @@ async function openConversation(id){
       setUnread(Math.max(0, (state.unread||1) - 1));
     }
   }catch(e){ $('#msgs').innerHTML = errorState(e,'inbox'); }
+}
+
+/* ---------- FabSwingers ---------- */
+/* One FabSwingers login per bot account, each with its own auto-reply
+   personality. It is set up inside the Connect account wizard (steps 2 and 3)
+   and managed from this section afterwards. */
+/* Local dev points at `wrangler dev` so the flow can be clicked through without
+   deploying the Worker. Anything else uses the live API. */
+const FS_API = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+  ? 'http://127.0.0.1:8787'
+  : 'https://api-telebotcreator.turboit.uk';
+async function fsCall(path, opts = {}) {
+  const token = state.session?.access_token;
+  if (!token) throw new Error('Sign in again: the session has expired');
+  const res = await fetch(FS_API + path, {
+    ...opts,
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token, ...(opts.headers || {}) },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || ('Request failed (' + res.status + ')'));
+  return body;
+}
+const FS_TONE = [['', 'Default'], ['flirty', 'Flirty'], ['friendly', 'Friendly'], ['playful', 'Playful'], ['sassy', 'Sassy']];
+const FS_EMOJI = [['', 'Default'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High']];
+const FS_LEN = [['', 'Default'], ['short', 'Short'], ['medium', 'Medium'], ['long', 'Long']];
+const fsSelect = (id, label, opts, val, hint) => `<div class="field"><label for="${id}">${label}</label>
+  <select class="input" id="${id}">${opts.map(([v, t]) => `<option value="${v}"${(val || '') === v ? ' selected' : ''}>${t}</option>`).join('')}</select>
+  ${hint ? `<span class="hint">${hint}</span>` : ''}</div>`;
+
+function fsLoginFields(fs, knownHandle) {
+  return `
+    <div class="row2">
+      <div class="field"><label for="fs-username">FabSwingers username</label>
+        <input class="input" id="fs-username" value="${esc(fs?.username || '')}" autocomplete="off" placeholder="her FabSwingers login"></div>
+      <div class="field"><label for="fs-password">FabSwingers password</label>
+        <input class="input" id="fs-password" type="password" autocomplete="new-password" placeholder="${fs ? 'Leave blank to keep the saved one' : 'her FabSwingers password'}"></div>
+    </div>
+    <div class="field"><label for="fs-tg">Her personal Telegram handle</label>
+      <input class="input" id="fs-tg" value="${esc(fs?.telegram_username || knownHandle || '')}" autocomplete="off" placeholder="michelle0161">
+      <span class="hint">Without the @. This is the handle customers are sent to, not the bot's.</span></div>`;
+}
+
+function fsPersonaFields(persona) {
+  return `
+    <div class="row2">
+      ${fsSelect('fs-tone', 'Tone', FS_TONE, persona?.tone)}
+      ${fsSelect('fs-emoji', 'Emoji level', FS_EMOJI, persona?.emoji_level)}
+    </div>
+    ${fsSelect('fs-len', 'Message length', FS_LEN, persona?.message_length)}
+    <div class="field"><label for="fs-prompt">How she should chat</label>
+      <textarea class="input" id="fs-prompt" rows="5" placeholder="Sound like a real person, flirt a little, never say she is automated unless asked...">${esc(persona?.system_prompt || '')}</textarea>
+      <span class="hint">Leave blank to use the default voice for this account.</span></div>
+    <div class="field"><label for="fs-pivot">Move to Telegram message</label>
+      <textarea class="input" id="fs-pivot" rows="3" placeholder="add me on telegram: @handle">${esc(persona?.pivot_message || '')}</textarea>
+      <span class="hint">Sent after a few messages to move the chat to Telegram. Blank uses the default.</span></div>`;
+}
+
+async function fsSaveLogin(accountId, btn) {
+  const username = $('#fs-username').value.trim();
+  const password = $('#fs-password').value;
+  const tg = $('#fs-tg').value.trim();
+  if (!username) { toast('Enter her FabSwingers username', 'error'); return null; }
+  if (!tg) { toast('Enter her personal Telegram handle', 'error'); return null; }
+  const saved = await withBusy(btn, () => fsCall('/fabswingers', {
+    method: 'POST',
+    body: JSON.stringify({ telegram_account_id: accountId, username, password: password || undefined, telegram_username: tg }),
+  }));
+  if (saved) toast('FabSwingers login saved', 'success');
+  return saved;
+}
+
+async function fsSavePersona(accountId, btn) {
+  const body = {
+    telegram_account_id: accountId,
+    tone: $('#fs-tone').value,
+    emoji_level: $('#fs-emoji').value,
+    message_length: $('#fs-len').value,
+    system_prompt: $('#fs-prompt').value.trim() || null,
+    pivot_message: $('#fs-pivot').value.trim() || null,
+  };
+  const saved = await withBusy(btn, () => fsCall('/fabswingers/persona', { method: 'PUT', body: JSON.stringify(body) }));
+  if (saved) toast('Personality saved', 'success');
+  return saved;
+}
+
+async function fsTestLogin(btn) {
+  const out = $('#fs-test-out');
+  const username = $('#fs-username').value.trim(), password = $('#fs-password').value;
+  if (!username || !password) { toast('Enter the username and password to test them', 'error'); return; }
+  if (out) out.textContent = 'Trying FabSwingers…';
+  const res = await withBusy(btn, () => fsCall('/fabswingers/verify', { method: 'POST', body: JSON.stringify({ username, password }) }), null);
+  if (out) out.innerHTML = res && res.ok
+    ? '<span class="pill ok">Login works</span>'
+    : `<span class="pill off">Login failed</span> <span class="muted">${esc(res?.error || res?.detail || 'FabSwingers did not accept that login')}</span>`;
+}
+
+async function renderFabSwingers() {
+  setView(`
+    ${secHead('One FabSwingers login per bot account, each with its own auto-reply personality. Set it up here, or during Connect account.')}
+    ${ownerPicker()}
+    <div class="panel"><div class="panel-head"><h2>FabSwingers accounts</h2>
+      <span class="end"><button class="btn sm primary" data-act="fs-link">${ic('plus')}Add account</button></span></div>
+      <div id="fs-list">${spinner('Loading accounts...')}</div></div>
+    <div id="fs-detail"></div>`);
+  loadFabSwingers();
+}
+
+async function loadFabSwingers() {
+  const el = $('#fs-list'); if (!el) return;
+  el.innerHTML = spinner('Loading accounts...');
+  try {
+    const [{ data: fas }, { rows: accounts }] = await Promise.all([
+      state.sb.from('fabswingers_accounts').select('id,telegram_account_id,username,telegram_username,enabled,created_at'),
+      Data.list('telegram_accounts', { select: 'id, username, first_name, creator_id', size: 50, scopeOwner: true }),
+    ]);
+    const byAccount = new Map((accounts || []).map(a => [a.id, a]));
+    const rows = fas || [];
+    if (!rows.length) {
+      el.innerHTML = empty('message', 'No FabSwingers accounts yet',
+        'FabSwingers is set up per bot account. Add one here, or do it during Connect account.',
+        `<button class="btn sm primary" data-act="fs-link">${ic('plus')}Add account</button>`);
+      return;
+    }
+    el.innerHTML = `<div class="table-wrap"><table>
+      <thead><tr><th>FabSwingers</th><th>Bot account</th><th>Telegram handle</th><th>Status</th><th class="num">Actions</th></tr></thead>
+      <tbody>${rows.map(r => {
+        const acct = byAccount.get(r.telegram_account_id);
+        return `<tr>
+          <td><b>${esc(r.username)}</b></td>
+          <td>${acct ? '@' + esc(acct.username || acct.first_name || '') : '<span class="muted">unlinked</span>'}</td>
+          <td class="muted">@${esc(r.telegram_username)}</td>
+          <td><span class="pill ${r.enabled ? 'ok' : 'draft'}">${r.enabled ? 'On' : 'Paused'}</span></td>
+          <td class="num"><div class="row-actions">
+            <button class="act" data-act="fs-edit" data-id="${esc(r.id)}" title="Edit login and personality">${ic('edit')}Edit</button>
+            <button class="act" data-act="fs-toggle" data-id="${esc(r.id)}" data-on="${r.enabled ? 1 : 0}">${ic('power')}${r.enabled ? 'Pause' : 'Resume'}</button>
+            <button class="act danger" data-act="fs-remove" data-id="${esc(r.id)}" title="Remove">${ic('trash')}</button>
+          </div></td></tr>`;
+      }).join('')}</tbody></table></div>`;
+  } catch (e) { el.innerHTML = errorState(e, 'fabswingers'); }
+}
+
+async function fsLinkPicker() {
+  const slot = $('#fs-detail'); if (!slot) return;
+  slot.innerHTML = spinner('Loading accounts...');
+  try {
+    const [{ data: fas }, { rows: accounts }] = await Promise.all([
+      state.sb.from('fabswingers_accounts').select('telegram_account_id'),
+      Data.list('telegram_accounts', { select: 'id, username, first_name, creator_id', size: 50, scopeOwner: true }),
+    ]);
+    const taken = new Set((fas || []).map(f => f.telegram_account_id));
+    const free = (accounts || []).filter(a => !taken.has(a.id));
+    slot.innerHTML = `<div class="panel" style="margin-top:16px">
+      <div class="panel-head"><h2>Add a FabSwingers login</h2>
+        <span class="end"><button class="act" data-act="fs-cancel" title="Close">${ic('x')}</button></span></div>
+      <div class="panel-body">${free.length
+        ? `<div class="field"><label for="fs-pick">Bot account</label>
+             <select class="input" id="fs-pick">${free.map(a => `<option value="${esc(a.id)}">@${esc(a.username || a.first_name || a.id)}</option>`).join('')}</select>
+             <span class="hint">Each bot account gets one FabSwingers login; accounts already linked are not listed.</span></div>
+           <div class="form-actions" style="margin-top:12px"><button class="btn primary" data-act="fs-pick-go">Continue ${ic('arrow')}</button></div>`
+        : `<p class="muted">Every bot account already has a FabSwingers login. <a href="#accounts">Connect another account</a> first.</p>`}</div></div>`;
+  } catch (e) { slot.innerHTML = errorState(e, 'fabswingers'); }
+}
+
+async function fsEdit(id) {
+  const slot = $('#fs-detail'); if (!slot) return;
+  slot.innerHTML = spinner('Loading...');
+  try {
+    const [{ accounts }, { persona }] = await Promise.all([
+      fsCall('/fabswingers'),
+      fsCall('/fabswingers/persona?fabswingers_account_id=' + encodeURIComponent(id)),
+    ]);
+    const fs = (accounts || []).find(a => a.id === id);
+    slot.innerHTML = `<div class="panel" style="margin-top:16px">
+      <div class="panel-head"><h2>${esc(fs?.username || 'FabSwingers account')}</h2>
+        <span class="end"><span class="muted">Applies to this bot account only</span>
+          <button class="act" data-act="fs-cancel" title="Close">${ic('x')}</button></span></div>
+      <div class="panel-body"><form class="form" data-form="fs-edit" data-id="${esc(id)}" data-account="${esc(fs?.telegram_account_id || '')}" autocomplete="off">
+        ${fsLoginFields(fs)}
+        <div class="panel-head" style="padding:0;border:0;margin:6px 0 0"><h2>Auto-reply personality</h2></div>
+        ${fsPersonaFields(persona)}
+        <div id="fs-test-out" class="hint"></div>
+        <div class="form-actions" style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn primary" type="submit">${ic('check')}Save</button>
+          <button class="btn" type="button" data-act="fs-test" data-id="${esc(id)}">${ic('refresh')}Test login</button>
+        </div>
+      </form></div></div>`;
+  } catch (e) { slot.innerHTML = errorState(e, 'fabswingers'); }
+}
+
+/* The same fields, rendered inside an account's detail panel. */
+async function fsAccountPanel(account, holderSel) {
+  const holder = $(holderSel); if (!holder) return;
+  holder.innerHTML = spinner('Loading FabSwingers...');
+  let fs = null, persona = null;
+  try {
+    const { accounts } = await fsCall('/fabswingers?telegram_account_id=' + encodeURIComponent(account.id));
+    fs = (accounts || [])[0] || null;
+    if (fs) {
+      const r = await fsCall('/fabswingers/persona?fabswingers_account_id=' + encodeURIComponent(fs.id));
+      persona = r.persona || null;
+    }
+  } catch (e) {
+    holder.innerHTML = `<p class="muted">Could not load FabSwingers: ${esc(e.message)}</p>`;
+    return;
+  }
+  holder.innerHTML = `<form class="form" data-form="fs-account" data-id="${esc(account.id)}" data-account="${esc(account.id)}" autocomplete="off">
+    ${fs ? '<p class="muted">Linked to this bot account. Editing saves straight away.</p>'
+         : '<p class="muted">Not linked yet. Fill this in to give this bot a FabSwingers login.</p>'}
+    ${fsLoginFields(fs, (account.username || '').replace(/bot$/i, ''))}
+    <div class="panel-head" style="padding:0;border:0;margin:6px 0 0"><h2>Auto-reply personality</h2></div>
+    ${fsPersonaFields(persona)}
+    <div id="fs-test-out" class="hint"></div>
+    <div class="form-actions" style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn primary" type="submit">${ic('check')}${fs ? 'Save' : 'Link FabSwingers'}</button>
+      ${fs ? `<button class="btn" type="button" data-act="fs-test" data-id="${esc(account.id)}">${ic('refresh')}Test login</button>` : ''}
+    </div></form>`;
+}
+
+/* One save path for both surfaces: login first (the persona row needs the account),
+   then the personality. */
+async function fsSaveAll(accountId, btn) {
+  const saved = await fsSaveLogin(accountId, btn);
+  if (!saved) return null;
+  return fsSavePersona(accountId, null);
 }
 
 /* ---------- Library ---------- */
@@ -1803,6 +2067,38 @@ view.addEventListener('click', async e => {
       break; }
     case 'conv-del': if(armed(a) && await withBusy(a, () => Data.remove('conversations', id), 'Conversation deleted')){ state.inbox.active=null;
       if(state.inboxCreator) loadCreatorChats(state.inboxCreator.accountId, state.inboxCreator.creatorId); else renderInbox(); } break;
+    /* fabswingers */
+    case 'fs-link': fsLinkPicker(); break;
+    case 'fs-cancel': { const d = $('#fs-detail'); if (d) d.innerHTML = ''; break; }
+    case 'fs-edit': fsEdit(id); break;
+    case 'fs-pick-go': {
+      const pick = $('#fs-pick');
+      if (!pick) break;
+      const label = pick.options[pick.selectedIndex].text;
+      const holder = $('#fs-detail');
+      holder.innerHTML = `<div class="panel" style="margin-top:16px">
+        <div class="panel-head"><h2>${esc(label)}</h2>
+          <span class="end"><button class="act" data-act="fs-cancel" title="Close">${ic('x')}</button></span></div>
+        <div class="panel-body" id="fs-acc-holder"></div></div>`;
+      fsAccountPanel({ id: pick.value, username: label.replace(/^@/, '') }, '#fs-acc-holder');
+      break;
+    }
+    case 'fs-test': fsTestLogin(a); break;
+    case 'fs-wiz-test': fsTestLogin(a); break;
+    case 'wiz-skip': wizFinish('Connected without FabSwingers. You can add it from the account any time.'); break;
+    case 'wiz-finish': wizFinish(); break;
+    case 'fs-toggle': {
+      const on = a.dataset.on === '1';
+      const r = await fsCall('/fabswingers/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify({ enabled: !on }) }).catch(() => null);
+      if (r) { toast(!on ? 'FabSwingers account resumed' : 'FabSwingers account paused', 'success'); loadFabSwingers(); }
+      break;
+    }
+    case 'fs-remove': {
+      if (!armed(a)) break;
+      const r = await fsCall('/fabswingers/' + encodeURIComponent(id), { method: 'DELETE' }).catch(() => null);
+      if (r) { toast('FabSwingers account removed', 'success'); loadFabSwingers(); }
+      break;
+    }
     /* library */
     case 'lib-type': state.libType = a.dataset.type; state.pages.library = 1;
       a.parentElement.querySelectorAll('button').forEach(b=>b.setAttribute('aria-selected', b===a)); loadLibrary(); break;
@@ -1882,13 +2178,30 @@ view.addEventListener('submit', async e => {
     // stash result row for opening the detail after submit
     const saved = await withBusy(btn, run, 'Account connected');
     if(saved){
-      f.reset();
-      const wiz = $('#wiz-enabled'); if(wiz) wiz.checked = true;
-      $('#connect-wizard')?.remove();
+      state.wizAccountId = saved.id || null;
       loadAccounts();
-      toast('Account connected','success','Opening it now — set her persona.');
-      if(saved.id) openAccount(saved.id);
+      toast('Bot connected','success','Next: her FabSwingers login.');
+      wizStep(2);
     }
+  }
+  if(kind === 'fs-login-wiz'){
+    const saved = await fsSaveLogin(state.wizAccountId, btn);
+    if(saved) wizStep(3);
+    return;
+  }
+  if(kind === 'fs-persona-wiz'){
+    const saved = await fsSavePersona(state.wizAccountId, btn);
+    if(saved) wizFinish('FabSwingers login and personality saved.');
+    return;
+  }
+  if(kind === 'fs-edit' || kind === 'fs-account'){
+    const accountId = f.dataset.account || id;
+    const saved = await fsSaveAll(accountId, btn);
+    if(saved){
+      if(kind === 'fs-edit'){ $('#fs-detail').innerHTML = ''; loadFabSwingers(); }
+      else { const a = await state.sb.from('telegram_accounts').select('id,username,first_name').eq('id', accountId).maybeSingle(); if(a.data) fsAccountPanel(a.data, '#acc-tab-body'); }
+    }
+    return;
   }
   if(kind === 'media'){
     const data = { title:f.title.value.trim(), kind:f.kind.value, price_ton:f.price_ton.value?Number(f.price_ton.value):null, description:f.description.value.trim()||null, visible:f.visible.checked };
