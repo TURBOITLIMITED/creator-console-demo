@@ -72,7 +72,7 @@ function bcIdOf(u) {
 // ---------------------------------------------------------------------------
 // business_connection: the owner granted, changed or revoked our access
 // ---------------------------------------------------------------------------
-async function onConnection(env, sb, conn) {
+async function onConnection(env, sb, conn, botAccount) {
   const n = tg.normaliseConnection(conn);
   const u = n.user || {};
 
@@ -82,7 +82,10 @@ async function onConnection(env, sb, conn) {
   // NULL) and must not create an unclaimed shell row either. The connection
   // row below still records the link, waiting to be claimed in the dashboard.
   const found = await sb(env, "telegram_accounts?tg_user_id=eq." + n.tg_user_id + "&select=id,creator_id");
-  const account = found && found[0] || null;
+  // The human granting access is not one of our bot accounts, so the link
+  // belongs to the bot's own account. Without this the insert dies on
+  // creator_id NOT NULL and the connection is never recorded at all.
+  const account = (found && found[0]) || botAccount || null;
   if (account) {
     await sb(env, "telegram_accounts?id=eq." + account.id, {
       method: "PATCH",
@@ -1088,9 +1091,21 @@ export async function handleWebhook(request, env, sb, persona) {
     return ok();
   }
 
+  // Which of our accounts owns this bot? Needed when the update is about a
+  // human connecting the bot to their own Telegram.
+  let botAccount = null;
+  try {
+    const bots = await sb(env, "bots?persona=eq." + encodeURIComponent(persona) + "&select=username");
+    const botUser = bots && bots[0] && bots[0].username;
+    if (botUser) {
+      const acc = await sb(env, "telegram_accounts?username=eq." + encodeURIComponent(botUser) + "&select=id,creator_id");
+      if (acc && acc[0]) botAccount = acc[0];
+    }
+  } catch (e) { console.log(JSON.stringify({ evt: "tg.webhook.bot_lookup_failed", err: String(e).slice(0, 120) })); }
+
   let result = null, error = null;
   try {
-    if (kind === "business_connection")        result = await onConnection(env, sb, update.business_connection);
+    if (kind === "business_connection")        result = await onConnection(env, sb, update.business_connection, botAccount);
     else if (kind === "business_message")      result = await onMessage(env, sb, update.business_message, false);
     else if (kind === "edited_business_message") result = await onMessage(env, sb, update.edited_business_message, true);
     else if (kind === "deleted_business_messages") result = await onDeleted(env, sb, update.deleted_business_messages);
