@@ -263,12 +263,8 @@ async function pollFab(env){
           body: JSON.stringify({ last_error: "No personality saved yet" }) }).catch(() => null);
         continue;
       }
-      // outside waking hours she sleeps: a reply at 04:00 is a tell
-      const hour = UK_HOUR();
-      if (hour < Number(env.FS_START_HOUR || 9) || hour >= Number(env.FS_END_HOUR || 23)) continue;
-      // skip a quarter of ticks: a reply every three minutes on the dot is a
-      // pattern, and patterns are what site filters look for
-      if (Math.random() < 0.25) continue;
+      // she is online whenever the phone is, day or night: the night is when
+      // this earns, and a person answering at 01:00 is normal on this site
 
       let cookie = await fsLoadCookie(env, acct.id);
       let snap = null;
@@ -314,20 +310,19 @@ async function pollFab(env){
           body: JSON.stringify({ last_error: "UPGRADE: FabSwingers is asking for a Site Supporter upgrade before more messages can be sent." }) }).catch(() => null);
         continue;
       }
-      const dailyCap = Number(env.FS_DAILY_CAP || 20);
+      const dailyCap = Number(env.FS_DAILY_CAP || 150);
       if (await fsAnsweredToday(env, acct.id) >= dailyCap){
         await sb(env, `fabswingers_accounts?id=eq.${acct.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" },
           body: JSON.stringify({ last_error: `Daily cap reached (${dailyCap}). Resumes tomorrow.` }) }).catch(() => null);
         continue;
       }
-      const minWait = Number(env.FS_MIN_WAIT || 120) * 1000;
+      const minWait = Number(env.FS_MIN_WAIT || 45) * 1000;
       const ready = (doneRows || []).filter((r) => r.notes === "pending" && Date.now() - new Date(r.created_at).getTime() >= minWait);
       const todo = ready.length
-        ? snap.rows.filter((r) => r.unread && ready.some((d) => d.fs_user_id === r.user)).slice(0, 1)
+        ? snap.rows.filter((r) => r.unread && ready.some((d) => d.fs_user_id === r.user)).slice(0, 3)
         : [];
-      const reasonSoFar = todo.length ? fsStopReason(todo[0].snippet) : null;
       for(const row of todo){
-        const reason = reasonSoFar;
+        const reason = fsStopReason(row.snippet);
         let status = "sent", text = null;
         if(reason){
           status = "flagged: " + reason;
