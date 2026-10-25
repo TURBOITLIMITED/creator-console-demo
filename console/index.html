@@ -1980,21 +1980,43 @@ async function fsTestLogin(btn) {
 }
 
 async function renderFabSwingers() {
+  const open = (state.fsAccounts || []).find(a => a.id === state.fsChatFor);
+
+  // Page one: the accounts on FabSwingers. Nothing else competes with it.
+  if (!state.fsChatFor || !open) {
+    setView(`
+      ${secHead('One FabSwingers login per bot account, each with its own auto-reply personality. A new login arrives switched off: turn it on only when the voice sounds right.')}
+      ${ownerPicker()}
+      <div class="panel"><div class="panel-head"><h2>FabSwingers accounts</h2>
+        <span class="end">
+          <button class="btn sm" data-act="fs-run">${ic('refresh')}Run a check now</button>
+          <button class="btn sm primary" data-act="fs-link">${ic('plus')}Add account</button></span></div>
+        <div id="fs-list">${spinner('Loading accounts...')}</div>
+        <div class="panel-body" style="border-top:1px solid var(--rule-2)"><p class="muted" style="margin:0">Tap an account to open its chats.</p></div>
+      </div>`);
+    loadFabSwingers();
+    return;
+  }
+
+  // Page two: that account's chats.
   setView(`
-    ${secHead('One FabSwingers login per bot account, each with its own auto-reply personality. A new login arrives switched off: turn it on only when the voice sounds right.')}
-    ${ownerPicker()}
-    <div class="panel"><div class="panel-head"><h2>FabSwingers accounts</h2>
+    <div style="margin:0 0 10px"><button class="btn sm" data-act="fs-back">${ic('arrow-left')}All FabSwingers accounts</button></div>
+    <div class="panel"><div class="panel-head">
+      <h2>${esc(open.username)}</h2>
       <span class="end">
-        <button class="btn sm" data-act="fs-run">${ic('refresh')}Run a check now</button>
-        <button class="btn sm primary" data-act="fs-link">${ic('plus')}Add account</button></span></div>
-      <div id="fs-list">${spinner('Loading accounts...')}</div></div>
-    <div id="fs-manual"></div>
+        <span class="pill ${open.enabled ? 'ok' : 'draft'}">${open.enabled ? 'On' : 'Off'}</span>
+        <button class="btn sm" data-act="fs-run">${ic('refresh')}Run a check</button>
+        <button class="act" data-act="fs-toggle" data-id="${esc(open.id)}" data-on="${open.enabled ? 1 : 0}">${ic('power')}${open.enabled ? 'Turn off' : 'Turn on'}</button>
+      </span></div>
+      <div class="panel-body" style="padding-top:0"><p class="muted" style="margin:0;font-size:12.5px">@${esc(open.telegram_username)} · ${esc(open.last_error ? open.last_error.slice(0, 120) : (open.last_poll_at ? 'last checked ' + ago(open.last_poll_at) : 'not checked yet'))}</p></div>
+    </div>
     <div id="fs-detail"></div>
+    <div id="fs-manual"></div>
     <div id="fs-alerts"></div>
     <section class="panel" style="margin-top:16px">
-      <div class="panel-head"><h2>Conversations</h2>
+      <div class="panel-head"><h2>Chats</h2>
         <span class="end muted" id="fs-convo-count"></span></div>
-      <div id="fs-convos">${spinner('Loading conversations...')}</div>
+      <div id="fs-convos">${spinner('Loading chats...')}</div>
       <div id="fs-transcript"></div>
     </section>
     <section class="panel" style="margin-top:16px">
@@ -2005,9 +2027,8 @@ async function renderFabSwingers() {
     <section class="panel" style="margin-top:16px">
       <div class="panel-head"><h2>Inbox</h2>
         <span class="end"><button class="btn sm" data-act="fs-inbox-check">${ic('refresh')}Check inbox</button></span></div>
-      <div id="fs-inbox" class="panel-body"><p class="muted">Check the inbox to read what has arrived on FabSwingers. Nothing is sent from here without you.</p></div>
+      <div id="fs-inbox" class="panel-body"><p class="muted">Read what has arrived on FabSwingers. Nothing is sent from here without you.</p></div>
     </section>`);
-  loadFabSwingers();
   fsLoadConvos();
   fsLoadActivity();
   fsUpgradeAlerts('#fs-alerts');
@@ -2158,8 +2179,8 @@ async function loadFabSwingers() {
       <thead><tr><th>FabSwingers</th><th>Bot account</th><th>Telegram handle</th><th>Status</th><th class="num">Actions</th></tr></thead>
       <tbody>${rows.map(r => {
         const acct = byAccount.get(r.telegram_account_id);
-        return `<tr>
-          <td><b>${esc(r.username)}</b></td>
+        return `<tr data-act="fs-open-chat" data-id="${esc(r.id)}" style="cursor:pointer">
+          <td><b>${esc(r.username)}</b> <span class="muted" style="font-size:12px">›</span></td>
           <td>${acct ? '@' + esc(acct.username || acct.first_name || '') : '<span class="muted">unlinked</span>'}</td>
           <td class="muted">@${esc(r.telegram_username)}</td>
           <td><div><span class="pill ${r.enabled ? 'ok' : 'draft'}">${r.enabled ? 'On' : 'Off'}</span>
@@ -2884,6 +2905,19 @@ view.addEventListener('click', async e => {
     }
     /* fabswingers inbox */
     case 'fs-inbox-check': fsInboxLoad(); break;
+    case 'fs-open-chat': {
+      state.fsChatFor = a.dataset.id;
+      if (!state.fsAccounts || !state.fsAccounts.length) await loadFabSwingers();
+      renderFabSwingers();
+      window.scrollTo({ top: 0 });
+      break;
+    }
+    case 'fs-back': {
+      state.fsChatFor = null;
+      renderFabSwingers();
+      window.scrollTo({ top: 0 });
+      break;
+    }
     case 'fs-open-convo': fsOpenConvo(a.dataset.user, a.dataset.name); break;
     case 'fs-close-convo': { const t = $('#fs-transcript'); if(t) t.innerHTML = ''; break; }
     case 'fs-reply-user': {
@@ -3114,6 +3148,8 @@ async function route(force=false){
   // Show loading overlay on navigation
   $('#pageLoading').classList.add('active');
   state.section = key;
+  // pressing FabSwingers always lands on the account list, not a chat
+  if(key === 'fabswingers') state.fsChatFor = null;
   // kill any live poller from the section we are leaving (interval stacking
   // made the inbox textbox visibly flicker on and off)
   if(state.inboxPoll && key !== 'inbox'){ clearInterval(state.inboxPoll); state.inboxPoll = null; }
