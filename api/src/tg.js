@@ -630,9 +630,9 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
       "&direction=eq.out&select=body_preview,raw&order=sent_at.desc&limit=10").catch(() => null);
     const req = (lastReq || []).find(m => m.raw && m.raw.via === "menu-buy" && m.raw.item_id);
     if (req) {
-      const it = await sb(env, "media_items?id=eq." + encodeURIComponent(req.raw.item_id) + "&select=*").catch(() => null);
-      if (it && it[0]) {
-        const payReq = await sendPaymentRequest(env, sb, conn, conv, msg, it[0]);
+      const it = await itemById(env, sb, req.raw.item_id, req.raw.item_source);
+      if (it) {
+        const payReq = await sendPaymentRequest(env, sb, conn, conv, msg, it);
         if (payReq) { stopTyping(); return payReq; }
       }
     }
@@ -892,25 +892,45 @@ async function maybeSendFreeItem(env, sb, conn, conv, msg) {
   }
 }
 
-/* MENU: list her live items with prices when a customer asks what she
-   offers. Paid items first with their TON price; if she has a free item,
-   mention it as available on request. Falls back to the model when the
-   library is empty, so nothing is invented from thin air. */
-async function maybeSendMenu(env, sb, conn, conv, msg) {
-  if (!conn.telegram_account_id) return null;
+/* The owner's menu is the shop, and it is what the model is told to sell from:
+   it can hold photos, videos, posted things and services, all priced in pounds.
+   Every path that SELLS must read this same list. Before this helper the model
+   quoted menu items while the buttons, the matcher and the payment request all
+   read media_items, so a customer could pick something no button existed for. */
+async function sellableItems(env, sb, conn) {
+  if (!conn.telegram_account_id) return [];
+  const menu = await sb(env, "telegram_menu_items?telegram_account_id=eq." +
+    encodeURIComponent(conn.telegram_account_id) +
+    "&active=eq.true&select=id,name,kind,price_gbp,description,media_key&order=position.asc&limit=20").catch(() => null);
+  if (menu && menu.length) {
+    return menu.filter(m => m.name).map(m => ({ ...m, title: m.name, source: "menu" }));
+  }
   const rows = await sb(env, "media_items?telegram_account_id=eq." +
     encodeURIComponent(conn.telegram_account_id) +
-    "&visible=eq.true&select=id,title,kind,price_ton,price_gbp" +
-    "&order=price_ton.desc&limit=20").catch(() => null);
-  const items = (rows || []).filter(m => m.title);
+    "&visible=eq.true&select=id,title,kind,price_ton,price_gbp,media_key&order=price_ton.desc&limit=20").catch(() => null);
+  return (rows || []).filter(m => m.title).map(m => ({ ...m, source: "media" }));
+}
+
+/* MENU: list the items she actually sells, with their prices, when a customer
+   asks what she offers. Paid items come from the owner's menu; a freebie still
+   comes from the library because it has to be a real file. Falls through to the
+   model when there is nothing, so nothing is invented from thin air. */
+async function maybeSendMenu(env, sb, conn, conv, msg) {
+  if (!conn.telegram_account_id) return null;
+  const items = (await sellableItems(env, sb, conn)).filter(m => m.title);
   if (!items.length) return null;
 
-  const fmt = (t, gbp) => Number(gbp) > 0 ? "£" + Number(gbp) : (Number(t) > 0 ? "£" + Number(t) : null);
-  const paid = items.filter(m => Number(m.price_ton) > 0).slice(0, 8);
-  const free = items.filter(m => !Number(m.price_ton));
+  const priceOf = m => Number(m.price_gbp || m.price_ton || 0);
+  const fmt = m => "£" + priceOf(m);
+  const paid = items.filter(m => priceOf(m) > 0).slice(0, 8);
+  if (!paid.length) return null;
+  const freeRows = await sb(env, "media_items?telegram_account_id=eq." +
+    encodeURIComponent(conn.telegram_account_id) +
+    "&visible=eq.true&price_ton=eq.0&select=id,title,media_key&limit=5").catch(() => null);
+  const free = (freeRows || []).filter(m => m.media_key);
   const lines = ["Here's what I've got right now 💕"];
   for (const m of paid) {
-    lines.push("• " + m.title + " - " + fmt(m.price_ton, m.price_gbp));
+    lines.push("• " + m.title + " - " + fmt(m) + (m.kind === "physical" ? " (posted)" : ""));
   }
   if (free.length) lines.push("I've also got a freebie if you'd like one, just ask 😊");
   lines.push("Want any of them?");
@@ -922,7 +942,7 @@ async function maybeSendMenu(env, sb, conn, conv, msg) {
     // Clickable menu: one button per paid item, a freebie button if she has
     // one. Taps arrive as callback_query (onCallback below).
     const buttons = paid.map(m => ([{
-      text: (m.title + " · " + fmt(m.price_ton, m.price_gbp)).slice(0, 60),
+      text: (m.title + " · " + fmt(m)).slice(0, 60),
       callback_data: "buy:" + m.id,
     }]));
     if (free.length) buttons.push([{ text: "🎁 Free pic", callback_data: "free:" + free[0].id }]);
@@ -941,7 +961,7 @@ async function maybeSendMenu(env, sb, conn, conv, msg) {
         kind: "text",
         body_preview: "[menu] " + paid.length + " paid, " + free.length + " free",
         sent_at: new Date().toISOString(),
-        raw: { via: "menu", items: items.map(m => m.id) },
+        raw: { via: "menu", items: paid.map(m => m.id) },
       }),
     }).catch(() => {});
     console.log(JSON.stringify({ evt: "tg.menu.sent", paid: paid.length, free: free.length }));
@@ -996,12 +1016,10 @@ async function looksLikeBuyIntent(text, lower) {
 /* Match their words against her live item titles. Exact-word overlap wins;
    fall back to kind words (video/pic) matching the item kind. */
 async function matchLiveItem(env, sb, conn, text) {
-  if (!conn.telegram_account_id) return null;
-  const rows = await sb(env, "media_items?telegram_account_id=eq." +
-    encodeURIComponent(conn.telegram_account_id) +
-    "&visible=eq.true&select=id,title,kind,price_ton,media_key" +
-    "&order=price_ton.desc&limit=20").catch(() => null);
-  const items = (rows || []).filter(m => m.title && Number(m.price_ton) > 0);
+  // Same list the model sells from. A media-only matcher could never find a
+  // menu item, so "the three photo set please" produced no payment request.
+  const items = (await sellableItems(env, sb, conn))
+    .filter(m => m.title && Number(m.price_gbp || m.price_ton || 0) > 0);
   if (!items.length) return null;
   const lower = String(text || "").toLowerCase();
   let best = null, bestScore = 0;
@@ -1040,8 +1058,15 @@ async function onCallback(env, sb, cq, persona) {
   const action = m ? m[1] : "pay";
   const mediaId = m ? m[2] : pm[2];
 
-  const rows = await sb(env, "media_items?id=eq." + encodeURIComponent(mediaId) + "&select=*").catch(() => null);
-  const item = rows && rows[0];
+  // free: is always a library row because it has to send a real file. buy: and
+  // pay: resolve through the same helper as the quote, so menu items work.
+  let item = null;
+  if (action === "free") {
+    const rows = await sb(env, "media_items?id=eq." + encodeURIComponent(mediaId) + "&select=*").catch(() => null);
+    item = rows && rows[0] ? { ...rows[0], source: "media" } : null;
+  } else {
+    item = await itemById(env, sb, mediaId);
+  }
   if (!item) return { skipped: "item not found" };
 
   const bcId = (cq.message && cq.message.business_connection_id) || null;
@@ -1166,13 +1191,24 @@ async function onCallback(env, sb, cq, persona) {
 
 
 /* The most recent item this conversation was quoted for, if any. */
+/* One id can be a menu item or an older library row. Resolve it the same way
+   everywhere so a quote, a button tap and a payment lookup never disagree. */
+async function itemById(env, sb, id, source) {
+  if (!id) return null;
+  if (source !== "media") {
+    const m = await sb(env, "telegram_menu_items?id=eq." + encodeURIComponent(id) + "&select=*").catch(() => null);
+    if (m && m[0]) return { ...m[0], title: m[0].name || m[0].title, source: "menu" };
+  }
+  const r = await sb(env, "media_items?id=eq." + encodeURIComponent(id) + "&select=*").catch(() => null);
+  return r && r[0] ? { ...r[0], source: "media" } : null;
+}
+
 async function lastQuotedItem(env, sb, conv) {
   const rows = await sb(env, "messages?conversation_id=eq." + conv.id +
     "&direction=eq.out&select=raw&order=sent_at.desc&limit=10").catch(() => null);
   const m = (rows || []).find(r => r.raw && r.raw.via === "menu-buy" && r.raw.item_id);
   if (!m) return null;
-  const it = await sb(env, "media_items?id=eq." + encodeURIComponent(m.raw.item_id) + "&select=*").catch(() => null);
-  return it && it[0] ? it[0] : null;
+  return await itemById(env, sb, m.raw.item_id, m.raw.item_source);
 }
 
 /* Payment request for a specific item (shared by buy button and text). */
@@ -1188,7 +1224,8 @@ async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
   const ton = Number(item.price_ton) || 0;
   const gbp = Number(item.price_gbp) || ton;   // GBP column wins when set
   const price = "£" + gbp;
-  const payText = `ooh good choice 😏 ${item.title} is ${price} babe, how d'you wanna pay?`;
+  const name = item.name || item.title || "that";
+  const payText = `ooh good choice 😏 ${name} is ${price} babe, how d'you wanna pay?`;
   // Payment-method buttons: tapping one sends just that method's details,
   // in her voice. Methods without details configured are still offered so
   // the conversation can continue either way.
@@ -1211,9 +1248,9 @@ async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
         direction: "out",
         sender: "ai",
         kind: "text",
-        body_preview: "[payment request] " + item.title + " · " + price,
+        body_preview: "[payment request] " + name + " · " + price,
         sent_at: new Date().toISOString(),
-        raw: { via: "menu-buy", item_id: item.id, price_ton: price },
+        raw: { via: "menu-buy", item_id: item.id, item_source: item.source || "media", price_gbp: gbp },
       }),
     }).catch(() => {});
     console.log(JSON.stringify({ evt: "tg.pay_request.sent", item: item.id, price }));
@@ -1318,4 +1355,4 @@ export async function handleWebhook(request, env, sb, persona) {
 }
 
 // Exported for the reply-quality regression tests.
-export { generateReply, repeatsSomething, personaSystemPrompt, ensureEmoji };
+export { generateReply, repeatsSomething, personaSystemPrompt, ensureEmoji, sellableItems };

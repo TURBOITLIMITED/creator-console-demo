@@ -3,7 +3,7 @@
 // just an identical string. The owner's complaint is "she is very repetitive".
 import test from "node:test";
 import assert from "node:assert/strict";
-import { generateReply, repeatsSomething, ensureEmoji } from "../src/tg.js";
+import { generateReply, repeatsSomething, ensureEmoji, sellableItems } from "../src/tg.js";
 
 test("a repeat, and a close rephrase, are both caught", () => {
   const prev = ["I bet you're good at it. I love a bit of vape smoke. Do you do it for a living?"];
@@ -81,4 +81,26 @@ test("a reply with no emoji gets one that fits, before the trailing x", () => {
   assert.equal(ensureEmoji("let me look at you", "medium"), "let me look at you 👀");
   assert.equal(ensureEmoji("already got one 😏", "medium"), "already got one 😏");
   assert.equal(ensureEmoji("hey x", "low"), "hey x");
+});
+
+test("selling reads the owner's menu, not the older library", async () => {
+  const calls = [];
+  const sb = async (env, path) => {
+    calls.push(path);
+    if (path.startsWith("telegram_menu_items")) return [{ id: "m1", name: "Three photo set", kind: "image", price_gbp: 12 }];
+    return [{ id: "x1", title: "old library item", price_ton: 5 }];
+  };
+  const items = await sellableItems({}, sb, { telegram_account_id: "acct" });
+  assert.equal(items.length, 1);
+  assert.equal(items[0].title, "Three photo set");
+  assert.equal(items[0].source, "menu");
+  assert.ok(calls[0].startsWith("telegram_menu_items"));
+});
+
+test("an empty menu falls back to the library", async () => {
+  const sb = async (env, path) =>
+    path.startsWith("telegram_menu_items") ? [] : [{ id: "x1", title: "old library item", price_ton: 5 }];
+  const items = await sellableItems({}, sb, { telegram_account_id: "acct" });
+  assert.equal(items.length, 1);
+  assert.equal(items[0].source, "media");
 });
