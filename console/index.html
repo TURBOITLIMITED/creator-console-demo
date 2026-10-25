@@ -1914,11 +1914,27 @@ async function fsSaveLogin(accountId, btn) {
   const tg = $('#fs-tg').value.trim();
   if (!username) { toast('Enter her FabSwingers username', 'error'); return null; }
   if (!tg) { toast('Enter her personal Telegram handle', 'error'); return null; }
+  // a new login arrives switched OFF: nothing may reply until the owner has
+  // heard the voice and turned it on deliberately
+  const before = await fsCall('/fabswingers?telegram_account_id=' + encodeURIComponent(accountId)).catch(() => null);
+  const isNew = !(before && Array.isArray(before.accounts) && before.accounts.length);
   const saved = await withBusy(btn, () => fsCall('/fabswingers', {
     method: 'POST',
     body: JSON.stringify({ telegram_account_id: accountId, username, password: password || undefined, telegram_username: tg }),
   }));
-  if (saved) toast('FabSwingers login saved', 'success');
+  let off = !isNew;
+  if (saved && isNew) {
+    const acct = saved.account || saved;
+    if (acct && acct.id) {
+      off = await fsCall('/fabswingers/' + encodeURIComponent(acct.id), { method: 'PATCH', body: JSON.stringify({ enabled: false }) })
+        .then(() => true).catch(() => false);
+    }
+  }
+  if (saved) {
+    if (!isNew) toast('FabSwingers login saved', 'success');
+    else if (off) toast('FabSwingers login saved, switched off', 'success', 'Turn it on when the personality sounds right.');
+    else toast('Login saved but it is still switched on', 'error', 'Turn it off before you configure the personality.');
+  }
   return saved;
 }
 
@@ -1949,7 +1965,7 @@ async function fsTestLogin(btn) {
 
 async function renderFabSwingers() {
   setView(`
-    ${secHead('One FabSwingers login per bot account, each with its own auto-reply personality. Set it up here, or during Connect account.')}
+    ${secHead('One FabSwingers login per bot account, each with its own auto-reply personality. A new login arrives switched off: turn it on only when the voice sounds right.')}
     ${ownerPicker()}
     <div class="panel"><div class="panel-head"><h2>FabSwingers accounts</h2>
       <span class="end"><button class="btn sm primary" data-act="fs-link">${ic('plus')}Add account</button></span></div>
@@ -1982,10 +1998,10 @@ async function loadFabSwingers() {
           <td><b>${esc(r.username)}</b></td>
           <td>${acct ? '@' + esc(acct.username || acct.first_name || '') : '<span class="muted">unlinked</span>'}</td>
           <td class="muted">@${esc(r.telegram_username)}</td>
-          <td><span class="pill ${r.enabled ? 'ok' : 'draft'}">${r.enabled ? 'On' : 'Paused'}</span></td>
+          <td><span class="pill ${r.enabled ? 'ok' : 'draft'}">${r.enabled ? 'On' : 'Off'}</span></td>
           <td class="num"><div class="row-actions">
             <button class="act" data-act="fs-edit" data-id="${esc(r.id)}" title="Edit login and personality">${ic('edit')}Edit</button>
-            <button class="act" data-act="fs-toggle" data-id="${esc(r.id)}" data-on="${r.enabled ? 1 : 0}">${ic('power')}${r.enabled ? 'Pause' : 'Resume'}</button>
+            <button class="act" data-act="fs-toggle" data-id="${esc(r.id)}" data-on="${r.enabled ? 1 : 0}" title="${r.enabled ? 'Stop auto-reply for this account' : 'Start auto-reply for this account'}">${ic('power')}${r.enabled ? 'Turn off' : 'Turn on'}</button>
             <button class="act danger" data-act="fs-remove" data-id="${esc(r.id)}" title="Remove">${ic('trash')}</button>
           </div></td></tr>`;
       }).join('')}</tbody></table></div>`;
@@ -2569,8 +2585,13 @@ view.addEventListener('click', async e => {
     case 'wiz-finish': wizFinish(); break;
     case 'fs-toggle': {
       const on = a.dataset.on === '1';
-      const r = await fsCall('/fabswingers/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify({ enabled: !on }) }).catch(() => null);
-      if (r) { toast(!on ? 'FabSwingers account resumed' : 'FabSwingers account paused', 'success'); loadFabSwingers(); }
+      try{
+        await fsCall('/fabswingers/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify({ enabled: !on }) });
+        toast(!on ? 'Auto-reply turned on' : 'Auto-reply turned off', 'success', !on ? '' : 'Nothing will send for this account until you turn it back on.');
+        loadFabSwingers();
+      }catch(err){
+        toast('Could not change that account', 'error', err.message);
+      }
       break;
     }
     case 'fs-remove': {

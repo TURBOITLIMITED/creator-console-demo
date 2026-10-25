@@ -55,8 +55,14 @@ const ctx = {
   Data: { list: async () => ({ rows: [] }) },
   withBusy: async (btn, fn) => { try { const r = await fn(); return r ?? true; } catch (e) { calls.push(["busyError", e.message]); return false; } },
   fetch: async (url, opts) => {
-    calls.push(["fetch", url, opts && opts.method, opts && opts.body ? JSON.parse(opts.body) : null]);
-    return { ok: true, status: 200, json: async () => ({ ok: true, accounts: [], persona: null }) };
+    const body = opts && opts.body ? JSON.parse(opts.body) : null;
+    calls.push(["fetch", url, opts && opts.method, body]);
+    const u = String(url);
+    let payload = { ok: true, accounts: [], persona: null };
+    if (u.includes("/fabswingers?telegram_account_id=")) payload = { accounts: [] };
+    else if (u.endsWith("/fabswingers") && opts && opts.method === "POST") payload = { ok: true, account: { id: "fs-1", enabled: true } };
+    else if (u.includes("/fabswingers/fs-1")) payload = { ok: true, account: { id: "fs-1", enabled: false } };
+    return { ok: true, status: 200, json: async () => payload };
   },
 };
 
@@ -102,11 +108,13 @@ el("fs-username").value = "her_fs";
 el("fs-password").value = "pw123";
 el("fs-tg").value = "@her_tg";
 const savedLogin = await api.fsSaveLogin("acct-1", null);
-const loginCall = calls.find((c) => c[0] === "fetch");
+const loginCall = calls.find((c) => c[0] === "fetch" && c[2] === "POST");
 ok(!!savedLogin, "login save resolves");
 ok(loginCall && loginCall[1].endsWith("/fabswingers"), "login save posts to /fabswingers");
 ok(loginCall && loginCall[3].telegram_account_id === "acct-1", "login save carries the bot account id");
 ok(loginCall && loginCall[3].telegram_username === "@her_tg", "login save sends the handle as typed");
+const offCall = calls.find((c) => c[0] === "fetch" && String(c[1]).includes("/fabswingers/fs-1") && c[3] && c[3].enabled === false);
+ok(!!offCall, "a new login is switched off straight after saving");
 ok(calls.some((c) => c[0] === "toast" && c[2] === "success"), "login save confirms with a toast");
 
 calls.length = 0;
