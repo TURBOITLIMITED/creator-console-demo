@@ -224,16 +224,31 @@ async function fsDraftFor(env, acct, persona, row, thread){
    do, so the cookie is sealed and kept in R2 between runs and only replaced
    when FabSwingers stops accepting it. */
 const fsSessionKey = (id) => `fs-session/${id}.json`;
-async function fsLoadCookie(env, acctId){
+async function fsLoadRecord(env, acctId){
   try{
     const obj = await env.MEDIA.get(fsSessionKey(acctId));
-    if(!obj) return null;
-    const j = await obj.json();
-    return j && j.sealed ? await openSecret(env, j.sealed) : null;
+    return obj ? await obj.json() : null;
   }catch(e){ return null; }
 }
-async function fsSaveCookie(env, acctId, cookie){
-  try{ await env.MEDIA.put(fsSessionKey(acctId), JSON.stringify({ sealed: await sealSecret(env, cookie), at: new Date().toISOString() })); }catch(e){}
+async function fsOpenCookie(env, rec){
+  try{ return rec && rec.sealed ? await openSecret(env, rec.sealed) : null; }catch(e){ return null; }
+}
+async function fsSaveRecord(env, acctId, cookie, nextSendAt){
+  try{
+    await env.MEDIA.put(fsSessionKey(acctId), JSON.stringify({
+      sealed: await sealSecret(env, cookie),
+      at: new Date().toISOString(),
+      next_send_at: nextSendAt || null,
+    }));
+  }catch(e){}
+}
+/* Gaps between answers drawn the way a person's day actually looks: mostly a
+   minute or two, sometimes a break for a coffee, occasionally a long one. */
+function humanGapSeconds(){
+  const r = Math.random();
+  if (r < 0.05) return 900 + Math.random() * 900;   // 15 to 30 minutes
+  if (r < 0.20) return 240 + Math.random() * 480;   // 4 to 12 minutes
+  return 45 + Math.random() * 120;                  // 45 seconds to 2m45
 }
 const UK_HOUR = () => Number(new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: "Europe/London" }).format(new Date()));
 
@@ -263,13 +278,14 @@ async function pollFab(env){
           body: JSON.stringify({ last_error: "No personality saved yet" }) }).catch(() => null);
         continue;
       }
-      // she is online whenever the phone is, day or night: the night is when
-      // this earns, and a person answering at 01:00 is normal on this site.
-      // Not every tick sends: a person picks the phone up when they pick it up,
-      // so gaps between answers wander instead of landing every sixty seconds.
-      if (Math.random() > Number(env.FS_SEND_CHANCE || 0.55)) continue;
+      // she is online whenever the phone is, day or night. Whether this tick
+      // sends is decided by the previous answer's gap, not by the clock, so the
+      // spacing is uneven in the same way a person's is.
+      const record = await fsLoadRecord(env, acct.id);
+      const dueAt = record && record.next_send_at ? new Date(record.next_send_at).getTime() : 0;
+      if (Date.now() < dueAt) continue;
 
-      let cookie = await fsLoadCookie(env, acct.id);
+      let cookie = await fsOpenCookie(env, record);
       let snap = null;
       if (cookie){
         const p = await inboxPage(cookie);
@@ -280,7 +296,7 @@ async function pollFab(env){
         const password = await openSecret(env, acct.password_enc);
         const s = await fsLogin(acct.username, password);
         cookie = s.cookie;
-        await fsSaveCookie(env, acct.id, cookie);
+        await fsSaveRecord(env, acct.id, cookie, null);
         const p = await inboxPage(cookie);
         if (!p.authed) throw new Error("login was not accepted");
         snap = { rows: parseInbox(p.html), cookie, html: p.html };
@@ -372,6 +388,7 @@ async function pollFab(env){
           }),
         }).catch(() => null);
       }
+      await fsSaveRecord(env, acct.id, cookie, new Date(Date.now() + humanGapSeconds() * 1000).toISOString());
       await sb(env, `fabswingers_accounts?id=eq.${acct.id}`, { method:"PATCH", headers:{Prefer:"return=minimal"},
         body: JSON.stringify({ last_poll_at: new Date().toISOString(), last_error: null }) }).catch(() => null);
     }catch(e){
