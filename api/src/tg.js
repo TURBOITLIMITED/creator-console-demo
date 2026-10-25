@@ -414,12 +414,17 @@ function personaSystemPrompt(p, conn, catalogue, wallet, saidAlready) {
                  playful: "light jokes, emoji, high energy",
                  professional: "polite, precise, no slang",
                  concise: "short answers, straight to the point" }[(p && p.tone) || "warm"];
+  // Emoji is a per-account setting in the console. It was never read, which is
+  // how every account lost its emoji and started reading flat.
+  const emoji = { low: "rarely, once every few messages at most",
+                  medium: "one or two in most messages, the way she texts: 😏 😘 💋 😈 🍑, never the same one twice in a row",
+                  high: "two or three a message, flirty, but still like a woman texting" }[(p && p.emoji_level) || "medium"];
   const lines = [
     // The most common failure is a flirty line that never answers what he
     // asked. This rule comes first for that reason.
     "RULE ONE: answer the question he actually asked, in the first few words. If he asked where you are, say the place. If he asked how old, say the age. If he asked what you do, tell him. A tease is not an answer. Only then flirt or move it on. If you did not answer him, the reply is wrong.",
     `You are ${name}, replying to fans in her Telegram DMs. You are chatting to sell her photos and videos.`,
-    `Voice: ${tone}.`,
+    `Voice: ${tone}. Emoji: ${emoji}.`,
   ];
   if (p && p.system_prompt) lines.push(String(p.system_prompt));
   if (catalogue) lines.push(catalogue);
@@ -431,7 +436,9 @@ function personaSystemPrompt(p, conn, catalogue, wallet, saidAlready) {
     "Write like a real human woman texting: natural, warm, filthy, small imperfections are fine. She swears when it fits (slut, knickers, cock, fucking) and is never prim or corporate.",
     // Long chatty paragraphs are what make her sound generated. Real people
     // on their phone send a line, sometimes four words.
-    "Length: under fifteen words. One line, often just three to six words. If you have written two sentences, cut the second one. Never three.",
+    // Short is right, terse is not: the fifteen-word, three-to-six-word rule
+    // stripped the emoji and the warmth out of her and the owner rejected it.
+    "Length: one line is the target, two short lines at most, under twenty words. Emoji and a cheeky word belong in the line, they are not an extra sentence. A paragraph is always wrong.",
     // Direct questions read like an interview and kill the chat.
     "Do not interview him. At most one question, and not in every message. Never open with a question about him.",
     "Answer him first, briefly. Once the chat is warm, let him know what you are without announcing it like a job title or using a script: in your own words, once, that you sell your photos, videos and knickers. Say it differently every time. Light, once, then carry on.",
@@ -451,6 +458,9 @@ function personaSystemPrompt(p, conn, catalogue, wallet, saidAlready) {
       saidAlready.map(s => '"' + s + '"').join("; ") +
       ". Do not send any of them again, and do not write a close paraphrase of any of them. Say something you have not said yet.");
   }
+  // The stored persona carries its own length rule and is longer than this
+  // prompt, so the format is restated last, where a small model actually reads.
+  lines.push("Format, whatever the notes above say: one line, two at most, under twenty words, with one or two emoji from her usual set 😏 😘 💋 😈. Never flat, never a paragraph, never the same emoji twice in a row.");
   return lines.join(" ");
 }
 

@@ -36,10 +36,19 @@ test("every model failing throws so the caller records a real error", async () =
 
 test("the prompt names the lines already sent and the role-play rule", async () => {
   const { personaSystemPrompt } = await import("../src/tg.js");
-  const prompt = personaSystemPrompt({ display_name: "Michaela" }, {}, "", "", ["you're a bad boy x"]);
+  const prompt = personaSystemPrompt({ display_name: "Michaela", tone: "playful", emoji_level: "medium" }, {}, "", "", ["you're a bad boy x"]);
   assert.match(prompt, /You have already sent these lines in this chat/);
   assert.match(prompt, /you're a bad boy x/);
   assert.match(prompt, /If he calls you mummy/);
   assert.match(prompt, /Never correct him, never say you are not his mummy/);
   assert.doesNotMatch(prompt, /I'm not your mummy/);
+});
+
+test("emoji and warmth survive the length rule", async () => {
+  const { personaSystemPrompt } = await import("../src/tg.js");
+  const prompt = personaSystemPrompt({ display_name: "Michaela", emoji_level: "medium" }, {}, "", "", []);
+  assert.match(prompt, /Emoji: one or two in most messages/);
+  assert.match(prompt, /never the same one twice in a row/);
+  assert.match(prompt, /two short lines at most, under twenty words/);
+  assert.doesNotMatch(prompt, /three to six words/);
 });
