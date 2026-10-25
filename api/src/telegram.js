@@ -56,6 +56,17 @@ export const deleteWebhook = (token) => call(token, "deleteWebhook", { drop_pend
 export const getWebhookInfo = (token) => call(token, "getWebhookInfo", {});
 export const getMe = (token) => call(token, "getMe", {});
 
+/* A thumbs up on a message, on the account's behalf. Used for the brush-off:
+   acknowledging a "fuck off" without spending a model call or chasing him. */
+export const setMessageReaction = (token, chatId, messageId, emoji, businessConnectionId) =>
+  call(token, "setMessageReaction", {
+    chat_id: chatId,
+    message_id: messageId,
+    reaction: [{ type: "emoji", emoji: emoji || "👍" }],
+    is_big: false,
+    ...(businessConnectionId ? { business_connection_id: businessConnectionId } : {}),
+  });
+
 /**
  * Re-read a connection's rights from Telegram.
  *

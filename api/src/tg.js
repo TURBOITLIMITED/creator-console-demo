@@ -239,8 +239,15 @@ async function onMessage(env, sb, msg, edited) {
   }, "resolution=merge-duplicates,return=minimal");
 
   const patch = { last_message_at: new Date().toISOString() };
+  // talking to her again wakes a thread she had left alone
+  if (!outgoing) patch.state = "active";
   if (!outgoing) patch.last_inbound_at = new Date().toISOString();
   else patch.last_outbound_at = new Date().toISOString();
+
+  /* "fuck off", "piss off", "not interested": he has dismissed her. She likes
+     the message and moves on. No model call, no chase, and he is still free to
+     come back another day. */
+  const DISMISS = /\b(f+u+c+k+\s*off|piss\s*off|sod\s*off|get\s*lost|jog\s*on|do\s*one|not\s*interested|no\s*thanks?|no\s*ta|leave\s*it|bog\s*off|bore\s*off|fuck\s*you|go\s*away)\b/i;
 
   // Deterministic screens, all of which run BEFORE any model would.
   let intercept = null, reply = null;
@@ -272,6 +279,10 @@ async function onMessage(env, sb, msg, edited) {
       patch.mode = "human";
       patch.escalated_at = new Date().toISOString();
       intercept = "human_requested";
+    } else if (DISMISS.test(text)) {
+      // nothing to say, and nothing worth spending a model call on
+      intercept = "dismissed";
+      patch.state = "dormant";
     }
   }
 
@@ -291,6 +302,15 @@ async function onMessage(env, sb, msg, edited) {
                   reply_text: reply ? reply.text : null },
       }),
     }).catch(() => {});
+  }
+
+  if (intercept === "dismissed") {
+    try {
+      const token = await botTokenFor(env, sb, conn);
+      if (token) await tg.setMessageReaction(token, msg.chat.id, msg.message_id, "👍", bcId);
+    } catch (e) {
+      console.log(JSON.stringify({ evt: "tg.dismiss.react_failed", err: String(e).slice(0, 120) }));
+    }
   }
 
   // Auto-reply: deterministic intercept answers send straight away; everything
