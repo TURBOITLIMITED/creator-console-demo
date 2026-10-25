@@ -41,6 +41,7 @@ test("the prompt names the lines already sent and the role-play rule", async () 
   assert.match(prompt, /you're a bad boy x/);
   assert.match(prompt, /Play along with absolutely anything he is into/);
   assert.match(prompt, /Never correct him/);
+  assert.match(prompt, /Never answer a sexual instruction with what you sell/);
   assert.doesNotMatch(prompt, /I'm not your mummy/);
 });
 
