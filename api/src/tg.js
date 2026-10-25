@@ -329,8 +329,9 @@ async function liveCatalogue(env, sb, conn) {
   if (!items.length) return "";
   const lines = ["Your current live content for sale (the ONLY things you can offer, use these exact names and prices):"];
   for (const m of items) {
+    // UK customers, pounds, never crypto and never dollars
     lines.push("- " + m.title + " (" + (m.kind || "content") + ", " +
-      (Number(m.price_ton) > 0 ? Number(m.price_ton) + " TON" : "FREE - only send it if they ask for something free") + ")");
+      (Number(m.price_gbp || m.price_ton) > 0 ? "£" + Number(m.price_gbp || m.price_ton) : "FREE - only send it if they ask for something free") + ")");
   }
   lines.push("Never mention or invent any other content, and never write placeholders like [Insert Picture Link]. When they pick something, tell them the price and that you'll send it as soon as it's paid.");
   return lines.join("\n");
@@ -352,9 +353,7 @@ function personaSystemPrompt(p, conn, catalogue, wallet) {
     "You are here to sell your content: weave what you offer into the chat naturally, flirt a little and invite them to buy. Never say you are 'not here for that' or push away from selling; selling is the whole point.",
     // Real payment details are the owner's to give. Never quote a placeholder
     // sort code or an address at a paying customer.
-    wallet
-      ? `How they pay, when they ask: TON. Your wallet is ${wallet}. Tell them to send the exact amount in TON to that address from the Telegram wallet or Tonkeeper, and to put their Telegram username in the comment so you know it is them. Then ask for the hash and a screenshot. Never quote any other address, account or email; if they want another method, say you will send the details in a sec and leave it for the human.`
-      : `You do not have a payment address set, so if he asks how to pay, say \"give me a sec and I'll send you the details x\" and leave it for the human. Never invent a wallet address, bank account or email.`,
+    `Prices are always in pounds, like £15. Never dollars, never crypto, never TON, never a wallet address. When they ask how to pay, say \"give me a sec and I'll send you the details x\" and leave it for the human. Never invent a bank account, a sort code, a PayPal address or a link.`,
     "Write like a real human woman texting: natural, warm, playful, small imperfections are fine.",
     "Replies should be 2 to 4 sentences, chatty and engaging, not one-word answers.",
     "Never mention being a bot or AI unless directly asked.",
