@@ -486,7 +486,9 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   // FREE CONTENT: "anything free?" -> send a live, price-0 item from this
   // account's library, once per conversation until they ask again later.
   const lower = String(text || "").toLowerCase();
-  const askingFree = /(free|4free|for free|anything for me|freebie|sample|preview)/.test(lower);
+  // "send us a pic" is the most common opener there is. It gets the free one,
+  // the same as asking for a freebie.
+  const askingFree = /(free|4free|for free|anything for me|freebie|sample|preview|\bpic|\bphoto|\bpicture|show (me|us)|what do you look like|send (me )?(something|one)|any nudes|\bnudes\b)/.test(lower);
   if (askingFree) {
     const sentFree = await maybeSendFreeItem(env, sb, conn, conv, msg);
     if (sentFree) { stopTyping(); return sentFree; }   // media sent; no text needed
@@ -643,10 +645,16 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
 async function maybeSendFreeItem(env, sb, conn, conv, msg) {
   if (!conn.telegram_account_id) return null;
   // Live, price-0 items tagged to THIS girl's account.
-  const rows = await sb(env, "media_items?telegram_account_id=eq." +
+  let rows = await sb(env, "media_items?telegram_account_id=eq." +
     encodeURIComponent(conn.telegram_account_id) +
     "&visible=eq.true&price_ton=eq.0&select=id,title,kind,media_key" +
     "&order=uploaded_at.desc&limit=5").catch(() => null);
+  // A freebie uploaded before the account existed still counts.
+  if (!(rows && rows.length)){
+    rows = await sb(env, "media_items?creator_id=eq." + encodeURIComponent(conn.creator_id) +
+      "&visible=eq.true&price_ton=eq.0&select=id,title,kind,media_key" +
+      "&order=uploaded_at.desc&limit=5").catch(() => null);
+  }
   const items = (rows || []).filter(m => m.media_key);   // need a real file
   if (!items.length) return null;
   // Don't spam the same file repeatedly: skip if we sent this item's media in
