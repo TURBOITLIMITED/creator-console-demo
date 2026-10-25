@@ -195,6 +195,16 @@ const FS_STOP = [
   [/\b(under ?18|underage|school|teen|15|16|17)\b/i, "age doubt"],
   [/\b(blackmail|screenshot|i know (where|who)|expose)\b/i, "threat"],
 ];
+/* Never answer the site itself. A reply to FabSwingers, support or a system
+   notice is the loudest possible sign that a machine is on the account. */
+const FS_NEVER = /^(fab ?swingers?|admin|administrator|support|help|team|staff|moderator|mod|webmaster|system|noreply|no[-_ ]?reply|notifications?|mailer|daemon|root|info|accounts?)$/i;
+function fsNeverReply(row){
+  const u = String((row && row.user) || "").trim();
+  const n = String((row && row.name) || "").trim();
+  if (FS_NEVER.test(u) || FS_NEVER.test(n)) return true;
+  return /fab ?swingers|site ?admin|support team/i.test(u) || /fab ?swingers/i.test(n);
+}
+
 const FS_MEET_RE = /\b(meet|meeting|meet up|come round|come over|your address|where do you live|postcode|hotel|hook ?up|free tonight|free this week|fancy a coffee|drink sometime)\b/i;
 function fsMeetAsk(text){ return FS_MEET_RE.test(String(text || "")); }
 
@@ -363,7 +373,8 @@ async function pollFab(env){
       // reads as a bot working a backlog.
       const maxAge = Number(env.FS_MAX_AGE_MIN || 1440);
       const fresh = (x) => { const a = ageMinutes(x.when); return a === null || a <= maxAge; };
-      for (const r of snap.rows.filter((x) => x.unread && !done.has(x.user) && fresh(x))){
+      const answerable = (x) => x.unread && !fsNeverReply(x);
+      for (const r of snap.rows.filter((x) => answerable(x) && !done.has(x.user) && fresh(x))){
         firstSeen.push(r);
         await sb(env, "fabswingers_conversations?on_conflict=fabswingers_account_id,fs_user_id", {
           method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
@@ -406,21 +417,25 @@ async function pollFab(env){
       const ready = (snap.rows || []).filter(eligible);
       // a batch per run, still one message per man and never the same thread
       // twice in a run. Default five, borrowed from the monthly allowance.
-      const perRun = Math.max(1, Math.min(8, Number(env.FS_PER_RUN || 5)));
+      const perRun = Math.max(1, Math.min(10, Number(env.FS_PER_RUN || 8)));
       // the inbox lists one row per message, so the same man can appear several
       // times. One message each per batch, first row wins.
       const picked = new Set();
       const readyUsers = new Set((ready || []).map((r) => r.user));
       const todo = readyUsers.size
-        ? snap.rows.filter((r) => {
-            if (!r.unread || !readyUsers.has(r.user) || picked.has(r.user)) return false;
-            picked.add(r.user);
-            return true;
-          }).slice(0, perRun)
+        ? snap.rows
+            .filter((r) => {
+              if (!answerable(r) || !readyUsers.has(r.user) || picked.has(r.user)) return false;
+              picked.add(r.user);
+              return true;
+            })
+            // the man who just messaged is the one sitting there waiting
+            .sort((a, b) => (ageMinutes(a.when) ?? 99999) - (ageMinutes(b.when) ?? 99999))
+            .slice(0, perRun)
         : [];
       let halted = false, sent = 0;
       for(const row of todo){
-        if (sent > 0) await pause(1200 + Math.random() * 2200);
+        if (sent > 0) await pause(700 + Math.random() * 1500);
         const reason = fsStopReason(row.snippet);
         let status = "sent", text = null;
         if(reason){
@@ -1007,7 +1022,8 @@ export default {
       const b = await request.json().catch(() => ({}));
       const allowed = ["/my/messagesnew", "/my/sent_messages", "/my/messages"];
       const path = String(b.path || "");
-      if (!allowed.includes(path) && !path.startsWith("/account/pm.aspx?")) {
+      // read only, admin gated: the mailbox pages and a thread's reply page
+      if (!allowed.includes(path) && !path.startsWith("/account/") && !path.startsWith("/my/")) {
         return json({ ok: false, error: "path not allowed" }, 400, origin);
       }
       const acct = await fsAccount(env, b.id);
@@ -1020,7 +1036,7 @@ export default {
         });
         const html = await r.text();
         const text = html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-        return json({ ok: true, status: r.status, text: text.slice(0, 6000), html: b.raw ? html.slice(0, 60000) : undefined }, 200, origin);
+        return json({ ok: true, status: r.status, text: text.slice(0, 6000), html: b.raw ? html.slice(0, 1200000) : undefined }, 200, origin);
       } catch (e) {
         return json({ ok: false, error: String((e && e.message) || e) }, 200, origin);
       }

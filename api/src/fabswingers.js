@@ -8,6 +8,9 @@
  */
 
 const BASE = "https://www.fabswingers.com";
+/* The big mailbox lists every conversation, 200 rows against 80 on the default
+   page. Same markup, so the parser does not care. */
+const INBOX = "/my/messagesnewbig";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36";
 
 const strip = (h) => String(h)
@@ -162,7 +165,7 @@ export async function sendReply(cookie, user, guid, text) {
 /** Fetch the inbox with an existing cookie. If FabSwingers bounced us to the
     login page the cookie is stale: the caller logs in again. */
 export async function inboxPage(cookie) {
-  const r = await fetch(BASE + "/my/messagesnew", {
+  const r = await fetch(BASE + INBOX, {
     headers: { "User-Agent": UA, Cookie: cookie, Accept: "text/html" },
     redirect: "follow",
   });
@@ -190,7 +193,7 @@ export async function inboxSnapshot(env, account) {
   }
   const password = await openSecret(env, account.password_enc);
   const session = await login(account.username, password);
-  const r = await fetch(BASE + "/my/messagesnew", { headers: { "User-Agent": UA, Cookie: session.cookie, Accept: "text/html" }, redirect: "follow" });
+  const r = await fetch(BASE + INBOX, { headers: { "User-Agent": UA, Cookie: session.cookie, Accept: "text/html" }, redirect: "follow" });
   const html = await r.text();
   return { rows: parseInbox(html), cookie: session.cookie, status: r.status };
 }
