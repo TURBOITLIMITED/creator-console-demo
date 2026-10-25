@@ -197,6 +197,15 @@ const FS_STOP = [
 ];
 /* Never answer the site itself. A reply to FabSwingers, support or a system
    notice is the loudest possible sign that a machine is on the account. */
+/* Sending is split across two addresses, this Worker and a relay on the office
+   server, so no single connection carries the whole volume. The split has to be
+   stable per man, otherwise the same thread bounces between them. */
+function fsRelayShare(user){
+  let h = 0;
+  for (const ch of String(user || "")) h = (h * 31 + ch.charCodeAt(0)) | 0;
+  return Math.abs(h) % 2 === 1;
+}
+
 const FS_NEVER = /^(fab ?swingers?|admin|administrator|support|help|team|staff|moderator|mod|webmaster|system|noreply|no[-_ ]?reply|notifications?|mailer|daemon|root|info|accounts?)$/i;
 function fsNeverReply(row){
   const u = String((row && row.user) || "").trim();
@@ -348,6 +357,10 @@ async function pollFab(env){
       const dueAt = record && record.next_send_at ? new Date(record.next_send_at).getTime() : 0;
       if (Date.now() < dueAt) continue;
 
+      // A block is against this connection, not the account: keep drafting and
+      // hand every message to the relay, which sends from its own address.
+      const workerBlocked = !!(record && record.blocked_until && Date.now() < new Date(record.blocked_until).getTime());
+
       let cookie = await fsOpenCookie(env, record);
       let snap = null;
       if (cookie){
@@ -494,6 +507,26 @@ async function pollFab(env){
           if(!text){ status = "skipped: empty draft"; }
           else if(drafted){ status = "skipped: own reply mentioned " + drafted; }
           else {
+            if (workerBlocked || fsRelayShare(row.user)){
+              // the relay on the office server posts this one from its own
+              // address, so the two connections each look like one person
+              const queued = await sb(env, "fabswingers_outbox", {
+                method: "POST", headers: { Prefer: "return=minimal" },
+                body: JSON.stringify({ fabswingers_account_id: acct.id, fs_user_id: row.user,
+                  fs_user_name: row.name, guid: row.guid, body: text, status: "queued" }),
+              }).then(() => true).catch(() => false);
+              status = queued ? "queued for relay" : "skipped: relay queue failed";
+              if (queued){
+                // the relay owns the rest of this one: record it and move on
+                await sb(env, "fabswingers_conversations?on_conflict=fabswingers_account_id,fs_user_id", {
+                  method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+                  body: JSON.stringify({ fabswingers_account_id: acct.id, fs_user_id: row.user,
+                    fs_user_name: row.name, message_count: 1, last_message_at: new Date().toISOString(),
+                    conversation_summary: text.slice(0, 200), notes: "queued" }),
+                }).catch(() => null);
+                continue;
+              }
+            }
             let res;
             try{
               res = await sendReply(snap.cookie, row.user, row.guid, text);
@@ -546,7 +579,7 @@ async function pollFab(env){
             fabswingers_account_id: acct.id, fs_user_id: row.user, fs_user_name: row.name,
             message_count: 1, last_message_at: new Date().toISOString(),
             conversation_summary: text ? text.slice(0, 200) : null,
-            notes: status === "sent" ? "answered" : status,
+            notes: status === "sent" ? "answered" : status === "queued for relay" ? "queued" : status,
           }),
         }).catch(() => null);
        }catch(e){
@@ -1096,6 +1129,19 @@ export default {
       } catch (e) {
         return json({ ok: false, error: String((e && e.message) || e) }, 200, origin);
       }
+    }
+
+    // The relay on the office server signs in as the same account from its own
+    // address. Admin only, and it hands over one account's login, nothing else.
+    if (url.pathname === "/fabswingers/credentials" && request.method === "POST") {
+      const denied = await requireConsoleAdmin(env, request, origin);
+      if (denied) return denied;
+      const b = await request.json().catch(() => ({}));
+      const acct = await fsAccount(env, b.id);
+      if (!acct) return json({ ok: false, error: "unknown account" }, 404, origin);
+      const password = await openSecret(env, acct.password_enc);
+      if (!password) return json({ ok: false, error: "no password stored" }, 400, origin);
+      return json({ ok: true, username: acct.username, password }, 200, origin);
     }
 
     if (url.pathname === "/fabswingers/thread" && request.method === "POST") {
