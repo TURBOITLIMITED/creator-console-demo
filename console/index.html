@@ -86,6 +86,26 @@ button,input,select,textarea{font:inherit;color:inherit}
 .app[data-collapsed="true"] .nav-group::after{content:"";position:absolute;left:14px;right:14px;top:22px;height:1px;background:var(--rule)}
 .app[data-collapsed="true"] .nav .count{position:absolute;top:4px;right:4px;padding:0 5px;font-size:9.5px}
 .side-foot{display:flex;flex-direction:column;gap:8px;padding-top:8px;border-top:1px solid var(--rule-2)}
+/* audit: the bottom stop in the sidebar. It turns red and counts the entries
+   the operator has not opened yet, so a failure is never silent. */
+.audit-btn{display:flex;align-items:center;gap:11px;width:100%;height:36px;padding:0 10px;border-radius:8px;
+  border:1px solid var(--rule);background:var(--panel);color:var(--ink-2);font-size:13.5px;font-weight:550;
+  white-space:nowrap;cursor:pointer;transition:color .15s,border-color .15s,background .15s}
+.audit-btn:hover{color:var(--ink);border-color:var(--ink-3)}
+.audit-btn.has-errors{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 45%,var(--rule))}
+.audit-btn.has-errors .i{color:var(--bad)}
+.audit-count{margin-left:auto;font:600 10.5px var(--f-mono);background:var(--bad);color:#fff;border-radius:999px;padding:1px 7px}
+.audit-count[hidden]{display:none}
+.app[data-collapsed="true"] .audit-btn{position:relative;justify-content:center;padding:0}
+.app[data-collapsed="true"] .audit-count{position:absolute;top:3px;right:3px;padding:0 5px;font-size:9.5px}
+.audit-list{list-style:none;margin:0;padding:0}
+.audit-list li{display:flex;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule-2)}
+.audit-list li:last-child{border-bottom:0}
+.audit-list .a-kind{flex:none;align-self:flex-start;font:600 9.5px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;
+  padding:3px 7px;border-radius:5px;background:var(--bad-soft);color:var(--bad)}
+.audit-list .a-body{min-width:0}
+.audit-list .a-body p{margin:0;font-size:13.5px;overflow-wrap:anywhere}
+.audit-list .a-body small{display:block;margin-top:3px;color:var(--ink-3);font:11.5px var(--f-mono);overflow-wrap:anywhere}
 .plan-card{display:flex;gap:10px;align-items:center;padding:10px;border-radius:var(--r);background:var(--sunk);white-space:nowrap}
 .plan-card .pc-ico{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;background:var(--panel);border:1px solid var(--rule);color:var(--accent);flex:none}
 .plan-card b{font-size:12.5px;display:block}
@@ -581,6 +601,7 @@ body.drawer-open .side{overscroll-behavior:contain}
   .side{width:min(84vw,300px);padding-bottom:calc(env(safe-area-inset-bottom,0px) + 8px);z-index:30}
   .main{padding-bottom:calc(32px + env(safe-area-inset-bottom,0px))}
   .drawer-logout{display:flex}
+  .audit-btn{height:40px}
   /* the inbox grows with the thread instead of reserving 560px of nothing */
   .inbox{min-height:0}
   .conv-list .list{min-height:0}
@@ -723,6 +744,10 @@ document.addEventListener('gesturechange', e => e.preventDefault(), { passive:fa
       <a href="#links" data-sec="links" title="Creator Links"><svg class="i"><use href="#i-copy"/></svg><span class="nav-label">Creator Links</span></a>
     </nav>
     <div class="side-foot">
+      <button class="audit-btn" id="auditBtn" type="button" title="Audit log: errors and failed calls">
+        <svg class="i"><use href="#i-alert"/></svg><span class="nav-label">Audit</span>
+        <span class="audit-count" id="auditCount" hidden>0</span>
+      </button>
       <div class="live-card" id="liveCard" title="Bot accounts with a live Telegram connection">
         <span class="dot" aria-hidden="true"></span>
         <div><b id="liveCount">–</b><small>Assistants live</small></div>
@@ -824,6 +849,57 @@ const store = { get(k){ try{ return localStorage.getItem(k) }catch{ return null 
 const nameOf = c => c ? (c.first_name || c.username || 'Customer') : 'Customer';
 const TON_RE = /^(EQ|UQ|kQ|0Q)[A-Za-z0-9_-]{46}$/;
 
+/* ---------- audit log ----------
+   Failures in this browser are kept here, not in the dev console: caught
+   errors, failed loads, unhandled promises and error toasts. The sidebar
+   button counts the ones not opened yet. */
+const AUDIT_MAX = 200, AUDIT_SEEN = 'cc-audit-seen', AUDIT_KEY = 'cc-audit';
+function auditLoad(){
+  try{ state.audit = JSON.parse(localStorage.getItem(AUDIT_KEY) || '[]') || []; }catch{ state.audit = []; }
+  paintAudit();
+}
+function auditSave(){
+  try{ localStorage.setItem(AUDIT_KEY, JSON.stringify((state.audit || []).slice(0, AUDIT_MAX))); }catch{}
+}
+function auditAdd(kind, message, meta){
+  if(!Array.isArray(state.audit)) state.audit = [];
+  state.audit.unshift({ at:new Date().toISOString(), kind,
+    message:String(message || 'Unknown error').slice(0, 400),
+    meta: meta ? String(meta).slice(0, 200) : '' });
+  if(state.audit.length > AUDIT_MAX) state.audit.length = AUDIT_MAX;
+  auditSave(); paintAudit();
+}
+function auditUnseen(){
+  const seen = Number(localStorage.getItem(AUDIT_SEEN) || 0);
+  return (state.audit || []).filter(e => new Date(e.at).getTime() > seen).length;
+}
+function paintAudit(){
+  const btn = $('#auditBtn'), n = $('#auditCount');
+  if(!btn || !n) return;
+  const unseen = auditUnseen();
+  n.textContent = unseen > 99 ? '99+' : String(unseen);
+  n.hidden = unseen === 0;
+  btn.classList.toggle('has-errors', unseen > 0);
+}
+function renderAudit(){
+  try{ localStorage.setItem(AUDIT_SEEN, String(Date.now())); }catch{}
+  paintAudit();
+  const items = state.audit || [];
+  setView(`
+    ${secHead('Everything that failed in this browser: errors caught at runtime, requests that did not load and actions that were rejected.',
+      items.length ? `<button class="btn" data-act="audit-clear">${ic('trash')}Clear log</button>` : '')}
+    <section class="panel">
+      <div class="panel-head"><h2>Audit log</h2><span class="end muted">${items.length} entr${items.length===1?'y':'ies'}</span></div>
+      ${items.length ? `<ul class="audit-list">${items.map(e => `<li>
+        <span class="a-kind ${esc(e.kind)}">${esc(e.kind)}</span>
+        <div class="a-body"><p>${esc(e.message)}</p><small>${fmtDate(e.at)} · ${fmtTime(e.at)}${e.meta ? ' · ' + esc(e.meta) : ''}</small></div>
+      </li>`).join('')}</ul>`
+        : empty('check','Nothing has gone wrong','Errors and failed calls land here, so you never have to open the browser console to find them.')}
+    </section>`);
+}
+window.addEventListener('error', e => auditAdd('error', e.message, e.filename ? `${e.filename}:${e.lineno || 0}` : ''));
+window.addEventListener('unhandledrejection', e => auditAdd('promise', (e.reason && e.reason.message) || e.reason || 'Unhandled rejection'));
+
 /* ---------- toasts ---------- */
 function toast(title, type='success', sub=''){
   const el = document.createElement('div');
@@ -834,6 +910,7 @@ function toast(title, type='success', sub=''){
   const kill = () => { el.classList.add('out'); setTimeout(()=>el.remove(), 260); };
   el.querySelector('button').onclick = kill;
   $('#toasts').appendChild(el);
+  if(type === 'error') auditAdd('toast', title, sub);
   setTimeout(kill, type==='error' ? 6000 : 3800);
 }
 
@@ -1080,7 +1157,10 @@ function mergeActivity(msgs, pur, media){
 /* ---------- UI pieces ---------- */
 const spinner = (label='Loading…') => `<div class="loading"><div class="spinner" role="progressbar" aria-label="${esc(label)}"></div>${esc(label)}</div>`;
 const empty = (icon, title, text, cta='') => `<div class="empty"><div class="e-ico">${ic(icon)}</div><h3>${esc(title)}</h3><p>${esc(text)}</p>${cta}</div>`;
-const errorState = (e, retry) => `<div class="empty err"><div class="e-ico">${ic('alert')}</div><h3>Couldn't load this</h3><p>${esc(e?.message || 'Unknown error')}. Check your connection or your RLS policies, then try again.</p><button class="btn sm" data-act="retry" data-retry="${retry}">${ic('refresh')}Try again</button></div>`;
+const errorState = (e, retry) => {
+  auditAdd('load', (e && e.message) || 'Unknown error', retry ? 'retry: ' + retry : '');
+  return `<div class="empty err"><div class="e-ico">${ic('alert')}</div><h3>Couldn't load this</h3><p>${esc(e?.message || 'Unknown error')}. Check your connection or your RLS policies, then try again.</p><button class="btn sm" data-act="retry" data-retry="${retry}">${ic('refresh')}Try again</button></div>`;
+};
 const pill = (on, onTxt='Active', offTxt='Draft', offCls='draft') => `<span class="pill ${on?'ok':offCls}">${on?onTxt:offTxt}</span>`;
 const typeIcon = t => t==='video'?'video':t==='image'?'image':'document';
 function pager(key, page, count){
@@ -1249,7 +1329,8 @@ const SECTIONS = {
   bundles:{ title:'Bundles', group:'Content', render:renderLibrary },
   ai:{ title:'AI Personality', group:'Settings', render:renderAI },
   wallet:{ title:'TON Wallet', group:'Settings', render:renderWallet },
-  links:{ title:'Creator Links', group:'Settings', render:renderLinks }
+  links:{ title:'Creator Links', group:'Settings', render:renderLinks },
+  audit:{ title:'Audit', group:'System', render:renderAudit }
 };
 
 /* ---------- Overview ---------- */
@@ -2404,6 +2485,7 @@ view.addEventListener('click', async e => {
   const id = a.dataset.id, act = a.dataset.act;
   switch(act){
     case 'retry': route(true); break;
+    case 'audit-clear': state.audit = []; auditSave(); paintAudit(); route(true); break;
     case 'range': {
       const key = a.dataset.range;
       if(key === 'custom'){
@@ -2753,6 +2835,7 @@ function setDrawer(open, restore=true){
   }
 }
 $('#menu').onclick = () => setDrawer(true);
+$('#auditBtn').onclick = () => { if(location.hash === '#audit') route(true); else location.hash = '#audit'; };
 $('#logout').onclick = async () => {
   if(state.sb && state.session){ await state.sb.auth.signOut(); }
   toast('Signed out', 'info'); setTimeout(() => location.href = 'login.html', 400);
@@ -2831,6 +2914,7 @@ async function paintLiveCard(){
 /* ---------- boot ---------- */
 (async function boot(){
   if(store.get('cc-collapsed') === 'true') $('#app').dataset.collapsed = 'true';
+  auditLoad();
   $('#view').innerHTML = spinner('Restoring your session…');
   try{ await checkAuth(); }
   catch(e){ console.error(e); toast('Could not load your profile', 'error', e.message); }
