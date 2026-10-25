@@ -2886,7 +2886,19 @@ view.addEventListener('click', async e => {
       break;
     case 'acc-connect': showConnectWizard(); break;
     case 'wiz-close': $('#connect-wizard')?.remove(); break;
-    case 'acc-del': if(armed(a) && await withBusy(a, () => Data.remove('telegram_accounts', id), 'Account removed')) loadAccounts(); break;
+    case 'acc-del': if(armed(a)){
+      // stop the webhook and forget the token before the account goes, or
+      // Telegram keeps posting to a bot nobody is listening to
+      if(await withBusy(a, async () => {
+        const { data } = await state.sb.from('telegram_accounts').select('username').eq('id', id).maybeSingle();
+        if(data && data.username){
+          try{ await fsCall('/bots/forget', { method:'POST', body: JSON.stringify({ username: data.username }) }); }
+          catch(e){ /* the delete still goes ahead */ }
+        }
+        await Data.remove('telegram_accounts', id);
+      }, 'Account removed and webhook stopped')) loadAccounts();
+      break;
+    }
     /* inbox */
     case 'inbox-creator': state.inboxCreator = { accountId:id, creatorId:a.dataset.creator }; state.inbox.active = null;
       $('#inbox').dataset.open = 'false'; $('#thread').innerHTML = `<div class="thread-empty">${empty('message','Pick a conversation','Choose a chat on the left to read the thread and reply.')}</div>`;

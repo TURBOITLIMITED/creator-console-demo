@@ -670,6 +670,27 @@ export default {
                     last_error: (out.info && out.info.last_error_message) || null }, 200, origin);
     }
 
+    // Removing an account for good: stop the webhook first, then forget the
+    // token. Without this, Telegram keeps posting to a bot nobody is listening
+    // to, and the old token sits in the database.
+    if (url.pathname === "/bots/forget" && request.method === "POST") {
+      const denied = await requireConsoleAdmin(env, request, origin);
+      if (denied) return denied;
+      const b = await request.json().catch(() => ({}));
+      const username = String(b.username || "").trim().toLowerCase();
+      if (!username) return json({ error: "username required" }, 400, origin);
+      const rows = await sb(env, "bots?username=eq." + encodeURIComponent(username) + "&select=persona,token");
+      let webhook = "none";
+      if (rows && rows.length) {
+        try { await tgapi.deleteWebhook(rows[0].token); webhook = "deleted"; }
+        catch (e) { webhook = String((e && e.message) || e).slice(0, 120); }
+        await sb(env, "bots?username=eq." + encodeURIComponent(username), {
+          method: "DELETE", headers: { Prefer: "return=minimal" },
+        }).catch(() => null);
+      }
+      return json({ ok: true, removed: (rows || []).length, webhook }, 200, origin);
+    }
+
     // Fetch/save business connection ID for a bot (called by console)
     if (url.pathname === "/bots/connection") {
       const admin = await consoleAdmin(env, request);
