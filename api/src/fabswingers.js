@@ -130,7 +130,11 @@ export async function replyTokens(cookie, user, guid) {
   const r = await fetch(url, { headers: { "User-Agent": UA, Cookie: cookie, Accept: "text/html" }, redirect: "follow" });
   const html = await r.text();
   const form = (html.match(/<form[^>]*id="pmform"[\s\S]*?<\/form>/i) || [])[0];
-  if (!form) throw new Error("reply form not found for " + user);
+  if (!form) {
+    // the page says why: a block, a limit, or a thread that is closed to replies
+    const why = strip(html).replace(/\s+/g, " ").slice(0, 200);
+    throw new Error("reply form not found for " + user + " :: " + why);
+  }
   const fields = {};
   for (const m of form.matchAll(/<input[^>]*>/gi)) {
     const name = attr(m[0], "name");

@@ -2264,14 +2264,18 @@ async function fsSaveAll(accountId, btn) {
 async function fsUpgradeAlerts(sel){
   const slot = $(sel); if(!slot) return;
   try{
-    const { data } = await state.sb.from('fabswingers_accounts').select('username,last_error').or('last_error.ilike.UPGRADE%,last_error.ilike.RATE%');
-    const rows = (data || []).filter(r => /^(UPGRADE|RATE)/i.test(r.last_error || ''));
+    const { data } = await state.sb.from('fabswingers_accounts').select('username,last_error')
+      .or('last_error.ilike.UPGRADE%,last_error.ilike.RATE%,last_error.ilike.BLOCKED%');
+    const rows = (data || []).filter(r => /^(UPGRADE|RATE|BLOCKED)/i.test(r.last_error || ''));
     if(!rows.length){ slot.innerHTML = ''; return; }
     const items = rows.map(r => {
-      const up = /^UPGRADE/i.test(r.last_error || '');
-      return `<div style="margin-top:6px"><b>${esc(r.username)}</b> ${up
+      const e = r.last_error || '';
+      const why = /^UPGRADE/i.test(e)
         ? 'has hit a FabSwingers limit. More messages need a Site Supporter upgrade.'
-        : 'got pushed back for sending too fast. The poller is paused for this account, check the inbox by hand.'}</div>`;
+        : /^BLOCKED/i.test(e)
+          ? 'is in a FabSwingers time-out for sending too fast. It clears itself in a couple of hours; she resumes on her own.'
+          : 'got pushed back for sending too fast. The poller is paused for this account, check the inbox by hand.';
+      return `<div style="margin-top:6px"><b>${esc(r.username)}</b> ${why}</div>`;
     }).join('');
     slot.innerHTML = `<div class="panel" style="border-color:color-mix(in srgb,var(--bad) 45%,var(--rule));margin-bottom:16px">
       <div class="panel-body" style="display:flex;gap:12px;align-items:flex-start">

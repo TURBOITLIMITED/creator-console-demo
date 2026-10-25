@@ -261,12 +261,16 @@ async function fsLoadRecord(env, acctId){
 async function fsOpenCookie(env, rec){
   try{ return rec && rec.sealed ? await openSecret(env, rec.sealed) : null; }catch(e){ return null; }
 }
-async function fsSaveRecord(env, acctId, cookie, nextSendAt){
+async function fsSaveRecord(env, acctId, cookie, nextSendAt, blockedUntil){
   try{
+    const prev = await fsLoadRecord(env, acctId);
+    // merge, so a block set by one call is not wiped by the next
     await env.MEDIA.put(fsSessionKey(acctId), JSON.stringify({
+      ...(prev || {}),
       sealed: await sealSecret(env, cookie),
       at: new Date().toISOString(),
-      next_send_at: nextSendAt || null,
+      next_send_at: nextSendAt || (prev && prev.next_send_at) || null,
+      blocked_until: blockedUntil || (prev && prev.blocked_until) || null,
     }));
   }catch(e){}
 }
@@ -393,6 +397,17 @@ async function pollFab(env){
           body: JSON.stringify({ last_poll_at: new Date().toISOString(), last_error: "UPGRADE: FabSwingers is asking for a Site Supporter upgrade before more messages can be sent." }) }).catch(() => null);
         continue;
       }
+      // FabSwingers blocks an account that pushes too hard, so there is an
+      // hourly ceiling as well as a daily one: sixty an hour has been safe.
+      const perHour = Number(env.FS_PER_HOUR || 60);
+      const hourAgo = new Date(Date.now() - 3600 * 1000).toISOString();
+      const lastHour = await sb(env, `fabswingers_messages?fabswingers_account_id=eq.${acct.id}&direction=eq.out&at=gte.${encodeURIComponent(hourAgo)}&select=id`).catch(() => []);
+      if ((lastHour || []).length >= perHour){
+        await sb(env, `fabswingers_accounts?id=eq.${acct.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" },
+          body: JSON.stringify({ last_poll_at: new Date().toISOString(), last_error: `Paced: ${perHour} messages in the last hour, the safe ceiling. Carries on when the hour rolls.` }) }).catch(() => null);
+        continue;
+      }
+
       const dailyCap = Number(env.FS_DAILY_CAP || 400);
       if (await fsAnsweredToday(env, acct.id) >= dailyCap){
         await sb(env, `fabswingers_accounts?id=eq.${acct.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" },
@@ -419,7 +434,7 @@ async function pollFab(env){
       const ready = (snap.rows || []).filter(eligible);
       // a batch per run, still one message per man and never the same thread
       // twice in a run. Default five, borrowed from the monthly allowance.
-      const perRun = Math.max(1, Math.min(10, Number(env.FS_PER_RUN || 8)));
+      const perRun = Math.max(1, Math.min(10, Number(env.FS_PER_RUN || 4)));
       // the inbox lists one row per message, so the same man can appear several
       // times. One message each per batch, first row wins.
       const picked = new Set();
@@ -485,7 +500,16 @@ async function pollFab(env){
             }catch(e){
               // a reused cookie can go stale for the reply page while the inbox
               // still reads fine. One fresh login, then try the same message.
-              if(!/reply form not found/i.test(String((e && e.message) || e))) throw e;
+              const msg = String((e && e.message) || e);
+              if(/can'?t send messages|block will have cleared/i.test(msg)){
+                const until = new Date(Date.now() + 3 * 3600 * 1000).toISOString();
+                await fsSaveRecord(env, acct.id, cookie, null, until).catch(() => null);
+                await sb(env, `fabswingers_accounts?id=eq.${acct.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" },
+                  body: JSON.stringify({ last_error: `BLOCKED: FabSwingers is not accepting messages from this account until about ${until.slice(11,16)} UTC. It clears itself.` }) }).catch(() => null);
+                halted = true;
+                throw new Error("blocked until " + until);
+              }
+              if(!/reply form not found/i.test(msg)) throw e;
               const password = await openSecret(env, acct.password_enc);
               const fresh = await fsLogin(acct.username, password);
               cookie = fresh.cookie;
