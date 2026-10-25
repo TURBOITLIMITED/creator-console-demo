@@ -206,7 +206,7 @@ async function fsDraftFor(env, acct, persona, row, thread){
     persona.tone ? `Tone: ${persona.tone}.` : "",
     persona.emoji_level ? `Emoji use: ${persona.emoji_level}.` : "",
     persona.message_length ? `Message length: ${persona.message_length}.` : "",
-    persona.pivot_message ? `If the moment is right and you have already chatted a little, you may move them to Telegram with: ${persona.pivot_message}` : "",
+    acct.telegram_username ? `Your Telegram is @${acct.telegram_username}. When the chat is going well you can drop that handle into a normal message, once, in your own words. Never send it as a message on its own and never repeat it.` : "",
     "Reply with the message text only. No quotes, no labels, no explanation.",
   ].filter(Boolean).join("\n");
   const history = (thread.messages || []).slice(-8).map((m) => m.text).join("\n") || row.snippet;
@@ -871,6 +871,7 @@ export default {
           p.tone ? `Tone: ${p.tone}.` : "",
           p.emoji_level ? `Emoji use: ${p.emoji_level}.` : "",
           p.message_length ? `Message length: ${p.message_length}.` : "",
+          acct.telegram_username ? `Your Telegram is @${acct.telegram_username}. Mention it inside a normal message when it fits, once, never as a standalone line.` : "",
           "Reply with the message text only. No quotes, no labels, no explanation.",
         ].filter(Boolean).join("\n");
         const history = (thread.messages || []).slice(-8).map((m) => m.text).join("\n");

@@ -1905,9 +1905,7 @@ function fsPersonaFields(persona) {
     <div class="field"><label for="fs-prompt">How she should chat</label>
       <textarea class="input" id="fs-prompt" rows="5" placeholder="Sound like a real person, flirt a little, never say she is automated unless asked...">${esc(persona?.system_prompt || '')}</textarea>
       <span class="hint">Leave blank to use the default voice for this account.</span></div>
-    <div class="field"><label for="fs-pivot">Move to Telegram message</label>
-      <textarea class="input" id="fs-pivot" rows="3" placeholder="add me on telegram: @handle">${esc(persona?.pivot_message || '')}</textarea>
-      <span class="hint">Sent after a few messages to move the chat to Telegram. Blank uses the default.</span></div>`;
+    <p class="hint" style="margin:0">Her Telegram handle comes from the account itself and is dropped into a normal message when the chat is going well. There is no separate move-to-Telegram message.</p>`;
 }
 
 async function fsSaveLogin(accountId, btn) {
@@ -1947,7 +1945,6 @@ async function fsSavePersona(accountId, btn) {
     emoji_level: $('#fs-emoji').value,
     message_length: $('#fs-len').value,
     system_prompt: $('#fs-prompt').value.trim() || null,
-    pivot_message: $('#fs-pivot').value.trim() || null,
   };
   const saved = await withBusy(btn, () => fsCall('/fabswingers/persona', { method: 'PUT', body: JSON.stringify(body) }));
   if (saved) toast('Personality saved', 'success');

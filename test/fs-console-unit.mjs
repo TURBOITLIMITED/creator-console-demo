@@ -88,10 +88,10 @@ ok(h.includes("Leave blank to keep the saved one"), "an existing login says the 
 /* ---- 2. the personality fields ---- */
 h = api.fsPersonaFields({ tone: "flirty", emoji_level: "high", message_length: "short", system_prompt: "be her", pivot_message: "add me" });
 ok(h.includes('id="fs-tone"') && h.includes('id="fs-emoji"') && h.includes('id="fs-len"'), "personality renders all three selects");
-ok(h.includes('id="fs-prompt"') && h.includes('id="fs-pivot"'), "personality renders both text areas");
+ok(h.includes('id="fs-prompt"') && !h.includes('id="fs-pivot"'), "personality renders the instructions box and no pivot field");
 ok(/<option value="flirty" selected>/.test(h), "the saved tone is preselected");
 ok(/<option value="high" selected>/.test(h), "the saved emoji level is preselected");
-ok(h.includes("be her") && h.includes("add me"), "saved prompt and pivot text are shown");
+ok(h.includes("be her"), "saved prompt text is shown");
 
 /* ---- 3. the wizard steps ---- */
 api.wizStep(2);
@@ -129,7 +129,7 @@ ok(personaCall && personaCall[1].endsWith("/fabswingers/persona"), "persona save
 ok(personaCall && personaCall[3].method === undefined, "persona save sends a body");
 ok(personaCall && personaCall[3].tone === "sassy", "persona save sends the tone");
 ok(personaCall && personaCall[3].system_prompt === "her voice", "persona save trims the instructions");
-ok(personaCall && personaCall[3].pivot_message === null, "an empty pivot is sent as null");
+ok(personaCall && !("pivot_message" in personaCall[3]), "no separate pivot message is sent");
 
 /* ---- 5. the list renders a linked account with working actions ---- */
 ctx.Data.list = async () => ({ rows: [{ id: "acct-1", username: "Michelle0161bot", first_name: "Michelle", creator_id: "owner" }] });
