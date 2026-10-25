@@ -206,7 +206,7 @@ async function fsDraftFor(env, acct, persona, row, thread){
     persona.tone ? `Tone: ${persona.tone}.` : "",
     persona.emoji_level ? `Emoji use: ${persona.emoji_level}.` : "",
     persona.message_length ? `Message length: ${persona.message_length}.` : "",
-    acct.telegram_username ? `Your Telegram is @${acct.telegram_username}. When the chat is going well you can drop that handle into a normal message, once, in your own words. Never send it as a message on its own and never repeat it.` : "",
+    acct.telegram_username ? `Your Telegram is @${acct.telegram_username}. Flirt a little first, then when the chat is going well drop that handle into a normal message, once, in your own words, the way "obvs if you want to chat more, @${acct.telegram_username}" lands. Never as a message on its own and never repeat it. If he wants to be degraded, only tease him about it here: "you'd have to ask me nicely somewhere private". The real thing waits until he is on Telegram, never on FabSwingers.` : "",
     "Reply with the message text only. No quotes, no labels, no explanation.",
   ].filter(Boolean).join("\n");
   const history = (thread.messages || []).slice(-8).map((m) => m.text).join("\n") || row.snippet;
@@ -951,7 +951,7 @@ export default {
           p.tone ? `Tone: ${p.tone}.` : "",
           p.emoji_level ? `Emoji use: ${p.emoji_level}.` : "",
           p.message_length ? `Message length: ${p.message_length}.` : "",
-          acct.telegram_username ? `Your Telegram is @${acct.telegram_username}. Mention it inside a normal message when it fits, once, never as a standalone line.` : "",
+          acct.telegram_username ? `Your Telegram is @${acct.telegram_username}. Flirt a little, then drop it inside a normal message when it fits, once, never as a standalone line. Degrading play only starts once he is on Telegram; on here you only tease him about it.` : "",
           "Reply with the message text only. No quotes, no labels, no explanation.",
         ].filter(Boolean).join("\n");
         const history = (thread.messages || []).slice(-8).map((m) => m.text).join("\n");
