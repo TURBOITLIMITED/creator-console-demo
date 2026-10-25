@@ -354,9 +354,11 @@ async function pollFab(env){
       const dueAt = record && record.next_send_at ? new Date(record.next_send_at).getTime() : 0;
       if (Date.now() < dueAt) continue;
 
-      // A block is against this connection, not the account: keep drafting and
-      // hand every message to the relay, which sends from its own address.
+      // If we cannot send, we do not open anything either: opening a thread
+      // marks it read on FabSwingers, and a man whose message has been read and
+      // not answered looks ignored.
       const workerBlocked = !!(record && record.blocked_until && Date.now() < new Date(record.blocked_until).getTime());
+      if (workerBlocked) continue;
 
       let cookie = await fsOpenCookie(env, record);
       let snap = null;
@@ -389,7 +391,10 @@ async function pollFab(env){
       // reads as a bot working a backlog.
       const maxAge = Number(env.FS_MAX_AGE_MIN || 1440);
       const fresh = (x) => { const a = ageMinutes(x.when); return a === null || a <= maxAge; };
-      const answerable = (x) => x.unread && !fsNeverReply(x);
+      // Opening a thread marks it read on FabSwingers, so "unread" drops the
+      // moment we look at one to draft. Whether he has been answered lives in
+      // the conversation row instead.
+      const answerable = (x) => !fsNeverReply(x);
       for (const r of snap.rows.filter((x) => answerable(x) && !done.has(x.user) && fresh(x))){
         firstSeen.push(r);
         await sb(env, "fabswingers_conversations?on_conflict=fabswingers_account_id,fs_user_id", {
@@ -505,7 +510,7 @@ async function pollFab(env){
           if(!text){ status = "skipped: empty draft"; }
           else if(drafted){ status = "skipped: own reply mentioned " + drafted; }
           else {
-            if (workerBlocked || fsRelayShare(row.user)){
+            if (fsRelayShare(row.user)){
               // the relay on the office server posts this one from its own
               // address, so the two connections each look like one person
               const queued = await sb(env, "fabswingers_outbox", {
@@ -582,10 +587,13 @@ async function pollFab(env){
         }).catch(() => null);
        }catch(e){
         const why = String((e && e.message) || e).slice(0, 120);
+        // a block or a page we could not read is not this man's fault: leave
+        // him waiting rather than marking the thread dead
+        const retryLater = /blocked until|reply form not found|can'?t send messages/i.test(why);
         await sb(env, "fabswingers_conversations?on_conflict=fabswingers_account_id,fs_user_id", {
           method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
           body: JSON.stringify({ fabswingers_account_id: acct.id, fs_user_id: row.user, fs_user_name: row.name,
-            message_count: 0, notes: "send failed: " + why }),
+            message_count: 0, notes: retryLater ? "pending" : "send failed: " + why }),
         }).catch(() => null);
        }
       }
