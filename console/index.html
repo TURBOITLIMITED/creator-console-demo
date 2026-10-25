@@ -533,6 +533,10 @@ input,select,textarea,.input{background:var(--sunk);border-color:var(--rule);col
    sized controls, no sideways tables, and no input that triggers iOS zoom. */
 html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 *{-webkit-tap-highlight-color:transparent}
+/* while the drawer is open the page underneath is pinned, so a drag inside the
+   sidebar cannot scroll the console behind it */
+body.drawer-open{position:fixed;left:0;right:0;width:100%;overflow:hidden;overscroll-behavior:none}
+body.drawer-open .side{overscroll-behavior:contain}
 
 @media (max-width:860px){
   /* the head bar: the page title keeps the room it needs */
@@ -2556,7 +2560,7 @@ async function route(force=false){
   $('#crumb-title').textContent = SECTIONS[key].title;
   $('#crumb-group').textContent = SECTIONS[key].group;
   document.title = `${SECTIONS[key].title} · Creator Console`;
-  $('#app').dataset.drawer = 'closed'; document.querySelector('.scrim')?.remove();
+  setDrawer(false, false);
   await SECTIONS[key].render();
 }
 function paintHeader(){
@@ -2567,17 +2571,41 @@ function paintHeader(){
 }
 
 $('#collapse').onclick = () => { const app=$('#app'); const v = app.dataset.collapsed !== 'true'; app.dataset.collapsed = v; store.set('cc-collapsed', v); };
-$('#menu').onclick = () => {
-  const app = $('#app'); app.dataset.drawer = 'open';
-  const s = document.createElement('div'); s.className = 'scrim'; s.onclick = () => { app.dataset.drawer='closed'; s.remove(); }; document.body.appendChild(s);
-};
+/* The drawer covers the page, so the page behind it must not move: locking the
+   body is the only thing that stops iOS from rubber-banding the console while a
+   thumb drags inside the sidebar. Scroll position is put back on close. */
+let drawerY = 0;
+function setDrawer(open, restore=true){
+  const app = $('#app'), body = document.body;
+  if(open){
+    if(app.dataset.drawer === 'open') return;
+    drawerY = window.scrollY || window.pageYOffset || 0;
+    app.dataset.drawer = 'open';
+    body.classList.add('drawer-open');
+    body.style.top = `-${drawerY}px`;
+    if(!document.querySelector('.scrim')){
+      const s = document.createElement('div'); s.className = 'scrim';
+      s.onclick = () => setDrawer(false);
+      document.body.appendChild(s);
+    }
+  } else {
+    if(app.dataset.drawer !== 'open') return;
+    app.dataset.drawer = 'closed';
+    body.classList.remove('drawer-open');
+    body.style.top = '';
+    document.querySelector('.scrim')?.remove();
+    if(restore) window.scrollTo(0, drawerY);
+  }
+}
+$('#menu').onclick = () => setDrawer(true);
 $('#logout').onclick = async () => {
   if(state.sb && state.session){ await state.sb.auth.signOut(); }
   toast('Signed out', 'info'); setTimeout(() => location.href = 'login.html', 400);
 };
 $('#logoutMobile').onclick = () => $('#logout').click();
 window.addEventListener('hashchange', () => route());
-document.addEventListener('keydown', e => { if(e.key==='Escape' && $('#app').dataset.drawer==='open'){ $('#app').dataset.drawer='closed'; document.querySelector('.scrim')?.remove(); } });
+document.addEventListener('keydown', e => { if(e.key==='Escape') setDrawer(false); });
+matchMedia('(max-width:860px)').addEventListener('change', e => { if(!e.matches) setDrawer(false); });
 
 /* ---------- theme, command palette, live card ---------- */
 function applyTheme(t){
