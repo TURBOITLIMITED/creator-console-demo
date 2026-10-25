@@ -576,8 +576,15 @@ function repeatsSomething(candidate, previous) {
 }
 
 async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
-  // Need text to reply to, and a bot token to send with.
-  if (!text) return null;
+  // A photo or video with no caption is still a message. It used to be dropped
+  // here because there was no text to answer, which is why sending a picture
+  // got silence.
+  const mediaOnly = !text && !!(msg.photo || msg.video || msg.animation ||
+                                 msg.document || msg.sticker || msg.voice || msg.audio);
+  if (!text && !mediaOnly) return null;
+  if (mediaOnly) {
+    text = "he sent you an attachment. React to it in one dirty line, like you just opened it. Never say you cannot see it, never describe it, and never ask him to send it again.";
+  }
 
   const persona = await loadPersonaRow(env, sb, conn);
   const p = persona.row;
