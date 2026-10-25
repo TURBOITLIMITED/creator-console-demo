@@ -242,13 +242,11 @@ async function fsSaveRecord(env, acctId, cookie, nextSendAt){
     }));
   }catch(e){}
 }
-/* Gaps between answers drawn the way a person's day actually looks: mostly a
-   minute or two, sometimes a break for a coffee, occasionally a long one. */
+/* One answer at a time, between twenty seconds and a minute apart. The timer
+   wakes once a minute, so in practice that is one message per tick: the long
+   wander is gone, the two daily breaks are what make it read as a person. */
 function humanGapSeconds(){
-  const r = Math.random();
-  if (r < 0.05) return 900 + Math.random() * 900;   // 15 to 30 minutes
-  if (r < 0.20) return 240 + Math.random() * 480;   // 4 to 12 minutes
-  return 45 + Math.random() * 120;                  // 45 seconds to 2m45
+  return 20 + Math.random() * 40;
 }
 const UK_HOUR = () => Number(new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: "Europe/London" }).format(new Date()));
 
