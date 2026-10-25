@@ -636,9 +636,9 @@ body.drawer-open .side{overscroll-behavior:contain}
   /* a heading and its action read better stacked than squeezed side by side */
   .panel-head .end{width:100%;margin-left:0}
   .panel-head .end .btn,.panel-head .end .act{flex:1 1 auto;justify-content:center}
-  /* five chips do not fit one phone row; three across, then two */
-  .range-chips{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%}
-  .range-chips button{padding:0 4px;font-size:12.5px;height:34px}
+  /* one compact row: five chips never justify a second line on a phone */
+  .range-chips{display:flex;flex-wrap:nowrap;width:100%}
+  .range-chips button{flex:1 1 0;min-width:0;padding:0 2px;font-size:11.5px;height:32px;letter-spacing:-.01em}
   .range-custom{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;width:100%}
   .range-custom .input{min-width:0;width:100%}
   .range-custom .btn{grid-column:1/-1;width:100%}
