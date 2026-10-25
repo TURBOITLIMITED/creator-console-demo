@@ -329,6 +329,22 @@ async function loadPersonaRow(env, sb, conn) {
    she has nothing live; the model then avoids naming products. */
 async function liveCatalogue(env, sb, conn) {
   if (!conn.telegram_account_id) return "";
+  // The owner's own menu wins when it exists: it can hold photos, videos and
+  // things that get posted, all priced in pounds.
+  const menu = await sb(env, "telegram_menu_items?telegram_account_id=eq." +
+    encodeURIComponent(conn.telegram_account_id) +
+    "&active=eq.true&select=name,kind,price_gbp,description&order=position.asc&limit=20").catch(() => null);
+  if (menu && menu.length){
+    const lines = ["Your menu for sale (the ONLY things you can offer, use these exact names and prices):"];
+    for (const m of menu){
+      const kind = m.kind === "physical" ? "posted to him" : (m.kind || "content");
+      lines.push("- " + m.name + " (" + kind + ", £" + Number(m.price_gbp || 0) +
+        (m.description ? " - " + String(m.description).slice(0, 60) : "") + ")");
+    }
+    lines.push("Digital things are sent the moment payment is confirmed. A physical thing is posted, so say it gets posted out and let the human take the address after payment. Never invent anything that is not on this list.");
+    return lines.join("\n");
+  }
+
   let rows = await sb(env, "media_items?telegram_account_id=eq." +
     encodeURIComponent(conn.telegram_account_id) +
     "&visible=eq.true&select=title,kind,price_ton,price_gbp&order=price_ton.desc&limit=15").catch(() => null);

@@ -760,6 +760,7 @@ document.addEventListener('gesturechange', e => e.preventDefault(), { passive:fa
       <a href="#inbox" data-sec="inbox" title="Inbox"><svg class="i"><use href="#i-inbox"/></svg><span class="nav-label">Inbox</span><span class="count" id="nav-unread" hidden>0</span></a>
       <div class="nav-group">FABSWINGERS</div>
       <a href="#fabswingers" data-sec="fabswingers" title="FabSwingers"><svg class="i"><use href="#i-chat"/></svg><span class="nav-label">FabSwingers</span><span class="count" id="nav-fab" hidden style="background:var(--bad);color:#fff">0</span></a>
+      <a href="#telegram" data-sec="telegram" title="Telegram"><svg class="i"><use href="#i-send"/></svg><span class="nav-label">Telegram</span></a>
       <div class="nav-group">CONTENT</div>
       <a href="#library" data-sec="library" title="Library"><svg class="i"><use href="#i-layers"/></svg><span class="nav-label">Library</span></a>
       <a href="#gallery" data-sec="gallery" title="Gallery"><svg class="i"><use href="#i-image"/></svg><span class="nav-label">Gallery</span></a>
@@ -1348,6 +1349,7 @@ const SECTIONS = {
   accounts:{ title:'Accounts', group:'Telegram', render:renderAccounts },
   inbox:{ title:'Inbox', group:'Telegram', render:renderInbox },
   fabswingers:{ title:'FabSwingers', group:'FabSwingers', render:renderFabSwingers },
+  telegram:{ title:'Telegram', group:'TELEGRAM', render:renderTelegram },
   library:{ title:'Library', group:'Content', render:renderLibrary },
   gallery:{ title:'Gallery', group:'Content', render:renderGallery },
   bundles:{ title:'Bundles', group:'Content', render:renderLibrary },
@@ -2351,6 +2353,124 @@ async function fsUpgradeAlerts(sel){
   }catch(e){ slot.innerHTML = ''; }
 }
 
+/* ---------- Telegram ----------
+   Same shape as FabSwingers: a list of accounts, then one page per account with
+   the menu she sells from. Items can be a photo, a video or something posted. */
+async function renderTelegram(){
+  const open = (state.tgAccounts || []).find(a => a.id === state.tgOpenFor);
+  if(!state.tgOpenFor || !open){
+    setView(`
+      ${secHead('One Telegram account per bot. Tap an account to write the menu she sells from.')}
+      <div class="panel"><div class="panel-head"><h2>Telegram accounts</h2>
+        <span class="end"><button class="btn sm" data-act="tg-load">${ic('refresh')}Refresh</button></span></div>
+        <div id="tg-list">${spinner('Loading accounts...')}</div>
+        <div class="panel-body" style="border-top:1px solid var(--rule-2)"><p class="muted" style="margin:0">Tap an account to open its menu.</p></div>
+      </div>`);
+    tgLoadAccounts();
+    return;
+  }
+  setView(`
+    <div style="margin:0 0 10px"><button class="btn sm" data-act="tg-back">${ic('arrow-left')}All Telegram accounts</button></div>
+    <div class="panel"><div class="panel-head">
+      <h2>${esc(open.first_name || open.username || 'Account')}</h2>
+      <span class="end"><span class="pill ${open.connected ? 'ok' : 'draft'}">${open.connected ? 'Connected' : 'Not connected'}</span></span></div>
+      <div class="panel-body" style="padding-top:0"><p class="muted" style="margin:0;font-size:12.5px">@${esc(open.username || '')}</p></div>
+    </div>
+    <section class="panel" style="margin-top:16px">
+      <div class="panel-head"><h2>Menu</h2><span class="end muted" id="tg-menu-count"></span></div>
+      <div id="tg-menu">${spinner('Loading menu...')}</div>
+      <div class="panel-body" style="border-top:1px solid var(--rule-2)">
+        <form class="form" data-form="tg-menu" data-account="${esc(open.id)}" autocomplete="off">
+          <div class="row2">
+            <div class="field"><label for="tm-name">What it is</label>
+              <input class="input" id="tm-name" name="name" placeholder="Full nude set" required></div>
+            <div class="field"><label for="tm-price">Price in £</label>
+              <input class="input" id="tm-price" name="price" inputmode="decimal" placeholder="15"></div>
+          </div>
+          <div class="row2">
+            <div class="field"><label for="tm-kind">Type</label>
+              <select class="input" id="tm-kind" name="kind">
+                <option value="image">Photo</option>
+                <option value="video">Video</option>
+                <option value="physical">Posted item (knickers, etc.)</option>
+              </select></div>
+            <div class="field"><label for="tm-file">File <span class="muted">(optional)</span></label>
+              <input class="input" id="tm-file" name="file" type="file"></div>
+          </div>
+          <div class="field"><label for="tm-desc">One line she can say about it</label>
+            <input class="input" id="tm-desc" name="description" placeholder="me, completely naked, 12 photos"></div>
+          <div class="form-actions"><button class="btn primary" type="submit">${ic('plus')}Add to menu</button></div>
+        </form>
+      </div>
+    </section>`);
+  tgLoadMenu(open.id);
+}
+
+async function tgLoadAccounts(){
+  const el = $('#tg-list'); if(!el) return;
+  try{
+    const { data } = await state.sb.from('telegram_accounts').select('id,username,first_name,connected,creator_id').order('created_at');
+    state.tgAccounts = data || [];
+    if(!state.tgAccounts.length){ el.innerHTML = `<div class="panel-body"><p class="muted" style="margin:0">No Telegram accounts yet. Connect one under Accounts.</p></div>`; return; }
+    el.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Account</th><th>Bot</th><th>Status</th></tr></thead><tbody>
+      ${state.tgAccounts.map(a => `<tr data-act="tg-open" data-id="${esc(a.id)}" style="cursor:pointer">
+        <td><b>${esc(a.first_name || a.username || 'Account')}</b></td>
+        <td class="muted">@${esc(a.username || '—')}</td>
+        <td>${a.connected ? '<span class="pill ok">Connected</span>' : '<span class="pill draft">Off</span>'}</td>
+      </tr>`).join('')}</tbody></table></div>`;
+  }catch(e){ el.innerHTML = errorState(e, 'telegram'); }
+}
+
+async function tgLoadMenu(accountId){
+  const el = $('#tg-menu'); if(!el) return;
+  try{
+    const { data } = await state.sb.from('telegram_menu_items')
+      .select('id,name,kind,price_gbp,description,media_key,active')
+      .eq('telegram_account_id', accountId).order('position').order('created_at');
+    const items = data || [];
+    $('#tg-menu-count').textContent = items.length ? `${items.length} item${items.length===1?'':'s'}` : '';
+    if(!items.length){ el.innerHTML = `<div class="panel-body"><p class="muted" style="margin:0">Nothing on the menu yet. Add the first thing below.</p></div>`; return; }
+    const kindLabel = k => k === 'physical' ? 'Posted' : k === 'video' ? 'Video' : 'Photo';
+    el.innerHTML = `<ul class="audit-list">${items.map(m => `<li>
+      <span class="a-kind" style="background:${m.active?'var(--ok-soft)':'var(--sunk)'};color:${m.active?'var(--ok)':'var(--ink-3)'}">${esc(kindLabel(m.kind))}</span>
+      <div class="a-body"><p><b>${esc(m.name)}</b> <small>£${Number(m.price_gbp||0).toFixed(2)}</small></p>
+        ${m.description ? `<p style="color:var(--ink-2)">${esc(m.description)}</p>` : ''}
+        <div class="row-actions" style="margin-top:6px">
+          <button class="act" data-act="tg-menu-toggle" data-id="${esc(m.id)}" data-on="${m.active?1:0}">${ic('power')}${m.active?'Hide':'Show'}</button>
+          <button class="act danger" data-act="tg-menu-del" data-id="${esc(m.id)}">${ic('trash')}</button>
+        </div>
+      </div></li>`).join('')}</ul>`;
+  }catch(e){ el.innerHTML = errorState(e, 'telegram'); }
+}
+
+async function tgSaveMenuItem(f, btn){
+  const accountId = f.dataset.account;
+  const name = f.name.value.trim();
+  const price = Number(String(f.price.value || '').replace(/[^0-9.]/g, '')) || 0;
+  const kind = f.kind.value;
+  const description = f.description.value.trim() || null;
+  if(!name){ f.name.classList.add('invalid'); toast('Give it a name', 'error'); return; }
+  if(!(price > 0)){ f.price.classList.add('invalid'); toast('Set a price', 'error', 'Everything on the menu is priced in pounds.'); return; }
+  const acct = (state.tgAccounts || []).find(a => a.id === accountId);
+  const file = f.file?.files?.[0];
+  await withBusy(btn, async () => {
+    let media_key = null;
+    if(file){
+      const path = `${accountId}/${Date.now()}-${file.name.replace(/[^\w.\-]/g,'_')}`;
+      const { error: upErr } = await state.sb.storage.from('content-store').upload(path, file, { contentType: file.type || 'application/octet-stream' });
+      if(upErr) throw upErr;
+      media_key = path;
+    }
+    const { error } = await state.sb.from('telegram_menu_items').insert({
+      telegram_account_id: accountId, creator_id: acct?.creator_id || ownerTarget(),
+      name, kind, price_gbp: price, description, media_key,
+    });
+    if(error) throw error;
+  }, 'Added to the menu');
+  f.reset();
+  tgLoadMenu(accountId);
+}
+
 /* ---------- FabSwingers inbox ----------
    Reads the real site through the Worker (which holds the sealed login), lists
    what has arrived, drafts in her voice and sends only on an explicit tap. */
@@ -2980,6 +3100,17 @@ view.addEventListener('click', async e => {
     }
     /* fabswingers inbox */
     case 'fs-inbox-check': fsInboxLoad(); break;
+    case 'tg-load': tgLoadAccounts(); break;
+    case 'tg-open': { state.tgOpenFor = a.dataset.id; if(!state.tgAccounts || !state.tgAccounts.length) await tgLoadAccounts(); renderTelegram(); window.scrollTo({top:0}); break; }
+    case 'tg-back': { state.tgOpenFor = null; renderTelegram(); window.scrollTo({top:0}); break; }
+    case 'tg-menu-toggle': {
+      const on = a.dataset.on === '1';
+      if(await withBusy(a, () => state.sb.from('telegram_menu_items').update({ active: !on }).eq('id', id), on ? 'Hidden from the menu' : 'Back on the menu')){
+        tgLoadMenu(state.tgOpenFor);
+      }
+      break;
+    }
+    case 'tg-menu-del': if(armed(a) && await withBusy(a, () => state.sb.from('telegram_menu_items').delete().eq('id', id), 'Removed')) tgLoadMenu(state.tgOpenFor); break;
     case 'fs-open-chat': {
       state.fsChatFor = a.dataset.id;
       if (!state.fsAccounts || !state.fsAccounts.length) await loadFabSwingers();
@@ -3123,6 +3254,7 @@ view.addEventListener('submit', async e => {
     }
     return;
   }
+  if(kind === 'tg-menu'){ return tgSaveMenuItem(f, btn); }
   if(kind === 'media'){
     const data = { title:f.title.value.trim(), kind:f.kind.value, price_ton:f.price_ton.value?Number(f.price_ton.value):null, description:f.description.value.trim()||null, visible:f.visible.checked };
     if(!data.title){ f.title.classList.add('invalid'); return; }
