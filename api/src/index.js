@@ -17,7 +17,7 @@ const json = (data, status = 200, origin) =>
 
 import { sign, timingSafe } from "./media.js";
 import { sealSecret, openSecret } from "./crypto.js";
-import { inboxSnapshot, parseThread, sendReply } from "./fabswingers.js";
+import { inboxSnapshot, inboxPage, login as fsLogin, ageMinutes, parseInbox, parseThread, sendReply } from "./fabswingers.js";
 import { handleWebhook } from "./tg.js";
 import * as tgapi from "./telegram.js";
 import { validateBotAnswer, DEFAULT_BOT_ANSWERS, EXPLICIT_BOT_ANSWER } from "./persona.js";
@@ -220,11 +220,30 @@ async function fsDraftFor(env, acct, persona, row, thread){
   return String(typeof out === "string" ? out : (out && out.response) || "").trim().replace(/^["']|["']$/g, "");
 }
 
+/* Session reuse. Logging in fresh every tick is the loudest thing a scraper can
+   do, so the cookie is sealed and kept in R2 between runs and only replaced
+   when FabSwingers stops accepting it. */
+const fsSessionKey = (id) => `fs-session/${id}.json`;
+async function fsLoadCookie(env, acctId){
+  try{
+    const obj = await env.MEDIA.get(fsSessionKey(acctId));
+    if(!obj) return null;
+    const j = await obj.json();
+    return j && j.sealed ? await openSecret(env, j.sealed) : null;
+  }catch(e){ return null; }
+}
+async function fsSaveCookie(env, acctId, cookie){
+  try{ await env.MEDIA.put(fsSessionKey(acctId), JSON.stringify({ sealed: await sealSecret(env, cookie), at: new Date().toISOString() })); }catch(e){}
+}
+const UK_HOUR = () => Number(new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: "Europe/London" }).format(new Date()));
+
 /* FabSwingers asks free accounts to become a Site Supporter once a limit is
    hit. That has to reach the dashboard as an action, not disappear into a
    failed send. */
 const FS_UPGRADE_RE = /(site supporter|become a supporter|upgrade your account|message limit|out of messages|you have reached your limit|limit reached)/i;
 function fsUpgradeAsked(html){ return FS_UPGRADE_RE.test(String(html || "")); }
+const FS_RATE_RE = /(too many messages|slow down|rate limit|temporarily blocked|try again later|you are sending messages too quickly)/i;
+function fsRateLimited(html){ return FS_RATE_RE.test(String(html || "")); }
 
 async function fsAnsweredToday(env, acctId){
   const start = new Date(); start.setHours(0, 0, 0, 0);
@@ -244,7 +263,29 @@ async function pollFab(env){
           body: JSON.stringify({ last_error: "No personality saved yet" }) }).catch(() => null);
         continue;
       }
-      const snap = await inboxSnapshot(env, acct);
+      // outside waking hours she sleeps: a reply at 04:00 is a tell
+      const hour = UK_HOUR();
+      if (hour < Number(env.FS_START_HOUR || 9) || hour >= Number(env.FS_END_HOUR || 23)) continue;
+      // skip a quarter of ticks: a reply every three minutes on the dot is a
+      // pattern, and patterns are what site filters look for
+      if (Math.random() < 0.25) continue;
+
+      let cookie = await fsLoadCookie(env, acct.id);
+      let snap = null;
+      if (cookie){
+        const p = await inboxPage(cookie);
+        if (p.authed) snap = { rows: parseInbox(p.html), cookie, html: p.html };
+        else cookie = null;
+      }
+      if (!snap){
+        const password = await openSecret(env, acct.password_enc);
+        const s = await fsLogin(acct.username, password);
+        cookie = s.cookie;
+        await fsSaveCookie(env, acct.id, cookie);
+        const p = await inboxPage(cookie);
+        if (!p.authed) throw new Error("login was not accepted");
+        snap = { rows: parseInbox(p.html), cookie, html: p.html };
+      }
       const doneRows = await sb(env, `fabswingers_conversations?fabswingers_account_id=eq.${acct.id}&select=fs_user_id,notes,created_at`).catch(() => []);
       const done = new Map((doneRows || []).map((r) => [r.fs_user_id, r]));
 
@@ -252,7 +293,12 @@ async function pollFab(env){
       // out on a later tick, at least FS_MIN_WAIT seconds later, so nobody gets
       // a reply inside ten seconds of pressing send. One reply per run.
       const firstSeen = [];
-      for (const r of snap.rows.filter((x) => x.unread && !done.has(x.user))){
+      // older unread threads are left alone: answering something from weeks ago
+      // reads as a bot working through a backlog, and it is exactly what gets
+      // an account reported
+      const maxAge = Number(env.FS_MAX_AGE_MIN || 180);
+      const fresh = (x) => { const a = ageMinutes(x.when); return a === null || a <= maxAge; };
+      for (const r of snap.rows.filter((x) => x.unread && !done.has(x.user) && fresh(x))){
         firstSeen.push(r);
         await sb(env, "fabswingers_conversations?on_conflict=fabswingers_account_id,fs_user_id", {
           method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
@@ -263,12 +309,12 @@ async function pollFab(env){
         }).catch(() => null);
       }
 
-      if (fsUpgradeAsked(await (await fetch("https://www.fabswingers.com/my/messagesnew", { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36", Cookie: snap.cookie, Accept: "text/html" }, redirect: "follow" })).text())) {
+      if (fsUpgradeAsked(snap.html)) {
         await sb(env, `fabswingers_accounts?id=eq.${acct.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" },
           body: JSON.stringify({ last_error: "UPGRADE: FabSwingers is asking for a Site Supporter upgrade before more messages can be sent." }) }).catch(() => null);
         continue;
       }
-      const dailyCap = Number(env.FS_DAILY_CAP || 40);
+      const dailyCap = Number(env.FS_DAILY_CAP || 20);
       if (await fsAnsweredToday(env, acct.id) >= dailyCap){
         await sb(env, `fabswingers_accounts?id=eq.${acct.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" },
           body: JSON.stringify({ last_error: `Daily cap reached (${dailyCap}). Resumes tomorrow.` }) }).catch(() => null);
@@ -298,6 +344,16 @@ async function pollFab(env){
           else {
             const res = await sendReply(snap.cookie, row.user, row.guid, text);
             if(!res.ok){ status = "send failed: " + res.status; }
+            else if(fsRateLimited(res.page)){
+              status = "rate limited";
+              await sb(env, `fabswingers_accounts?id=eq.${acct.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" },
+                body: JSON.stringify({ last_error: "RATE: FabSwingers pushed back on sending. Poller paused for this account; check the inbox by hand." }) }).catch(() => null);
+              await sb(env, "fabswingers_conversations?on_conflict=fabswingers_account_id,fs_user_id", {
+                method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+                body: JSON.stringify({ fabswingers_account_id: acct.id, fs_user_id: row.user, fs_user_name: row.name, message_count: 0, notes: status }),
+              }).catch(() => null);
+              break;
+            }
             else if(fsUpgradeAsked(res.page)){
               status = "UPGRADE asked";
               await sb(env, `fabswingers_accounts?id=eq.${acct.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" },

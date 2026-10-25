@@ -159,6 +159,29 @@ export async function sendReply(cookie, user, guid, text) {
   return { ok: r.status >= 200 && r.status < 400, status: r.status, location: r.headers.get("location") || "", page };
 }
 
+/** Fetch the inbox with an existing cookie. If FabSwingers bounced us to the
+    login page the cookie is stale: the caller logs in again. */
+export async function inboxPage(cookie) {
+  const r = await fetch(BASE + "/my/messagesnew", {
+    headers: { "User-Agent": UA, Cookie: cookie, Accept: "text/html" },
+    redirect: "follow",
+  });
+  const html = await r.text();
+  return { status: r.status, url: r.url, html, authed: !/\/login\.aspx/i.test(r.url) };
+}
+
+/** "Just this minute" / "23 minutes ago" / "2 hours ago" -> minutes, or null. */
+export function ageMinutes(when) {
+  const t = String(when || "").toLowerCase();
+  if (/just this minute|just now|seconds ago/.test(t)) return 0;
+  const m = t.match(/(\d+)\s*minute/); if (m) return Number(m[1]);
+  const h = t.match(/(\d+)\s*hour/); if (h) return Number(h[1]) * 60;
+  if (/an hour|1 hour/.test(t)) return 60;
+  if (/yesterday/.test(t)) return 60 * 24;
+  const d = t.match(/(\d+)\s*day/); if (d) return Number(d[1]) * 60 * 24;
+  return null;
+}
+
 /** Everything the owner can see right now, read only. */
 export async function inboxSnapshot(env, account) {
   const { openSecret } = await import("./crypto.js");
