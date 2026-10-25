@@ -442,7 +442,7 @@ input[type=range]{accent-color:var(--accent);width:100%}
 
 /* toasts */
 .toasts{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:8px;z-index:60;pointer-events:none;width:min(360px,calc(100vw - 32px))}
-.toast{pointer-events:auto;display:flex;gap:11px;align-items:flex-start;padding:12px 12px 12px 14px;border-radius:var(--r);background:var(--ink);color:var(--panel);box-shadow:0 12px 32px -8px rgba(0,0,0,.35);animation:tin .32s cubic-bezier(.2,.9,.3,1.2) both}
+.toast{pointer-events:auto;display:flex;gap:11px;align-items:flex-start;padding:12px 12px 12px 14px;border-radius:var(--r);background:color-mix(in srgb,var(--bg) 88%,black);color:var(--ink);border:1px solid var(--rule);box-shadow:0 12px 32px -8px rgba(0,0,0,.45);animation:tin .32s cubic-bezier(.2,.9,.3,1.2) both}
 .toast.out{animation:tout .25s ease forwards}
 .toast .t-ico{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;flex:none}
 .toast .t-ico .i{width:14px;height:14px;stroke-width:2.4}
