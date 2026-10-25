@@ -330,13 +330,13 @@ async function liveCatalogue(env, sb, conn) {
   const lines = ["Your current live content for sale (the ONLY things you can offer, use these exact names and prices):"];
   for (const m of items) {
     lines.push("- " + m.title + " (" + (m.kind || "content") + ", " +
-      (Number(m.price_ton) > 0 ? "£" + (Number(m.price_gbp) || Number(m.price_ton)) : "FREE - only send it if they ask for something free") + ")");
+      (Number(m.price_ton) > 0 ? Number(m.price_ton) + " TON" : "FREE - only send it if they ask for something free") + ")");
   }
   lines.push("Never mention or invent any other content, and never write placeholders like [Insert Picture Link]. When they pick something, tell them the price and that you'll send it as soon as it's paid.");
   return lines.join("\n");
 }
 
-function personaSystemPrompt(p, conn, catalogue) {
+function personaSystemPrompt(p, conn, catalogue, wallet) {
   const name = (p && p.display_name) || "the creator";
   const tone = { warm: "friendly, personal, a little chatty",
                  playful: "light jokes, emoji, high energy",
@@ -352,7 +352,9 @@ function personaSystemPrompt(p, conn, catalogue) {
     "You are here to sell your content: weave what you offer into the chat naturally, flirt a little and invite them to buy. Never say you are 'not here for that' or push away from selling; selling is the whole point.",
     // Real payment details are the owner's to give. Never quote a placeholder
     // sort code or an address at a paying customer.
-    "Payment, when they ask how to pay: TON is the usual, and you send the wallet the owner has set. For any other method say \"I'll send you the details in a sec x\" and leave it for the human. NEVER invent or quote a wallet address, bank account, sort code or email.",
+    wallet
+      ? `How they pay, when they ask: TON. Your wallet is ${wallet}. Tell them to send the exact amount in TON to that address from the Telegram wallet or Tonkeeper, and to put their Telegram username in the comment so you know it is them. Then ask for the hash and a screenshot. Never quote any other address, account or email; if they want another method, say you will send the details in a sec and leave it for the human.`
+      : `You do not have a payment address set, so if he asks how to pay, say \"give me a sec and I'll send you the details x\" and leave it for the human. Never invent a wallet address, bank account or email.`,
     "Write like a real human woman texting: natural, warm, playful, small imperfections are fine.",
     "Replies should be 2 to 4 sentences, chatty and engaging, not one-word answers.",
     "Never mention being a bot or AI unless directly asked.",
@@ -481,7 +483,13 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
           if (days >= 1) custLine += " You two have been chatting for " + (days === 1 ? "a day" : days + " days") + " - pick up where you left off, don't restart like it's a first conversation.";
         }
       }
-      const system = personaSystemPrompt(p, conn, catalogue) + (custLine ? " " + custLine : "");
+      let walletAddr = null;
+      {
+        const prof = await sb(env, "ai_profiles?creator_id=eq." + encodeURIComponent(conn.creator_id) +
+          "&select=wallet_address").catch(() => null);
+        if (prof && prof[0] && prof[0].wallet_address) walletAddr = prof[0].wallet_address;
+      }
+      const system = personaSystemPrompt(p, conn, catalogue, walletAddr) + (custLine ? " " + custLine : "");
       replyText = await generateReply(env, system, history, text);
       via = "workers-ai";
       if (!replyText) { stopTyping(); return null; }
@@ -878,12 +886,14 @@ async function onCallback(env, sb, cq, persona) {
       const prof2 = await sb(env, "ai_profiles?creator_id=eq." +
         encodeURIComponent(conn.creator_id) + "&select=wallet_address").catch(() => null);
       const w = prof2 && prof2[0] && prof2[0].wallet_address;
-      const addr = w || "UQArealTONwalletgoesHere0000000000000000000001";
-      detail = `my ton address is\n${addr}\n${closer}`;
-    } else if (method === "paypal") {
-      detail = `paypal.me/turboit is easiest 📝 or send to info@turboit.uk as friends & family\n${closer}`;
-    } else if (method === "bank") {
-      detail = `bank transfer 🏦 sort code 00-00-00, account 56483213\n${closer}`;
+      // No address means no address. A placeholder here would take a paying
+      // man's money into nothing at all.
+      detail = w
+        ? `my ton address is\n${w}\nput your username in the comment so I know it's you x\n${closer}`
+        : `give me a sec and I'll send you the details x`;
+    } else {
+      // PayPal and bank details are the owner's to give, not ours to invent.
+      detail = `give me a sec and I'll send you the details x`;
     }
     try {
       await tg.sendMessage(token, conn.id, chatId, detail);
