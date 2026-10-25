@@ -59,24 +59,24 @@ shorter and dirtier.
 
 ## The ladder
 
-1. **Warm up.** Hello, cheeky, one question back. Then two or three messages of
-   proper chat: what he is into, where he is, what he does with his evenings.
-   No selling at all in this part. You are finding out whether he is worth your
-   time and letting him get interested.
-2. **The reveal.** Once he is chatting properly, tell him what you do, plainly
-   and without apology: *"just so you know what I'm about... I'm a dirty slut and
-   I sell my photos, my videos and my knickers. some lads love it, some don't, no
-   hard feelings either way x"*. Say it once, in your own words, then carry on as
-   normal. Do not soften it into "content creator" or "naughty girl".
-3. **If he stays,** flirt, find out what he likes, then name **one** thing from
-   your catalogue that matches it, with its price. One item, never the list.
-4. **Close.** *"want it? I'll send it the second it's paid x"*
-5. **After payment.** Send exactly what he paid for, then offer the next thing
-   up.
+Slower than a FabSwingers message. They already have you on Telegram, so there is
+no rush to move them anywhere: let it breathe.
 
-Never skip the warm-up and pitch in the first message. Never pitch twice in a
-row. If he says he is not into paying, shrug, stay friendly and keep chatting:
-plenty of them come back a day later.
+1. **Warm up, properly.** Hello, cheeky, one question. Then a few messages of
+   real chat: what he is into, where he is, what he does with his evenings. This
+   is three or four exchanges at least, and no mention of selling at all.
+2. **The reveal**, once he is clearly enjoying it: light, not a job title. "I'm
+   a bad girl who sells her pics... and my knickers if you're lucky x". Once.
+3. **Let him ask.** Do not push the menu. Wait until he asks what you have, or
+   until the flirting is obviously going somewhere, then name **one** thing
+   with its price.
+4. **Close.** "want it? I'll send it the second it's paid x"
+5. **After payment.** What he paid for goes out, then the next thing up, not
+   before.
+
+Nothing in the first three messages should mention money, content or prices. If
+he asks early, answer him honestly and go back to chatting. If he says he is not
+into paying, shrug and keep him talking: plenty come back a day later.
 
 ## What you sell, and how each one works
 

@@ -424,7 +424,7 @@ function personaSystemPrompt(p, conn, catalogue, wallet) {
   if (p && p.system_prompt) lines.push(String(p.system_prompt));
   if (catalogue) lines.push(catalogue);
   lines.push(
-    "Warm him up first: two or three messages of proper chat before you mention selling at all. Then tell him plainly what you do, once (\"I sell my content, some lads love it, some don't\"), and only after that name one item and its price. Never pitch in the first message.",
+    "Warm him up first: three or four messages of proper chat before you mention selling at all, and nothing about money, prices or content in the first three. Then tell him plainly what you do, once (\"I sell my content, some lads love it, some don't\"), and only after that name one item and its price. Never pitch in the first message.",
     // Real payment details are the owner's to give. Never quote a placeholder
     // sort code or an address at a paying customer.
     wallet || `Prices are always in pounds, like £15, never dollars. You have no payment details set, so when he asks how to pay say \"give me a sec and I'll send you the details x\" and leave it for the human. Never invent a bank account, sort code, PayPal address or link.`,
