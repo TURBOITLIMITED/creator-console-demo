@@ -226,10 +226,15 @@ async function fsDraftFor(env, acct, persona, row, thread, turn, meetAsk, force)
     meetAsk && acct.telegram_username
       ? `He is asking to meet. Do not agree, do not discuss where, when or a hotel, not one word about it. Turn it into the invite, casual and clear, the way "why don't you add me on telegram, I hate it on here x" lands, with @${acct.telegram_username} in it.`
       : "",
-    acct.telegram_username ? (Number(turn || 0) >= 1
-      ? `This is your ${Number(turn) + 1}${Number(turn) + 1 === 2 ? 'nd' : Number(turn) + 1 === 3 ? 'rd' : 'th'} message to him, so it is time to move him to Telegram. Work it into this message in your own words, something like "why don't we talk properly on telegram, add me @${acct.telegram_username}". Flirty, offhand, one line, part of the message, never a message on its own.`
-      : `Do not mention Telegram in this first message. Just be cheeky and let him come back.`)
-      + ` Your handle is @${acct.telegram_username}. If he wants to be degraded, only tease him about it here: "you'd have to ask me nicely somewhere private". The real thing waits until he is on Telegram, never on FabSwingers.` : "",
+    acct.telegram_username ? (() => {
+      const t = Number(turn || 0);
+      const h = "@" + acct.telegram_username;
+      // He gets his answer first, always. The invite rides in the same message
+      // behind it. Twice is enough, then she shrugs and leaves it.
+      if (t === 0) return `Answer the question he asked first, in one short line, then in the same message invite him: "obvs if you want to chat more add me on telegram ${h}". The answer comes first, the invite second, both in one message. Never send the invite as a message on its own.`;
+      if (t === 1) return `Answer him again first, then ask once more, a little more direct: "come on, download telegram and add me ${h}, it is easier". Same message, answer first.`;
+      return `He has been asked twice and is still on FabSwingers. Do not answer anything else and do not invite him again. Say something like "aww well that's a shame, we could have had fun x" and leave it at that.`;
+    })() + ` Your handle is ${"@" + acct.telegram_username}. If he says he has not got Telegram, tell him to download it and add you. If he will not, the chat is done. If he wants to be degraded, only tease him about it here: "you'd have to ask me nicely somewhere private". The real thing waits until he is on Telegram, never on FabSwingers.` : "",
     "Reply with the message text only. No quotes, no labels, no explanation.",
   ].filter(Boolean).join("\n");
   const history = (thread.messages || []).slice(-8).map((m) => m.text).join("\n") || row.snippet;
@@ -335,9 +340,6 @@ async function pollFab(env){
       // she is online whenever the phone is, day or night. Whether this tick
       // sends is decided by the previous answer's gap, not by the clock, so the
       // spacing is uneven in the same way a person's is.
-      // she is off the site twice a day, the way anyone is
-      if (fsOfflineNow()) continue;
-
       const record = await fsLoadRecord(env, acct.id);
       const dueAt = record && record.next_send_at ? new Date(record.next_send_at).getTime() : 0;
       if (Date.now() < dueAt) continue;
@@ -433,8 +435,14 @@ async function pollFab(env){
             .sort((a, b) => (ageMinutes(a.when) ?? 99999) - (ageMinutes(b.when) ?? 99999))
             .slice(0, perRun)
         : [];
+      // she takes two breaks a day, the way anyone does, but a queue this deep
+      // is a backlog she would clear first
+      if (fsOfflineNow() && readyUsers.size < 10) continue;
+
       let halted = false, sent = 0;
       for(const row of todo){
+       // one broken thread must never take the batch down with it
+       try{
         if (sent > 0) await pause(700 + Math.random() * 1500);
         const reason = fsStopReason(row.snippet);
         let status = "sent", text = null;
@@ -459,8 +467,10 @@ async function pollFab(env){
           // getting him onto Telegram is the whole point of this account, so it
           // does not depend on the model remembering
           const handle = "@" + acct.telegram_username;
-          if(acct.telegram_username && (turn >= 1 || meetAsk || warm) && text && !text.toLowerCase().includes(handle.toLowerCase())){
-            const retry = await fsDraftFor(env, acct, persona, row, thread, Math.max(turn, 1), meetAsk, true);
+          // the invite belongs in the first two replies, after the answer, and
+          // never after that: by then she has shrugged and moved on
+          if(acct.telegram_username && turn <= 1 && text && !text.toLowerCase().includes(handle.toLowerCase())){
+            const retry = await fsDraftFor(env, acct, persona, row, thread, turn, meetAsk, true);
             text = retry && retry.toLowerCase().includes(handle.toLowerCase())
               ? retry
               : text.replace(/[\s.]+$/, "") + ` anyway, why don't you add me on telegram ${handle} x`;
@@ -469,7 +479,19 @@ async function pollFab(env){
           if(!text){ status = "skipped: empty draft"; }
           else if(drafted){ status = "skipped: own reply mentioned " + drafted; }
           else {
-            const res = await sendReply(snap.cookie, row.user, row.guid, text);
+            let res;
+            try{
+              res = await sendReply(snap.cookie, row.user, row.guid, text);
+            }catch(e){
+              // a reused cookie can go stale for the reply page while the inbox
+              // still reads fine. One fresh login, then try the same message.
+              if(!/reply form not found/i.test(String((e && e.message) || e))) throw e;
+              const password = await openSecret(env, acct.password_enc);
+              const fresh = await fsLogin(acct.username, password);
+              cookie = fresh.cookie;
+              await fsSaveRecord(env, acct.id, cookie, null);
+              res = await sendReply(cookie, row.user, row.guid, text);
+            }
           if(res.ok) await fsLogMessage(env, acct.id, row.user, row.name, "out", text);
             if(!res.ok){ status = "send failed: " + res.status; }
             else if(fsRateLimited(res.page)){
@@ -501,6 +523,14 @@ async function pollFab(env){
             notes: status === "sent" ? "answered" : status,
           }),
         }).catch(() => null);
+       }catch(e){
+        const why = String((e && e.message) || e).slice(0, 120);
+        await sb(env, "fabswingers_conversations?on_conflict=fabswingers_account_id,fs_user_id", {
+          method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+          body: JSON.stringify({ fabswingers_account_id: acct.id, fs_user_id: row.user, fs_user_name: row.name,
+            message_count: 0, notes: "send failed: " + why }),
+        }).catch(() => null);
+       }
       }
       await fsSaveRecord(env, acct.id, cookie, new Date(Date.now() + humanGapSeconds() * 1000).toISOString());
       await sb(env, `fabswingers_accounts?id=eq.${acct.id}`, { method:"PATCH", headers:{Prefer:"return=minimal"},

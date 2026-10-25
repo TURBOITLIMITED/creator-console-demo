@@ -1344,7 +1344,7 @@ const SECTIONS = {
   library:{ title:'Library', group:'Content', render:renderLibrary },
   gallery:{ title:'Gallery', group:'Content', render:renderGallery },
   bundles:{ title:'Bundles', group:'Content', render:renderLibrary },
-  ai:{ title:'AI Personality', group:'Settings', render:renderAI },
+  ai:{ title:'Personality Engine', group:'Settings', render:renderAI },
   wallet:{ title:'TON Wallet', group:'Settings', render:renderWallet },
   links:{ title:'Creator Links', group:'Settings', render:renderLinks },
   audit:{ title:'Audit', group:'System', render:renderAudit }
@@ -1483,7 +1483,7 @@ async function openAccount(id){
         <div class="tabs" role="tablist">
           <button type="button" role="tab" data-act="acc-tab" data-tab="persona" aria-selected="${tab==='persona'}">Persona</button>
           <button type="button" role="tab" data-act="acc-tab" data-tab="connection" aria-selected="${tab==='connection'}">Connection</button>
-          <button type="button" role="tab" data-act="acc-tab" data-tab="ai" aria-selected="${tab==='ai'}">AI Personality</button>
+          <button type="button" role="tab" data-act="acc-tab" data-tab="ai" aria-selected="${tab==='ai'}">Personality Engine</button>
           <button type="button" role="tab" data-act="acc-tab" data-tab="fabswingers" aria-selected="${tab==='fabswingers'}">FabSwingers</button>
         </div>
         <button class="act" data-act="acc-close" title="Close">${ic('x')}</button>
@@ -1922,7 +1922,7 @@ function fsPersonaFields(persona) {
     <div class="field"><label for="fs-prompt">How she should chat</label>
       <textarea class="input" id="fs-prompt" rows="5" placeholder="Sound like a real person, flirt a little, never say she is automated unless asked...">${esc(persona?.system_prompt || '')}</textarea>
       <span class="hint">Leave blank to use the default voice for this account.</span></div>
-    <p class="hint" style="margin:0">Her Telegram handle comes from the account itself and is dropped into a normal message when the chat is going well. There is no separate move-to-Telegram message.</p>`;
+    <p class="hint" style="margin:0 0 6px">Her Telegram handle comes from the account itself. The ladder she follows: answer his question first in the same message, then invite him to Telegram. If he has not got it, tell him to download it and add her. If he still will not, she says "aww well that's a shame, we could have had fun" and leaves it there.</p>`;
 }
 
 async function fsSaveLogin(accountId, btn) {
