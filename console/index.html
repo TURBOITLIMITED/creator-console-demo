@@ -1092,19 +1092,11 @@ function pager(key, page, count){
     </div></div>`;
 }
 const secHead = (text, action='') => `<div class="sec-head"><p>${esc(text)}</p>${action}</div>`;
-// Owner-only creator switcher shown at the top of Accounts, Library, Bundles, AI Personality.
-const ownerPicker = () => {
-  if(!state.isAdmin) return '';
-  const rows = state.aiCreators || [];
-  const cur = ownerTarget();
-  const name = c => c ? (c.name || c.id) : '';
-  const dupe = new Set(rows.map(name).filter((n, i, a) => a.indexOf(n) !== i));
-  return `<div class="panel owner-pick" style="margin-bottom:16px;padding:10px 14px;display:flex;gap:12px;align-items:center">
-    <select class="input" id="ai-creator" style="max-width:340px;padding:6px 10px;min-height:34px">
-      ${rows.map(c => `<option value="${esc(c.id)}" ${c.id===cur?'selected':''}>${esc(name(c))}${dupe.has(name(c)) ? ' · ' + esc(String(c.id).slice(0,6)) : ''}</option>`).join('')}
-    </select>
-  </div>`;
-};
+/* The account is the unit now: a girl IS a Telegram account, so there is no
+   creator to "act as" and the switcher was pure noise above every list. The
+   hook stays so a second client login could bring it back, but it renders
+   nothing: ownerTarget() then resolves to the signed-in owner. */
+const ownerPicker = () => '';
 const setView = html => { const v = $('#view'); v.innerHTML = html; fitTables(v); v.classList.remove('fade-in'); void v.offsetWidth; v.classList.add('fade-in'); $('#pageLoading').classList.remove('active'); };
 
 /* Phones cannot scroll a six-column table sideways and still reach the buttons,
