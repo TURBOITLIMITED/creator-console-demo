@@ -44,6 +44,26 @@ async function unwrap(env, wrapped) {
 }
 
 /**
+ * Seal a short secret directly with the KEK. This is for credentials the
+ * worker must replay (a scraped site's password), not for message bodies:
+ * a hash cannot be logged in with, and Postgres alone must not hold it.
+ */
+export async function sealSecret(env, text) {
+  const nonce = crypto.getRandomValues(new Uint8Array(12));
+  const key = await aesKey(kekBytes(env), ["encrypt"]);
+  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce }, key, te.encode(String(text)));
+  return b64(nonce) + ":" + b64(ct);
+}
+
+export async function openSecret(env, sealed) {
+  const [n, c] = String(sealed || "").split(":");
+  if (!n || !c) throw new Error("secret is not sealed");
+  const key = await aesKey(kekBytes(env), ["decrypt"]);
+  const raw = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(n) }, key, unb64(c));
+  return td.decode(raw);
+}
+
+/**
  * Fetch this creator's DEK, minting one on first use.
  * `sb` is the caller's Supabase helper so this module stays transport-agnostic.
  */

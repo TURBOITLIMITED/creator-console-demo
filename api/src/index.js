@@ -4,7 +4,7 @@
 // on 2026-10-20.
 const CORS = (o) => ({
   "Access-Control-Allow-Origin": o || "*",
-  "Access-Control-Allow-Methods": "GET,PUT,POST,OPTIONS",
+  "Access-Control-Allow-Methods": "GET,PUT,POST,PATCH,DELETE,OPTIONS",
   "Access-Control-Allow-Headers": "Authorization,Content-Type,X-Filename",
   "Access-Control-Max-Age": "86400",
 });
@@ -16,6 +16,7 @@ const json = (data, status = 200, origin) =>
   });
 
 import { sign, timingSafe } from "./media.js";
+import { sealSecret, openSecret } from "./crypto.js";
 import { handleWebhook } from "./tg.js";
 import * as tgapi from "./telegram.js";
 import { validateBotAnswer, DEFAULT_BOT_ANSWERS, EXPLICIT_BOT_ANSWER } from "./persona.js";
@@ -509,6 +510,86 @@ export default {
       }
     }
 
+    // Diagnostic: log in with the sealed password and report what FabSwingers
+    // actually serves. This is how the inbox parser gets built against the real
+    // pages instead of a guess. Read only, no messages are sent.
+    if (url.pathname === "/fabswingers/probe" && request.method === "POST") {
+      const denied = await requireConsoleAdmin(env, request, origin);
+      if (denied) return denied;
+      const b = await request.json().catch(() => ({}));
+      if (!b.id) return json({ error: "id is required" }, 400, origin);
+      const rows = await sb(env, `fabswingers_accounts?id=eq.${b.id}&select=*`);
+      const acct = rows && rows[0];
+      if (!acct) return json({ ok: false, error: "unknown account" }, 404, origin);
+      // password_enc holds sealed ciphertext (nonce:ct). The old sha256 hashes
+      // contain no colon and cannot be logged in with, so they must be re-entered.
+      if (!acct.password_enc || !String(acct.password_enc).includes(":")) {
+        return json({ ok: false, error: "No usable password is stored for this login. Open Edit, type the FabSwingers password and save." }, 400, origin);
+      }
+      let password;
+      try { password = await openSecret(env, acct.password_enc); }
+      catch (e) { return json({ ok: false, error: "The stored password cannot be opened: " + String(e).slice(0, 120) }, 500, origin); }
+
+      const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36";
+      let loginRes, cookies = [], loginText = "";
+      try {
+        loginRes = await fetch("https://www.fabswingers.com/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": UA, "Accept": "text/html,application/xhtml+xml" },
+          body: `username=${encodeURIComponent(acct.username)}&password=${encodeURIComponent(password)}&permacookie=1`,
+          redirect: "manual",
+        });
+        const raw = typeof loginRes.headers.getSetCookie === "function"
+          ? loginRes.headers.getSetCookie()
+          : [loginRes.headers.get("set-cookie") || ""];
+        cookies = raw.filter(Boolean).map((c) => c.split(";")[0]);
+        loginText = await loginRes.text().catch(() => "");
+      } catch (e) {
+        return json({ ok: false, error: "Could not reach FabSwingers: " + String(e).slice(0, 160) }, 502, origin);
+      }
+
+      const cookieHeader = cookies.join("; ");
+      const strip = (h) => h
+        .replace(/<script[\s\S]*?<\/script>/gi, " ")
+        .replace(/<style[\s\S]*?<\/style>/gi, " ")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+        .replace(/\s+/g, " ").trim();
+
+      const pages = [];
+      for (const path of ["/my/", "/messages/", "/webchat/"]) {
+        try {
+          const r = await fetch("https://www.fabswingers.com" + path, {
+            headers: { "User-Agent": UA, "Cookie": cookieHeader, "Accept": "text/html,application/xhtml+xml" },
+            redirect: "follow",
+          });
+          const html = await r.text();
+          const title = (html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || "";
+          const links = [];
+          const re = /<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+          let m;
+          while ((m = re.exec(html)) && links.length < 400) {
+            const href = m[1], text = strip(m[2]).slice(0, 60);
+            if (/messag|mail|inbox|chat|pm|thread/i.test(href + " " + text)) links.push({ href, text });
+          }
+          pages.push({
+            path, status: r.status, url: r.url, bytes: html.length,
+            title: strip(title).slice(0, 120),
+            text: strip(html).slice(0, 1400),
+            links: links.slice(0, 40),
+          });
+        } catch (e) {
+          pages.push({ path, error: String(e).slice(0, 160) });
+        }
+      }
+      return json({
+        ok: true,
+        account: { username: acct.username, telegram_username: acct.telegram_username },
+        login: { status: loginRes.status, location: loginRes.headers.get("location") || "", cookies: cookies.map((c) => c.split("=")[0]), sample: strip(loginText).slice(0, 300) },
+        pages,
+      }, 200, origin);
+    }
+
     // Create or update the FabSwingers login for one Telegram account.
     if (url.pathname === "/fabswingers" && request.method === "POST") {
       const denied = await requireConsoleAdmin(env, request, origin);
@@ -529,7 +610,9 @@ export default {
         telegram_username: telegram_username.trim().replace(/^@/, ""),
       };
       if (password) {
-        body.password_enc = await sha256hex(password);
+        // sealed, not hashed: the scraper has to log in with this, and a hash
+        // cannot be replayed. The KEK lives in Worker secrets, never Postgres.
+        body.password_enc = await sealSecret(env, password);
         body.password_nonce = crypto.randomUUID();
       } else if (!existing) {
         return json({ error: "A password is required the first time" }, 400, origin);
@@ -559,7 +642,7 @@ export default {
       const body = {};
       if (typeof b.enabled === "boolean") body.enabled = b.enabled;
       if (b.telegram_username) body.telegram_username = String(b.telegram_username).trim().replace(/^@/, "");
-      if (b.password) { body.password_enc = await sha256hex(b.password); body.password_nonce = crypto.randomUUID(); }
+      if (b.password) { body.password_enc = await sealSecret(env, b.password); body.password_nonce = crypto.randomUUID(); }
       if (!Object.keys(body).length) return json({ error: "nothing to update" }, 400, origin);
       const row = await sb(env, `fabswingers_accounts?id=eq.${id}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(body) });
       return json({ ok: true, account: Array.isArray(row) ? row[0] : row }, 200, origin);
