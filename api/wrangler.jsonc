@@ -12,6 +12,10 @@
   ],
   "ai": { "binding": "AI" },
 
+  // Bigger model for chat: the small one ignored instructions like "answer
+  // his question first" once the persona got long.
+  "vars": { "AI_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast" },
+
   // Every minute the Fab poller looks for unread threads on switched-on
   // accounts, up to three answers a run, at any hour. A short floor after a
   // message is first seen keeps replies from landing in seconds.
