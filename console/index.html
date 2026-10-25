@@ -1967,17 +1967,48 @@ async function renderFabSwingers() {
     ${secHead('One FabSwingers login per bot account, each with its own auto-reply personality. A new login arrives switched off: turn it on only when the voice sounds right.')}
     ${ownerPicker()}
     <div class="panel"><div class="panel-head"><h2>FabSwingers accounts</h2>
-      <span class="end"><button class="btn sm primary" data-act="fs-link">${ic('plus')}Add account</button></span></div>
+      <span class="end">
+        <button class="btn sm" data-act="fs-run">${ic('refresh')}Run a check now</button>
+        <button class="btn sm primary" data-act="fs-link">${ic('plus')}Add account</button></span></div>
       <div id="fs-list">${spinner('Loading accounts...')}</div></div>
     <div id="fs-detail"></div>
     <div id="fs-alerts"></div>
+    <section class="panel" style="margin-top:16px">
+      <div class="panel-head"><h2>What she has been doing</h2>
+        <span class="end muted" id="fs-activity-count"></span></div>
+      <div id="fs-activity">${spinner('Loading activity...')}</div>
+    </section>
     <section class="panel" style="margin-top:16px">
       <div class="panel-head"><h2>Inbox</h2>
         <span class="end"><button class="btn sm" data-act="fs-inbox-check">${ic('refresh')}Check inbox</button></span></div>
       <div id="fs-inbox" class="panel-body"><p class="muted">Check the inbox to read what has arrived on FabSwingers. Nothing is sent from here without you.</p></div>
     </section>`);
   loadFabSwingers();
+  fsLoadActivity();
   fsUpgradeAlerts('#fs-alerts');
+}
+
+/* The log the owner actually needs: who was answered, what she said, and who
+   was left alone because something did not smell right. */
+async function fsLoadActivity(){
+  const el = $('#fs-activity'); if(!el) return;
+  try{
+    const { data: rows } = await state.sb.from('fabswingers_conversations')
+      .select('fs_user_name,fs_user_id,notes,conversation_summary,last_message_at')
+      .order('last_message_at', { ascending:false, nullsFirst:false }).limit(20);
+    const list = rows || [];
+    $('#fs-activity-count').textContent = list.length ? `${list.length} recent` : '';
+    if(!list.length){ el.innerHTML = `<div class="panel-body"><p class="muted" style="margin:0">Nothing yet. Once she starts answering, each thread appears here with what she said or why she stopped.</p></div>`; return; }
+    el.innerHTML = `<ul class="audit-list">${list.map(r => {
+      const note = r.notes || 'answered';
+      const flagged = /^(flagged|skipped|send failed|rate|UPGRADE)/i.test(note);
+      const label = note === 'pending' ? 'WAITING' : flagged ? 'STOPPED' : note === 'answered' ? 'ANSWERED' : note.toUpperCase();
+      return `<li><span class="a-kind" style="background:${flagged ? 'var(--bad-soft)' : note === 'pending' ? 'var(--sunk)' : 'var(--ok-soft)'};color:${flagged ? 'var(--bad)' : note === 'pending' ? 'var(--ink-3)' : 'var(--ok)'}">${esc(label)}</span>
+        <div class="a-body"><p><b>${esc(r.fs_user_name || r.fs_user_id)}</b> <small>${r.last_message_at ? esc(ago(r.last_message_at)) : ''}</small></p>
+        ${r.conversation_summary ? `<p style="color:var(--ink-2)">${esc(r.conversation_summary)}</p>` : ''}
+        ${flagged ? `<small>Left for you: ${esc(note)}</small>` : ''}</div></li>`;
+    }).join('')}</ul>`;
+  }catch(e){ el.innerHTML = `<div class="panel-body"><p class="muted">${esc(e.message)}</p></div>`; }
 }
 
 /* One plain sentence per account: what it is doing right now, not just a pill. */
@@ -2117,7 +2148,7 @@ async function fsUpgradeAlerts(sel){
   const slot = $(sel); if(!slot) return;
   try{
     const { data } = await state.sb.from('fabswingers_accounts').select('username,last_error').or('last_error.ilike.UPGRADE%,last_error.ilike.RATE%');
-    const rows = data || [];
+    const rows = (data || []).filter(r => /^(UPGRADE|RATE)/i.test(r.last_error || ''));
     if(!rows.length){ slot.innerHTML = ''; return; }
     const items = rows.map(r => {
       const up = /^UPGRADE/i.test(r.last_error || '');
@@ -2725,6 +2756,15 @@ view.addEventListener('click', async e => {
     }
     /* fabswingers inbox */
     case 'fs-inbox-check': fsInboxLoad(); break;
+    case 'fs-run': {
+      const a2 = a;
+      try{
+        await withBusy(a2, () => fsCall('/fabswingers/poll', { method:'POST', body: '{}' }), null);
+        toast('Checked FabSwingers', 'success', 'One message at most, at her own pace.');
+        loadFabSwingers(); fsLoadActivity();
+      }catch(e){ toast('Could not run a check', 'error', e.message); }
+      break;
+    }
     case 'fs-draft': fsDraft(a.dataset.guid, a.dataset.user); break;
     case 'fs-send': fsSend(a.dataset.guid, a.dataset.user, a); break;
     /* library */
