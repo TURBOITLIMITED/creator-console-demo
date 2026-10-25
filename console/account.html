@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Account · Creator Console</title>
 <link rel="icon" type="image/png" sizes="32x32" href="favicon32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="favicon16.png">
@@ -42,6 +42,7 @@
 }
 *{box-sizing:border-box}
 html,body{height:100%}
+html{touch-action:manipulation}
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--f-ui);-webkit-font-smoothing:antialiased;padding:0}
 .wrap{max-width:720px;margin:0 auto;padding:24px 20px 64px}
 .header{display:flex;align-items:center;gap:12px;margin-bottom:20px}
@@ -107,7 +108,7 @@ input.mono,textarea.mono{font-family:var(--f-mono);font-size:13px}
   .tabs{width:100%;grid-template-columns:repeat(3,minmax(0,1fr));display:grid}
   .tabs button{padding:9px 6px}
   input,textarea,select{font-size:16px;height:44px}
-  input.mono,textarea.mono{font-size:15px}
+  input.mono,textarea.mono{font-size:16px}
   textarea{height:auto}
   .btn{height:44px}
   .panel-body{padding:14px}
@@ -274,6 +275,11 @@ input.mono,textarea.mono{font-family:var(--f-mono);font-size:13px}
 </div>
 
 <script type="module">
+/* Zoom is off: a zoomed console ends up wedged to one side with controls
+   off screen. Pinch is blocked here, double tap by touch-action in the CSS. */
+document.addEventListener('gesturestart', e => e.preventDefault(), { passive:false });
+document.addEventListener('gesturechange', e => e.preventDefault(), { passive:false });
+
 const SUPABASE_URL = 'https://xsgvdlgmhuxozjlbjzxy.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzZ3ZkbGdtaHV4b3pqbGJqenh5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNjIxNTcsImV4cCI6MjEwNzYzODE1N30.eTDJH5Xm7LZGEdcQy94X61E7EqFx9S3iWsxEpS20BZ0';
 const SUPABASE_ESM = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';

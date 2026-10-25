@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Sign in · Creator Console</title>
 <link rel="icon" type="image/png" sizes="32x32" href="favicon32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="favicon16.png">
@@ -92,7 +92,7 @@ label{font-size:12.5px;font-weight:550;color:var(--ink-2)}
   .btn{height:46px}
   .input,.btn{min-height:46px}
 }
-html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;touch-action:manipulation}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important;transition-duration:.001ms!important}}
 </style>
 </head>
@@ -264,6 +264,11 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 </script>
 
 <script type="module">
+/* Zoom is off: a zoomed console ends up wedged to one side with controls
+   off screen. Pinch is blocked here, double tap by touch-action in the CSS. */
+document.addEventListener('gesturestart', e => e.preventDefault(), { passive:false });
+document.addEventListener('gesturechange', e => e.preventDefault(), { passive:false });
+
 const SUPABASE_URL = 'https://xsgvdlgmhuxozjlbjzxy.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzZ3ZkbGdtaHV4b3pqbGJqenh5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNjIxNTcsImV4cCI6MjEwNzYzODE1N30.eTDJH5Xm7LZGEdcQy94X61E7EqFx9S3iWsxEpS20BZ0';
 const SUPABASE_ESM = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="favicon16.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -28,6 +28,7 @@
   --accent:#6876ff; --accent-soft:#1f2347; --ok:#4fc58b; --ok-soft:#14301f; --bad:#ff6e75; --bad-soft:#3a1a1d;
   color-scheme:dark}}
 *{box-sizing:border-box}
+html{touch-action:manipulation}
 body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 var(--f-ui);-webkit-font-smoothing:antialiased}
 button,input,select,textarea{font:inherit;color:inherit}
 .wrap{max-width:760px;margin:0 auto;padding:24px 20px 64px}
@@ -130,6 +131,11 @@ th{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--in
 <div id="toast"></div>
 
 <script type="module">
+/* Zoom is off: a zoomed console ends up wedged to one side with controls
+   off screen. Pinch is blocked here, double tap by touch-action in the CSS. */
+document.addEventListener('gesturestart', e => e.preventDefault(), { passive:false });
+document.addEventListener('gesturechange', e => e.preventDefault(), { passive:false });
+
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 
 const SUPABASE_URL = 'https://xsgvdlgmhuxozjlbjzxy.supabase.co';

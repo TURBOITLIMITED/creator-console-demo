@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="favicon16.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -546,7 +546,7 @@ input,select,textarea,.input{background:var(--sunk);border-color:var(--rule);col
    The console is operated from a phone as often as a desk, so the phone rules
    below are part of the product, not a fallback: one scrollable column, finger
    sized controls, no sideways tables, and no input that triggers iOS zoom. */
-html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;touch-action:manipulation}
 *{-webkit-tap-highlight-color:transparent}
 /* while the drawer is open the page underneath is pinned, so a drag inside the
    sidebar cannot scroll the console behind it */
@@ -571,6 +571,7 @@ body.drawer-open .side{overscroll-behavior:contain}
   .nav a{height:44px}
   /* iOS zooms any field under 16px on focus and never zooms back out */
   .input,input,select,textarea{font-size:16px}
+  .palette input,.range-custom .input{font-size:16px}
   .input,select.input,textarea.input,.composer .input{height:44px}
   .side{width:min(84vw,300px);padding-bottom:calc(env(safe-area-inset-bottom,0px) + 8px);z-index:30}
   .main{padding-bottom:calc(32px + env(safe-area-inset-bottom,0px))}
@@ -649,6 +650,10 @@ body.drawer-open .side{overscroll-behavior:contain}
 }
 </style>
 <script>
+/* Zoom is off: a zoomed console ends up wedged to one side with controls
+   off screen. Pinch is blocked here, double tap by touch-action in the CSS. */
+document.addEventListener('gesturestart', e => e.preventDefault(), { passive:false });
+document.addEventListener('gesturechange', e => e.preventDefault(), { passive:false });
 /* Theme before first paint: dark by default, the operator's last choice wins.
    Kept inline and tiny so there is no flash of the wrong ground. */
 (function(){ try { var t = localStorage.getItem('cc-theme'); document.documentElement.dataset.theme = t === 'light' ? 'light' : 'dark'; } catch (e) { document.documentElement.dataset.theme = 'dark'; } })();
