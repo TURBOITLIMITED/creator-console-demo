@@ -2601,10 +2601,14 @@ view.addEventListener('click', async e => {
     case 'fs-toggle': {
       const on = a.dataset.on === '1';
       try{
-        const res = await fsCall('/fabswingers/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify({ enabled: !on }) });
-        // reflect what the API stored straight away, then re-read the list to
-        // confirm: a stale row that still says Off looks like a dead button
-        const saved = res && res.account;
+        // The Worker's CORS preflight allows GET, PUT and POST only, so a PATCH
+        // from the browser never leaves the page. The console already reads this
+        // table directly and RLS gives console admins full access, so the switch
+        // writes to the row itself.
+        const { data, error } = await state.sb.from('fabswingers_accounts')
+          .update({ enabled: !on }).eq('id', id).select('id,enabled').single();
+        if (error) throw error;
+        const saved = data;
         if (saved && typeof saved.enabled === 'boolean'){
           const pill = a.closest('tr')?.querySelector('.pill');
           if (pill){ pill.textContent = saved.enabled ? 'On' : 'Off'; pill.className = 'pill ' + (saved.enabled ? 'ok' : 'draft'); }
@@ -2620,8 +2624,10 @@ view.addEventListener('click', async e => {
     }
     case 'fs-remove': {
       if (!armed(a)) break;
-      const r = await fsCall('/fabswingers/' + encodeURIComponent(id), { method: 'DELETE' }).catch(() => null);
-      if (r) { toast('FabSwingers account removed', 'success'); loadFabSwingers(); }
+      // same CORS limit as the switch: DELETE goes to the row directly
+      const { error } = await state.sb.from('fabswingers_accounts').delete().eq('id', id);
+      if (error) { toast('Could not remove that account', 'error', error.message); break; }
+      toast('FabSwingers account removed', 'success'); loadFabSwingers();
       break;
     }
     /* library */
