@@ -12,25 +12,37 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
 <style>
 :root{
-  --paper:#f7f7f6; --panel:#ffffff; --sunk:#f1f1ef;
-  --ink:#141519; --ink-2:#55585f; --ink-3:#8a8d95; --rule:#e6e6e3; --rule-2:#efefec;
-  --accent:#3346ff; --accent-hi:#2233ee; --accent-ink:#ffffff; --accent-soft:#eceeff; --accent-line:#c9cfff;
-  --ok:#11804a; --ok-soft:#e2f3e9; --bad:#c42f37; --bad-soft:#fbe5e6;
-  --f-ui:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
-  --f-mono:"Geist Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
-  --r:8px;
+  color-scheme: dark;
+  --bg:#05060a; --mesh-a:rgba(43,58,247,.26); --mesh-b:rgba(124,92,255,.20);
+  --panel:rgba(255,255,255,.04); --sunk:rgba(255,255,255,.03);
+  --rule:rgba(255,255,255,.08); --rule-2:rgba(255,255,255,.05);
+  --ink:#f3f5fb; --ink-2:#a6abc0; --ink-3:#6d728a;
+  --accent:#2b3af7; --accent-hi:#4a58ff; --accent-ink:#ffffff;
+  --accent-soft:rgba(43,58,247,.14); --accent-line:rgba(43,58,247,.38);
+  --violet:#7c5cff; --cyan:#27d3ff; --pink:#e05cff;
+  --ok:#2fd18b; --ok-soft:rgba(47,209,139,.14);
+  --warn:#f5b84a; --warn-soft:rgba(245,184,74,.14);
+  --bad:#ff5d73; --bad-soft:rgba(255,93,115,.14);
+  --r:16px; --r-sm:10px; --ease:cubic-bezier(.2,.8,.2,1);
+  --shadow:0 1px 2px rgba(0,0,0,.45), 0 24px 60px -28px rgba(0,0,0,.85);
+  --f-ui:ui-sans-serif, Inter, "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono:ui-monospace, "Geist Mono", "SF Mono", Menlo, Consolas, monospace;
 }
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --paper:#111215; --panel:#18191d; --sunk:#141518; --ink:#ececef; --ink-2:#a6a9b1; --ink-3:#73767e; --rule:#2a2c32; --rule-2:#212328;
-  --accent:#6876ff; --accent-hi:#8792ff; --accent-ink:#0b0c10; --accent-soft:#1f2347; --accent-line:#363e86;
-  --ok:#4fc58b; --ok-soft:#14301f; --bad:#ff6e75; --bad-soft:#3a1a1d; color-scheme:dark}}
-:root[data-theme="dark"]{
-  --paper:#111215; --panel:#18191d; --sunk:#141518; --ink:#ececef; --ink-2:#a6a9b1; --ink-3:#73767e; --rule:#2a2c32; --rule-2:#212328;
-  --accent:#6876ff; --accent-hi:#8792ff; --accent-ink:#0b0c10; --accent-soft:#1f2347; --accent-line:#363e86;
-  --ok:#4fc58b; --ok-soft:#14301f; --bad:#ff6e75; --bad-soft:#3a1a1d; color-scheme:dark}
+:root[data-theme="light"]{
+  color-scheme: light;
+  --bg:#f2f3f9; --mesh-a:rgba(43,58,247,.12); --mesh-b:rgba(124,92,255,.10);
+  --panel:#ffffff; --sunk:#f6f7fb;
+  --rule:rgba(20,24,60,.09); --rule-2:rgba(20,24,60,.06);
+  --ink:#0e101a; --ink-2:#4a5068; --ink-3:#858ba1;
+  --accent-hi:#1f2ddb; --accent-soft:rgba(43,58,247,.08); --accent-line:rgba(43,58,247,.28);
+  --ok:#0e9f66; --ok-soft:rgba(14,159,102,.10);
+  --warn:#b86e00; --warn-soft:rgba(184,110,0,.10);
+  --bad:#d9304f; --bad-soft:rgba(217,48,79,.10);
+  --shadow:0 1px 2px rgba(20,24,60,.06), 0 24px 60px -30px rgba(20,24,60,.30);
+}
 *{box-sizing:border-box}
 html,body{height:100%}
-body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 var(--f-ui);-webkit-font-smoothing:antialiased;padding:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--f-ui);-webkit-font-smoothing:antialiased;padding:0}
 .wrap{max-width:720px;margin:0 auto;padding:24px 20px 64px}
 .header{display:flex;align-items:center;gap:12px;margin-bottom:20px}
 .back{width:36px;height:36px;border-radius:8px;border:1px solid var(--rule);background:var(--panel);display:grid;place-items:center;color:var(--ink);cursor:pointer;transition:background .15s}

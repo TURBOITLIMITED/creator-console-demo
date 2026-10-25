@@ -2,3 +2,6 @@ node_modules/
 .wrangler/
 .dev.vars
 *.log
+
+# local restyle screenshots (served for review, never deployed as content)
+restyle-shots/
