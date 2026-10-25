@@ -13,18 +13,19 @@
   "ai": { "binding": "AI" },
 
   // Bigger model for chat: the small one ignored instructions like "answer
-  // his question first" once the persona got long.
-  "vars": { "AI_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast" },
+  // his question first" once the persona got long. ONE vars object only: a
+  // second "vars" key silently wins, and that is how AI_MODEL went missing and
+  // every chat ran on the 24B fallback model.
+  "vars": {
+    "AI_MODEL": "@cf/meta/llama-4-scout-17b-16e-instruct",
+    // Declared on the live worker but NEVER referenced anywhere in the source.
+    "DEMO": ""
+  },
 
   // Every minute the Fab poller looks for unread threads on switched-on
   // accounts, up to three answers a run, at any hour. A short floor after a
   // message is first seen keeps replies from landing in seconds.
-  "triggers": { "crons": ["* * * * *"] },
-
-  "vars": {
-    // Declared on the live worker but NEVER referenced anywhere in the source.
-    "DEMO": ""
-  }
+  "triggers": { "crons": ["* * * * *"] }
 
   // Secrets (set via `wrangler secret put`, never in this file):
   //   ADMIN_TOKEN          global cross-tenant admin bearer  (see AUDIT: god-token)

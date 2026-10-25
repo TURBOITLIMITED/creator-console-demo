@@ -408,7 +408,7 @@ function payLineFrom(prof) {
     "Never invent or alter a detail, never mention crypto unless he does, and never promise a link.";
 }
 
-function personaSystemPrompt(p, conn, catalogue, wallet) {
+function personaSystemPrompt(p, conn, catalogue, wallet, saidAlready) {
   const name = (p && p.display_name) || "the creator";
   const tone = { warm: "friendly, personal, a little chatty",
                  playful: "light jokes, emoji, high energy",
@@ -434,13 +434,35 @@ function personaSystemPrompt(p, conn, catalogue, wallet) {
     "Length: under fifteen words. One line, often just three to six words. If you have written two sentences, cut the second one. Never three.",
     // Direct questions read like an interview and kill the chat.
     "Do not interview him. At most one question, and not in every message. Never open with a question about him.",
-    "Answer him first, briefly. Once the chat is warm, let him know what you are without announcing it like a job title: a bad girl who sells her pics, and her knickers if he is lucky. Light, once, then carry on.",
+    "Answer him first, briefly. Once the chat is warm, let him know what you are without announcing it like a job title or using a script: in your own words, once, that you sell your photos, videos and knickers. Say it differently every time. Light, once, then carry on.",
+    // Every man arrives with his own thing. Match it instead of correcting it:
+    // the owner's rule is that "yes mummy" is an invitation, not a mistake.
+    "Play along with whatever he is into. If he calls you mummy, or asks you to be mummy, daddy or anything else, take it in your stride and act like you enjoy it. Never correct him, never say you are not his mummy, never make him explain or apologise. Let him say it again and answer in kind, then carry on. Read what this one wants from the chat and become that, rather than steering him back to a script.",
+    "Never repeat yourself. Do not reuse a sentence, phrase or pitch you have already sent in this chat, and do not say the same thing in slightly different words. Answer what he just said with something new. If he tells you that you are repeating, change the subject or react to him, do not apologise twice and do not send the same line again.",
     "Never mention being a bot or AI unless directly asked.",
     "Never promise anything about money, meets or content that is not already stated in your instructions.",
     "If a message is ambiguous, reply warmly and ask one short question.",
   );
+  // Naming the lines she has already used is the cheapest fix for a small
+  // model that loops: the rule above states the intention, this states the
+  // actual sentences it must not send again.
+  if (saidAlready && saidAlready.length) {
+    lines.push("You have already sent these lines in this chat: " +
+      saidAlready.map(s => '"' + s + '"').join("; ") +
+      ". Do not send any of them again, and do not write a close paraphrase of any of them. Say something you have not said yet.");
+  }
   return lines.join(" ");
 }
+
+/* Chat models in preference order. A 24B model starts ignoring the
+   answer-first and one-line rules once the persona is long, and it loops; the
+   bigger instruct models hold. The first that answers wins, so a model id this
+   account does not serve costs one failed call, never a dead chat. */
+const REPLY_MODELS = [
+  "@cf/meta/llama-4-scout-17b-16e-instruct",
+  "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+  "@cf/mistralai/mistral-small-3.1-24b-instruct",
+];
 
 async function generateReply(env, system, history, incoming) {
   const messages = [
@@ -448,11 +470,53 @@ async function generateReply(env, system, history, incoming) {
     ...history.map(h => ({ role: h.dir === "in" ? "user" : "assistant", content: h.text })),
     { role: "user", content: incoming },
   ];
-  const out = await env.AI.run(env.AI_MODEL || "@cf/mistralai/mistral-small-3.1-24b-instruct", {
-    messages, max_tokens: 120,
-  });
-  const text = typeof out === "string" ? out : (out && out.response) || "";
-  return String(text).trim().replace(/^["']|["']$/g, "");
+  const models = [env.AI_MODEL, ...REPLY_MODELS].filter(Boolean);
+  const tried = new Set();
+  let lastErr = null;
+  for (const model of models) {
+    if (tried.has(model)) continue;
+    tried.add(model);
+    try {
+      const out = await env.AI.run(model, {
+        messages, max_tokens: 110, temperature: 0.85,
+      });
+      const text = typeof out === "string" ? out : (out && out.response) || "";
+      const clean = String(text).trim().replace(/^["']|["']$/g, "");
+      if (clean) {
+        if (model !== models[0]) console.log(JSON.stringify({ evt: "tg.reply.model_fallback", model }));
+        return clean;
+      }
+    } catch (e) {
+      lastErr = e;
+      console.log(JSON.stringify({ evt: "tg.reply.model_failed", model, err: String(e && e.message || e).slice(0, 160) }));
+    }
+  }
+  if (lastErr) throw lastErr;
+  return "";
+}
+
+/* A line she has already sent, or a near-copy of one, is the thing customers
+   complain about. Compare normalised text and word overlap, not exact strings:
+   the model rarely repeats byte for byte, it rephrases. */
+const normaliseLine = s => String(s || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+const wordsOf = s => new Set(normaliseLine(s).split(" ").filter(w => w.length > 2));
+
+function repeatsSomething(candidate, previous) {
+  const c = normaliseLine(candidate);
+  if (!c) return false;
+  const ct = wordsOf(candidate);
+  for (const p of previous || []) {
+    const pn = normaliseLine(p);
+    if (!pn) continue;
+    if (pn === c) return true;
+    if (c.length > 12 && (pn.includes(c) || c.includes(pn))) return true;
+    const pt = wordsOf(p);
+    if (!ct.size || !pt.size) continue;
+    let shared = 0;
+    for (const w of ct) if (pt.has(w)) shared++;
+    if (shared / Math.max(ct.size, pt.size) >= 0.75) return true;
+  }
+  return false;
 }
 
 async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
@@ -569,9 +633,24 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
           "&select=wallet_address,pay_bank_name,pay_sort_code,pay_account_no,pay_paypal,pay_note").catch(() => null);
         payLine = payLineFrom(prof && prof[0]);
       }
-      const system = personaSystemPrompt(p, conn, catalogue, payLine) + (custLine ? " " + custLine : "");
+      // What she has already sent, so the prompt can name those lines and the
+      // guard below can reject a rephrasing of one.
+      const priorOut = history.filter(h => h.dir === "out").map(h => h.text).filter(Boolean).slice(-6);
+      const system = personaSystemPrompt(p, conn, catalogue, payLine, priorOut) + (custLine ? " " + custLine : "");
       replyText = await generateReply(env, system, history, text);
       via = "workers-ai";
+      // One retry when the model loops. Without it a small model sends the
+      // same sentence twice in a row, which is what the owner hears as
+      // "she is very repetitive".
+      if (replyText && repeatsSomething(replyText, priorOut)) {
+        console.log(JSON.stringify({ evt: "tg.reply.repeat_retry", text: replyText.slice(0, 80) }));
+        const retry = await generateReply(env, system +
+          " You were about to repeat yourself. Do NOT send this line or anything like it: \"" + replyText + "\".", history, text);
+        if (retry) {
+          if (repeatsSomething(retry, priorOut)) console.log(JSON.stringify({ evt: "tg.reply.repeat_again" }));
+          replyText = retry;
+        }
+      }
       if (!replyText) { stopTyping(); return null; }
     }
   } catch (e) {
@@ -1180,3 +1259,6 @@ export async function handleWebhook(request, env, sb, persona) {
   // and we have already recorded it.
   return ok();
 }
+
+// Exported for the reply-quality regression tests.
+export { generateReply, repeatsSomething, personaSystemPrompt };
