@@ -255,7 +255,10 @@ const UK_HOUR = () => Number(new Intl.DateTimeFormat("en-GB", { hour: "2-digit",
 /* FabSwingers asks free accounts to become a Site Supporter once a limit is
    hit. That has to reach the dashboard as an action, not disappear into a
    failed send. */
-const FS_UPGRADE_RE = /(site supporter|become a supporter|upgrade your account|message limit|out of messages|you have reached your limit|limit reached)/i;
+/* Only refusal wording counts. "Be a Site Supporter" sits in the site
+   navigation of every page, so matching that phrase flagged every successful
+   send as an upgrade wall. */
+const FS_UPGRADE_RE = /(you (?:need|must|have) to be a site supporter|only site supporters can|site supporters can send|upgrade your account to (?:send|message|reply)|you(?:'ve| have) reached your (?:daily )?(?:message )?limit|out of messages (?:for )?today|daily message limit|free members can only send)/i;
 function fsUpgradeAsked(html){ return FS_UPGRADE_RE.test(String(html || "")); }
 const FS_RATE_RE = /(too many messages|slow down|rate limit|temporarily blocked|try again later|you are sending messages too quickly)/i;
 function fsRateLimited(html){ return FS_RATE_RE.test(String(html || "")); }
@@ -324,9 +327,10 @@ async function pollFab(env){
         }).catch(() => null);
       }
 
+      // only real refusal wording in the inbox, not the site's own nav banner
       if (fsUpgradeAsked(snap.html)) {
         await sb(env, `fabswingers_accounts?id=eq.${acct.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" },
-          body: JSON.stringify({ last_error: "UPGRADE: FabSwingers is asking for a Site Supporter upgrade before more messages can be sent." }) }).catch(() => null);
+          body: JSON.stringify({ last_poll_at: new Date().toISOString(), last_error: "UPGRADE: FabSwingers is asking for a Site Supporter upgrade before more messages can be sent." }) }).catch(() => null);
         continue;
       }
       const dailyCap = Number(env.FS_DAILY_CAP || 150);
@@ -342,6 +346,7 @@ async function pollFab(env){
       const todo = ready.length
         ? snap.rows.filter((r) => r.unread && ready.some((d) => d.fs_user_id === r.user)).slice(0, 1)
         : [];
+      let halted = false, sent = 0;
       for(const row of todo){
         const reason = fsStopReason(row.snippet);
         let status = "sent", text = null;
@@ -362,6 +367,7 @@ async function pollFab(env){
             if(!res.ok){ status = "send failed: " + res.status; }
             else if(fsRateLimited(res.page)){
               status = "rate limited";
+              halted = true;
               await sb(env, `fabswingers_accounts?id=eq.${acct.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" },
                 body: JSON.stringify({ last_error: "RATE: FabSwingers pushed back on sending. Poller paused for this account; check the inbox by hand." }) }).catch(() => null);
               await sb(env, "fabswingers_conversations?on_conflict=fabswingers_account_id,fs_user_id", {
@@ -372,6 +378,7 @@ async function pollFab(env){
             }
             else if(fsUpgradeAsked(res.page)){
               status = "UPGRADE asked";
+              halted = true;
               await sb(env, `fabswingers_accounts?id=eq.${acct.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" },
                 body: JSON.stringify({ last_error: "UPGRADE: FabSwingers is asking for a Site Supporter upgrade before more messages can be sent." }) }).catch(() => null);
             }
@@ -390,7 +397,7 @@ async function pollFab(env){
       }
       await fsSaveRecord(env, acct.id, cookie, new Date(Date.now() + humanGapSeconds() * 1000).toISOString());
       await sb(env, `fabswingers_accounts?id=eq.${acct.id}`, { method:"PATCH", headers:{Prefer:"return=minimal"},
-        body: JSON.stringify({ last_poll_at: new Date().toISOString(), last_error: null }) }).catch(() => null);
+        body: JSON.stringify({ last_poll_at: new Date().toISOString(), last_error: halted ? undefined : null }) }).catch(() => null);
     }catch(e){
       await sb(env, `fabswingers_accounts?id=eq.${acct.id}`, { method:"PATCH", headers:{Prefer:"return=minimal"},
         body: JSON.stringify({ last_poll_at: new Date().toISOString(), last_error: String((e && e.message) || e).slice(0, 300) }) }).catch(() => null);
