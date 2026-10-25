@@ -502,7 +502,9 @@ async function pollFab(env){
               // still reads fine. One fresh login, then try the same message.
               const msg = String((e && e.message) || e);
               if(/can'?t send messages|block will have cleared/i.test(msg)){
-                const until = new Date(Date.now() + 3 * 3600 * 1000).toISOString();
+                // Fab says a couple of hours. Ninety minutes, then one careful probe: if
+                // it is still blocked the page says so again and she parks again.
+                const until = new Date(Date.now() + 90 * 60 * 1000).toISOString();
                 await fsSaveRecord(env, acct.id, cookie, null, until).catch(() => null);
                 await sb(env, `fabswingers_accounts?id=eq.${acct.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" },
                   body: JSON.stringify({ last_error: `BLOCKED: FabSwingers is not accepting messages from this account until about ${until.slice(11,16)} UTC. It clears itself.` }) }).catch(() => null);
