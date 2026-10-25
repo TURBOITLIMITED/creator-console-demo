@@ -2601,7 +2601,16 @@ view.addEventListener('click', async e => {
     case 'fs-toggle': {
       const on = a.dataset.on === '1';
       try{
-        await fsCall('/fabswingers/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify({ enabled: !on }) });
+        const res = await fsCall('/fabswingers/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify({ enabled: !on }) });
+        // reflect what the API stored straight away, then re-read the list to
+        // confirm: a stale row that still says Off looks like a dead button
+        const saved = res && res.account;
+        if (saved && typeof saved.enabled === 'boolean'){
+          const pill = a.closest('tr')?.querySelector('.pill');
+          if (pill){ pill.textContent = saved.enabled ? 'On' : 'Off'; pill.className = 'pill ' + (saved.enabled ? 'ok' : 'draft'); }
+          a.dataset.on = saved.enabled ? '1' : '0';
+          a.textContent = saved.enabled ? 'Turn off' : 'Turn on';
+        }
         toast(!on ? 'Auto-reply turned on' : 'Auto-reply turned off', 'success', !on ? '' : 'Nothing will send for this account until you turn it back on.');
         loadFabSwingers();
       }catch(err){
