@@ -245,6 +245,21 @@ input[type=range]{accent-color:var(--accent);width:100%}
 .err .e-ico{background:var(--bad-soft);color:var(--bad)}
 
 /* overview */
+/* Range picker: the preset chips and the custom date pair drive the stats and
+   the revenue chart. Periods include today; the comparison window is the same
+   length immediately before the chosen range. */
+.range-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:-4px}
+.range-add{margin-left:auto}
+.range-chips{display:inline-flex;gap:2px;background:var(--sunk);border:1px solid var(--rule-2);border-radius:10px;padding:3px}
+.range-chips button{height:32px;padding:0 12px;border:0;background:none;border-radius:7px;color:var(--ink-2);
+  font:550 13px var(--f-ui);cursor:pointer;white-space:nowrap;transition:background .15s,color .15s}
+.range-chips button:hover{color:var(--ink)}
+.range-chips button[aria-pressed="true"]{background:var(--panel);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.10)}
+.range-custom{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.range-custom[hidden]{display:none}
+.range-custom label{font:500 12px var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+.range-custom .input{height:34px;width:auto;min-width:140px;font-size:13px;padding:0 10px}
+.range-custom .btn{height:34px}
 .stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
 .stat{background:var(--panel);border:1px solid var(--rule);border-radius:var(--r);padding:16px 16px 14px;display:flex;flex-direction:column;gap:8px;min-width:0;transition:border-color .15s,box-shadow .15s}
 .stat:hover{border-color:var(--accent-line);box-shadow:var(--shadow)}
@@ -611,7 +626,7 @@ body.drawer-open .side{overscroll-behavior:contain}
      such as "Content items" stay on one line */
   .trend.flat{display:none}
   /* the mono face spaces "0.00" as "0. 00" at phone sizes; the UI face is even */
-  .stat-num,.earn b{font-family:var(--f-ui);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+  .stat-num,.earn b,.chart-sum b{font-family:var(--f-ui);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
   .stat-num{font-size:22px}
   .stat.hero .stat-foot{font-size:12px}
   .panel-body{padding:14px}
@@ -621,6 +636,16 @@ body.drawer-open .side{overscroll-behavior:contain}
   /* a heading and its action read better stacked than squeezed side by side */
   .panel-head .end{width:100%;margin-left:0}
   .panel-head .end .btn,.panel-head .end .act{flex:1 1 auto;justify-content:center}
+  /* five chips do not fit one phone row; three across, then two */
+  .range-chips{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%}
+  .range-chips button{padding:0 4px;font-size:12.5px;height:34px}
+  .range-custom{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;width:100%}
+  .range-custom .input{min-width:0;width:100%}
+  .range-custom .btn{grid-column:1/-1;width:100%}
+  .range-add{margin-left:0;width:100%}
+  .chart-sum{display:grid;grid-template-columns:1fr 1fr;gap:14px 16px;padding:12px 14px 0}
+  /* the unit label stays on the heading line; only action rows wrap */
+  .chart .panel-head .end{width:auto;margin-left:auto}
 }
 </style>
 <script>
@@ -890,21 +915,22 @@ const Data = {
     if(error) throw error; return;
   },
 
-  async stats(){
-    const d30 = Date.now()-30*D, d60 = Date.now()-60*D;
-      const sb = state.sb, u = uid(), i30 = new Date(d30).toISOString(), i60 = new Date(d60).toISOString();
-      const cnt = async (t, from, to, extra) => {
+  async stats(range = currentRange()){
+      const sb = state.sb, u = uid();
+      const from = range.from.toISOString(), to = range.to.toISOString();
+      const pFrom = range.prevFrom.toISOString(), pTo = range.prevTo.toISOString();
+      const cnt = async (t, f, l, extra) => {
         let q = sb.from(t).select('id', { count:'exact', head:true }).eq('creator_id', u);
         const tcol = t === 'media_items' ? 'uploaded_at' : t === 'conversations' ? 'started_at' : 'created_at';
-        if(from) q = q.gte(tcol, from); if(to) q = q.lt(tcol, to); if(extra) q = extra(q);
+        if(f) q = q.gte(tcol, f); if(l) q = q.lt(tcol, l); if(extra) q = extra(q);
         const { count, error } = await q; if(error) throw error; return count || 0;
       };
       const tabs = ['conversations','media_items','content_bundles'];
-      const res = await Promise.all(tabs.flatMap(t => [cnt(t), cnt(t,i30), cnt(t,i60,i30)]));
+      const res = await Promise.all(tabs.flatMap(t => [cnt(t), cnt(t, from, to), cnt(t, pFrom, pTo)]));
       const unread = 0;
       const { data:pur, error } = await sb.from('bundle_purchases').select('price_paid_ton,purchased_at').eq('creator_id', u).order('purchased_at',{ascending:false}).limit(5000);
       if(error) throw error;
-    return shapeStats(tabs.map((t,k) => res.slice(k*3, k*3+3)), (pur || []).map(p => ({ amount_ton:p.price_paid_ton, created_at:p.purchased_at })), unread);
+    return shapeStats(tabs.map((t,k) => res.slice(k*3, k*3+3)), (pur || []).map(p => ({ amount_ton:p.price_paid_ton, created_at:p.purchased_at })), unread, range);
   },
 
   async activity(){
@@ -1008,18 +1034,29 @@ const Data = {
   }
 };
 
-function shapeStats([conv, media, bund], purchases, unread){
-  const d30 = Date.now()-30*D, d60 = Date.now()-60*D;
+function shapeStats([conv, media, bund], purchases, unread, range = currentRange()){
   const sum = arr => arr.reduce((s,p)=>s+Number(p.amount_ton||0),0);
   const t = p => new Date(p.created_at).getTime();
-  const days = Array.from({length:14}, (_,i) => { const d=new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()-13+i); return { date:d, total:0, n:0 }; });
-  purchases.forEach(p => { const d=new Date(p.created_at); d.setHours(0,0,0,0); const slot=days.find(x=>x.date.getTime()===d.getTime()); if(slot){ slot.total+=Number(p.amount_ton||0); slot.n++; } });
+  const inRange = p => { const x = t(p); return x >= range.from.getTime() && x <= range.to.getTime(); };
+  const inPrev  = p => { const x = t(p); return x >= range.prevFrom.getTime() && x <= range.prevTo.getTime(); };
+  // one bar per calendar day in the chosen range, so 7 days draws 7 bars and a
+  // custom week draws that week
+  const days = [];
+  const first = startOfDay(range.from), last = startOfDay(range.to);
+  for(let d = new Date(first); d <= last; d.setDate(d.getDate()+1)) days.push({ date:new Date(d), total:0, n:0 });
+  purchases.forEach(p => {
+    if(!inRange(p)) return;
+    const key = startOfDay(new Date(p.created_at)).getTime();
+    const slot = days.find(x => x.date.getTime() === key);
+    if(slot){ slot.total += Number(p.amount_ton||0); slot.n++; }
+  });
+  const nowSales = purchases.filter(inRange);
   return {
     conversations:{ total:conv[0], now:conv[1], prev:conv[2] },
     media:{ total:media[0], now:media[1], prev:media[2] },
     bundles:{ total:bund[0], now:bund[1], prev:bund[2] },
-    revenue:{ total:sum(purchases), now:sum(purchases.filter(p=>t(p)>=d30)), prev:sum(purchases.filter(p=>t(p)>=d60&&t(p)<d30)), sales:purchases.length },
-    days, unread
+    revenue:{ total:sum(purchases), now:sum(nowSales), prev:sum(purchases.filter(inPrev)), sales:nowSales.length },
+    days, unread, range
   };
 }
 function mergeActivity(msgs, pur, media){
@@ -1100,6 +1137,78 @@ function fitTables(root=document){
 function queueFit(){ if(fitQueued) return; fitQueued = true; setTimeout(() => { fitQueued = false; fitTables(); }, 50); }
 narrow.addEventListener('change', () => fitTables());
 new MutationObserver(queueFit).observe(document.body, { childList:true, subtree:true });
+/* ---------- overview range ----------
+   Presets cover today plus the previous N-1 days. The comparison window is the
+   same length immediately before the range, so the trend arrows stay honest
+   whatever is picked. */
+const RANGES = {
+  '7d':  { label:'7 days',    days:7 },
+  '14d': { label:'14 days',   days:14 },
+  '28d': { label:'28 days',   days:28 },
+  month: { label:'This month' },
+  custom:{ label:'Custom' }
+};
+const startOfDay = d => { const x = new Date(d); x.setHours(0,0,0,0); return x; };
+const endOfDay   = d => { const x = new Date(d); x.setHours(23,59,59,999); return x; };
+const fmtDay     = d => new Date(d).toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+/* 'YYYY-MM-DD' from a date input parses as UTC midnight; build it in local time
+   so a custom range never slips a day for anyone west of Greenwich */
+const toLocalDate = v => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v))
+  ? new Date(Number(v.slice(0,4)), Number(v.slice(5,7)) - 1, Number(v.slice(8,10)))
+  : new Date(v);
+function rangeFromKey(key='7d', from=null, to=null){
+  let k = RANGES[key] ? key : '7d';
+  if(k === 'custom' && !(from && to)) k = '7d';
+  const now = new Date();
+  let f, t;
+  if(k === 'custom'){
+    f = startOfDay(toLocalDate(from)); t = endOfDay(toLocalDate(to));
+    if(f > t){ const swap = f; f = startOfDay(t); t = endOfDay(swap); }
+  } else if(k === 'month'){
+    f = new Date(now.getFullYear(), now.getMonth(), 1); t = now;
+  } else {
+    const n = RANGES[k].days;
+    f = startOfDay(new Date(now.getTime() - (n-1)*D)); t = now;
+  }
+  const span = Math.max(t - f, 1);
+  const label = `${fmtDay(f)} to ${fmtDay(t)}`;
+  return {
+    key:k, from:f, to:t,
+    prevFrom:new Date(f.getTime() - span),
+    prevTo:new Date(f.getTime() - 1),
+    phrase: k === 'custom' ? label : k === 'month' ? 'this month' : `in the last ${RANGES[k].days} days`,
+    title:  k === 'custom' ? label : k === 'month' ? 'this month' : `last ${RANGES[k].days} days`
+  };
+}
+function currentRange(){
+  const s = state.range || {};
+  return rangeFromKey(s.key || '7d', s.from || null, s.to || null);
+}
+function saveRange(){ try{ store.set('cc-range', JSON.stringify(state.range || { key:'7d' })); }catch{} }
+const isoDate = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+/* the last chosen range survives a reload, like the theme */
+try{ const saved = JSON.parse(store.get('cc-range') || 'null'); if(saved && RANGES[saved.key]) state.range = saved; }catch{}
+function setRange(next){
+  state.range = next;
+  saveRange();
+  document.querySelectorAll('.range-chips button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.range === next.key)));
+  const box = $('#range-custom'); if(box) box.hidden = next.key !== 'custom';
+  loadStats();
+}
+function rangeBar(){
+  const r = currentRange(), custom = r.key === 'custom';
+  return `<div class="range-bar">
+    <div class="range-chips" role="group" aria-label="Date range">
+      ${Object.entries(RANGES).map(([k,v]) => `<button type="button" data-act="range" data-range="${k}" aria-pressed="${r.key===k}">${v.label}</button>`).join('')}
+    </div>
+    <div class="range-custom" id="range-custom" ${custom?'':'hidden'}>
+      <label for="range-from">From</label><input class="input mono" type="date" id="range-from" value="${isoDate(r.from)}" max="${isoDate(new Date())}">
+      <label for="range-to">To</label><input class="input mono" type="date" id="range-to" value="${isoDate(r.to)}" max="${isoDate(new Date())}">
+      <button class="btn sm" type="button" data-act="range-apply">${ic('check')}Apply</button>
+    </div>
+    <a class="btn range-add" href="#library">${ic('plus')}Add content</a>
+  </div>`;
+}
 function trend(now, prev){
   if(!prev && !now) return `<span class="trend flat">—</span>`;
   if(!prev) return `<span class="trend up">${ic('up')}New</span>`;
@@ -1146,28 +1255,18 @@ async function renderOverview(){
   const hr = new Date().getHours(), hello = hr<12?'Good morning':hr<18?'Good afternoon':'Good evening';
   const first = (state.creator?.name || 'there').split(' ')[0];
   setView(`
-    ${secHead(`${hello}, ${first}. Here's how your Telegram storefront is doing over the last 30 days.`, `<a class="btn" href="#library">${ic('plus')}Add content</a>`)}
+    ${secHead(`${hello}, ${first}.`)}
+    ${rangeBar()}
     <div class="stats" id="ov-stats">${[0,1,2,3].map(()=>`<div class="stat">${spinner('')}</div>`).join('')}</div>
     <div class="ov-grid">
       <div style="display:flex;flex-direction:column;gap:20px;min-width:0">
-        <section class="panel chart"><div class="panel-head"><h2>Revenue, last 14 days</h2><span class="muted end mono">TON</span></div><div id="ov-chart">${spinner()}</div></section>
+        <section class="panel chart"><div class="panel-head"><h2 id="ov-chart-title">Revenue</h2><span class="muted end mono">TON</span></div><div id="ov-chart">${spinner()}</div></section>
         <section class="panel"><div class="panel-head"><h2>Top bundles</h2><a class="end btn ghost sm" href="#bundles">View all${ic('arrow')}</a></div><div id="ov-top">${spinner()}</div></section>
       </div>
       <section class="panel"><div class="panel-head"><h2>Recent activity</h2><span class="end muted">Live feed</span></div><div id="ov-feed">${spinner()}</div></section>
     </div>`);
 
-  Data.stats().then(s => {
-    setUnread(s.unread);
-    const card = (icon, label, num, now, prev, foot, hero=false, unit='') => `
-      <div class="stat ${hero?'hero':''}"><div class="stat-top">${ic(icon)}${label}${trend(now,prev)}</div>
-      <div class="stat-num">${num}${unit?`<small>${unit}</small>`:''}</div><div class="stat-foot">${foot}</div></div>`;
-    $('#ov-stats').innerHTML =
-      card('message','Conversations', fmtNum(s.conversations.total), s.conversations.now, s.conversations.prev, `${s.unread} waiting for a reply`) +
-      card('layers','Content items', fmtNum(s.media.total), s.media.now, s.media.prev, `+${s.media.now} added in 30 days`) +
-      card('package','Bundles', fmtNum(s.bundles.total), s.bundles.now, s.bundles.prev, `+${s.bundles.now} created in 30 days`) +
-      card('coin','Revenue', fmtTon(s.revenue.total,false), s.revenue.now, s.revenue.prev, `${fmtTon(s.revenue.now)} in the last 30 days`, true, 'TON');
-    $('#ov-chart').innerHTML = s.revenue.sales ? revenueChart(s.days) : empty('coin','No sales yet','Revenue appears here as soon as a fan buys a bundle in Telegram.', `<a class="btn sm primary" href="#bundles">${ic('plus')}Create a bundle</a>`);
-  }).catch(e => { $('#ov-stats').innerHTML = `<div class="panel" style="grid-column:1/-1">${errorState(e,'overview')}</div>`; $('#ov-chart').innerHTML=''; });
+  loadStats();
 
   Data.activity().then(items => {
     $('#ov-feed').innerHTML = items.length ? `<ul class="feed">${items.map(a => `
@@ -1186,23 +1285,55 @@ async function renderOverview(){
       : empty('package','No bundle sales yet','Your best sellers will be ranked here.');
   }).catch(e => $('#ov-top').innerHTML = errorState(e,'overview'));
 }
+/* Stats and the revenue chart follow the range picker. Everything else on the
+   overview (activity, top bundles) is period-independent, so a range change
+   repaints these panels only and never flashes the whole page. */
+function loadStats(){
+  const range = currentRange();
+  const titleEl = $('#ov-chart-title');
+  if(titleEl) titleEl.textContent = `Revenue, ${range.title}`;
+  return Data.stats(range).then(s => {
+    setUnread(s.unread);
+    const card = (icon, label, num, now, prev, foot, hero=false, unit='') => `
+      <div class="stat ${hero?'hero':''}"><div class="stat-top">${ic(icon)}${label}${trend(now,prev)}</div>
+      <div class="stat-num">${num}${unit?`<small>${unit}</small>`:''}</div><div class="stat-foot">${foot}</div></div>`;
+    $('#ov-stats').innerHTML =
+      card('message','Conversations', fmtNum(s.conversations.now), s.conversations.now, s.conversations.prev,
+        s.unread ? `${s.unread} waiting for a reply` : `${fmtNum(s.conversations.total)} all time`) +
+      card('layers','Content items', fmtNum(s.media.now), s.media.now, s.media.prev, `${fmtNum(s.media.total)} in the library`) +
+      card('package','Bundles', fmtNum(s.bundles.now), s.bundles.now, s.bundles.prev, `${fmtNum(s.bundles.total)} in total`) +
+      card('coin','Revenue', fmtTon(s.revenue.now,false), s.revenue.now, s.revenue.prev,
+        `${s.revenue.sales} sale${s.revenue.sales===1?'':'s'} · ${fmtTon(s.revenue.total)} all time`, true, 'TON');
+    const anySales = s.revenue.total > 0 || s.revenue.sales > 0;
+    $('#ov-chart').innerHTML = anySales
+      ? revenueChart(s.days, range)
+      : empty('coin','No sales yet','Revenue appears here as soon as a fan buys a bundle in Telegram.', `<a class="btn sm primary" href="#bundles">${ic('plus')}Create a bundle</a>`);
+  }).catch(e => {
+    $('#ov-stats').innerHTML = `<div class="panel" style="grid-column:1/-1">${errorState(e,'overview')}</div>`;
+    $('#ov-chart').innerHTML = '';
+  });
+}
 function niceMax(v){ const p = 10 ** Math.floor(Math.log10(v)); const n = v / p; return (n<=1?1:n<=2?2:n<=2.5?2.5:n<=5?5:10) * p; }
-function revenueChart(days){
+function revenueChart(days, range = currentRange()){
   const W=640, H=230, pl=46, pr=10, pt=22, pb=30, iw=W-pl-pr, ih=H-pt-pb;
-  const max = niceMax(Math.max(...days.map(d=>d.total), 1)), bw = iw / days.length;
+  const max = niceMax(Math.max(...days.map(d=>d.total), 1));
+  // cap the bar width so a short custom range does not draw one giant slab
+  const bw = Math.min(iw / Math.max(days.length, 1), 72);
+  const x0 = pl + (iw - bw*days.length)/2;
+  const step = Math.max(1, Math.ceil(days.length/7));
   const total = days.reduce((s,d)=>s+d.total,0), sales = days.reduce((s,d)=>s+d.n,0);
   const best = days.reduce((a,b)=>b.total>a.total?b:a, days[0]);
   const y = v => pt + ih - (v/max)*ih;
   let g = '';
   [0,.25,.5,.75,1].forEach(f => { const v=max*f; g += `<line class="${f===0?'base':'grid'}" x1="${pl}" x2="${W-pr}" y1="${y(v)}" y2="${y(v)}"/><text class="lbl" x="${pl-8}" y="${y(v)+3.5}" text-anchor="end">${v%1?v.toFixed(1):v}</text>`; });
   days.forEach((d,i) => {
-    const h = Math.max(d.total ? 2 : 0, (d.total/max)*ih), x = pl + i*bw + bw*.18, last = i===days.length-1;
+    const h = Math.max(d.total ? 2 : 0, (d.total/max)*ih), x = x0 + i*bw + bw*.18, last = i===days.length-1;
     g += `<rect class="bar ${last?'last':''}" x="${x.toFixed(1)}" y="${(pt+ih-h).toFixed(1)}" width="${(bw*.64).toFixed(1)}" height="${h.toFixed(1)}" rx="3"><title>${d.date.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})}: ${fmtTon(d.total)} · ${d.n} sale${d.n===1?'':'s'}</title></rect>`;
-    if(i%2===1 || last) g += `<text class="lbl" x="${(x+bw*.32).toFixed(1)}" y="${H-10}" text-anchor="middle">${last?'Today':d.date.getDate()}</text>`;
+    if(i%step===0 || last) g += `<text class="lbl" x="${(x+bw*.32).toFixed(1)}" y="${H-10}" text-anchor="middle">${last?'Today':d.date.getDate()}</text>`;
     if(last && d.total) g += `<text class="val" x="${(x+bw*.32).toFixed(1)}" y="${(pt+ih-h-7).toFixed(1)}" text-anchor="middle">${fmtTon(d.total,false)}</text>`;
   });
-  return `<div class="chart-sum"><div><b>${fmtTon(total,false)}</b><span>TON in 14 days</span></div><div><b>${sales}</b><span>sales</span></div><div><b>${fmtTon(sales?total/sales:0,false)}</b><span>avg. order, TON</span></div><div><b>${best.total?best.date.toLocaleDateString('en-GB',{day:'numeric',month:'short'}):'—'}</b><span>best day</span></div></div>
-    <div style="padding:6px 8px 4px"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Bar chart of daily revenue in TON over the last 14 days">${g}</svg></div>`;
+  return `<div class="chart-sum"><div><b>${fmtTon(total,false)}</b><span>TON ${range.phrase}</span></div><div><b>${sales}</b><span>sales</span></div><div><b>${fmtTon(sales?total/sales:0,false)}</b><span>avg. order, TON</span></div><div><b>${best.total?best.date.toLocaleDateString('en-GB',{day:'numeric',month:'short'}):'—'}</b><span>best day</span></div></div>
+    <div style="padding:6px 8px 4px"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Bar chart of daily revenue in TON for ${esc(range.title)}">${g}</svg></div>`;
 }
 
 /* ---------- Accounts ---------- */
@@ -2270,6 +2401,25 @@ view.addEventListener('click', async e => {
   const id = a.dataset.id, act = a.dataset.act;
   switch(act){
     case 'retry': route(true); break;
+    case 'range': {
+      const key = a.dataset.range;
+      if(key === 'custom'){
+        /* reveal the date pair; the data only moves when Apply is pressed */
+        const box = $('#range-custom'); if(box) box.hidden = false;
+        document.querySelectorAll('.range-chips button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.range === 'custom')));
+        $('#range-from')?.focus();
+        break;
+      }
+      setRange({ key });
+      break;
+    }
+    case 'range-apply': {
+      const f = $('#range-from')?.value, t = $('#range-to')?.value;
+      if(!f || !t){ toast('Pick a start and an end date', 'error'); break; }
+      if(f > t){ toast('The start date is after the end date', 'error'); break; }
+      setRange({ key:'custom', from:f, to:t });
+      break;
+    }
     case 'focus': $('#'+a.dataset.target)?.focus(); $('#'+a.dataset.target)?.scrollIntoView({behavior:'smooth',block:'center'}); break;
     case 'page': {
       const k = a.dataset.key; state.pages[k] = Number(a.dataset.page);
