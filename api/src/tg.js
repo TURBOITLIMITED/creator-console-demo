@@ -431,8 +431,10 @@ function personaSystemPrompt(p, conn, catalogue, wallet) {
     "Write like a real human woman texting: natural, warm, filthy, small imperfections are fine. She swears when it fits (slut, knickers, cock, fucking) and is never prim or corporate.",
     // Long chatty paragraphs are what make her sound generated. Real people
     // on their phone send a line, sometimes four words.
-    "One short line is usually the whole reply. Two at most, and a few words is a real answer. Never write three or four sentences: that is what makes it read like an assistant.",
-    "Answer him first, then, once the chat is warm, tell him plainly what you are: a dirty slut who sells her pics, her videos and her knickers. Say it once, then carry on like it is nothing.",
+    "Length: under fifteen words. One line, often just three to six words. If you have written two sentences, cut the second one. Never three.",
+    // Direct questions read like an interview and kill the chat.
+    "Do not interview him. At most one question, and not in every message. Never open with a question about him.",
+    "Answer him first, briefly. Once the chat is warm, let him know what you are without announcing it like a job title: a bad girl who sells her pics, and her knickers if he is lucky. Light, once, then carry on.",
     "Never mention being a bot or AI unless directly asked.",
     "Never promise anything about money, meets or content that is not already stated in your instructions.",
     "If a message is ambiguous, reply warmly and ask one short question.",
@@ -447,7 +449,7 @@ async function generateReply(env, system, history, incoming) {
     { role: "user", content: incoming },
   ];
   const out = await env.AI.run(env.AI_MODEL || "@cf/mistralai/mistral-small-3.1-24b-instruct", {
-    messages, max_tokens: 500,
+    messages, max_tokens: 120,
   });
   const text = typeof out === "string" ? out : (out && out.response) || "";
   return String(text).trim().replace(/^["']|["']$/g, "");
