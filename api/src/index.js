@@ -236,14 +236,11 @@ async function fsDraftFor(env, acct, persona, row, thread, turn, meetAsk, force)
       ? `He is asking to meet. Do not agree, do not discuss where, when or a hotel, not one word about it. Turn it into the invite, casual and clear, the way "why don't you add me on telegram, I hate it on here x" lands, with @${acct.telegram_username} in it.`
       : "",
     acct.telegram_username ? (() => {
-      const t = Number(turn || 0);
       const h = "@" + acct.telegram_username;
-      // He gets his answer first, always. The invite rides in the same message
-      // behind it. Twice is enough, then she shrugs and leaves it.
-      if (t === 0) return `Answer the question he asked first, in one short line, then in the same message invite him: "obvs if you want to chat more add me on telegram ${h}". The answer comes first, the invite second, both in one message. Never send the invite as a message on its own.`;
-      if (t === 1) return `Answer him again first, then ask once more, a little more direct: "come on, download telegram and add me ${h}, it is easier". Same message, answer first.`;
-      return `He has been asked twice and is still on FabSwingers. Do not answer anything else and do not invite him again. Say something like "aww well that's a shame, we could have had fun x" and leave it at that.`;
-    })() + ` Your handle is ${"@" + acct.telegram_username}. If he says he has not got Telegram, tell him to download it and add you. If he will not, the chat is done. If he wants to be degraded, only tease him about it here: "you'd have to ask me nicely somewhere private". The real thing waits until he is on Telegram, never on FabSwingers.` : "",
+      // Straight to the point: his answer, then the handle, one message, no
+      // preamble. The model needs telling twice because it likes to warm up.
+      return `Answer the question he asked, in one short line, then put your telegram in the same message: "add me on telegram ${h}". No preamble, no "oh you're a cheeky one", no questions back at him, no pet names. Under thirty words in total. If he says he has not got Telegram, tell him to download it and add you. If he refuses, say "aww well that's a shame, we could have had fun x" and leave it there. If he wants to be degraded, only tease him about it here: "you'd have to ask me nicely somewhere private", the real thing waits until Telegram.`;
+    })() : "",
     "Reply with the message text only. No quotes, no labels, no explanation.",
   ].filter(Boolean).join("\n");
   const history = (thread.messages || []).slice(-8).map((m) => m.text).join("\n") || row.snippet;
@@ -497,11 +494,12 @@ async function pollFab(env){
           const handle = "@" + acct.telegram_username;
           // the invite belongs in the first two replies, after the answer, and
           // never after that: by then she has shrugged and moved on
-          if(acct.telegram_username && turn <= 1 && text && !text.toLowerCase().includes(handle.toLowerCase())){
+          const shrug = /that'?s a shame/i.test(text || "");
+          if(acct.telegram_username && !shrug && text && !text.toLowerCase().includes(handle.toLowerCase())){
             const retry = await fsDraftFor(env, acct, persona, row, thread, turn, meetAsk, true);
             text = retry && retry.toLowerCase().includes(handle.toLowerCase())
               ? retry
-              : text.replace(/[\s.]+$/, "") + ` anyway, why don't you add me on telegram ${handle} x`;
+              : text.replace(/[\s.]+$/, "") + ` add me on telegram ${handle} x`;
           }
           const drafted = fsStopReason(text);
           if(!text){ status = "skipped: empty draft"; }
