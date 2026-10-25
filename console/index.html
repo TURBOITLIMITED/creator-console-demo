@@ -1447,7 +1447,7 @@ async function loadAccounts(){
           <a href="account.html?id=${a.id}" class="act" title="Open">${ic('edit')}Open</a>
           <button class="act danger" data-act="acc-del" data-id="${a.id}" title="Remove">${ic('trash')}</button>
         </div></td></tr>`).join('')}</tbody></table>`
-      : empty('send','No accounts yet','Connect a Telegram bot account to start chatting and selling in DMs.', `<button class="btn sm primary" data-act="acc-connect">${ic('plus')}Connect account</button>`);
+      : empty('send','No accounts yet','Connect a Telegram bot account to start chatting and selling in DMs. Use Connect account above.');
   }catch(e){ el.innerHTML = errorState(e,'accounts'); }
 }
 /* Open an account: tabbed detail (Persona / Connection). */
@@ -1986,8 +1986,7 @@ async function loadFabSwingers() {
     const rows = fas || [];
     if (!rows.length) {
       el.innerHTML = empty('message', 'No FabSwingers accounts yet',
-        'FabSwingers is set up per bot account. Add one here, or do it during Connect account.',
-        `<button class="btn sm primary" data-act="fs-link">${ic('plus')}Add account</button>`);
+        'FabSwingers is set up per bot account. Use Add account above, or do it during Connect account.');
       return;
     }
     el.innerHTML = `<div class="table-wrap"><table>
@@ -2175,7 +2174,7 @@ async function openGirlLibrary(accountId, creatorId){
             <button class="act" data-act="bun-edit" data-id="${b.id}" title="Edit">${ic('edit')}</button>
             <button class="act danger" data-act="bun-del" data-id="${b.id}" title="Delete">${ic('trash')}</button>
           </div></td></tr>`).join('')}
-      </tbody></table>` : empty('layers','Nothing here yet','Add her first photo or video, or pull one in from the Gallery.', `<button class="btn sm primary" data-act="lib-girl-add" data-girl="${esc(creatorId)}">${ic('plus')}Add item</button>`)}</div>
+      </tbody></table>` : empty('layers','Nothing here yet','Add her first photo or video, or pull one in from the Gallery. Use Add item above.')}</div>
     </section>
     <aside class="panel form-panel" id="lib-form-wrap" style="margin-top:16px"></aside>`;
     // fill row thumbnails with real previews
@@ -2261,7 +2260,7 @@ async function loadGallery(){
           <button class="act" data-act="gal-edit" data-id="${m.id}" title="Edit">${ic('edit')}</button>
           <button class="act danger" data-act="gal-del" data-id="${m.id}" title="Delete">${ic('trash')}</button>
         </div></div>`;
-    }).join('') + `</div>` : empty('image','Nothing uploaded yet','Upload her photos and videos here first, then add them to live.', `<button class="btn sm primary" data-act="gal-upload">${ic('plus')}Upload</button>`);
+    }).join('') + `</div>` : empty('image','Nothing uploaded yet','Upload her photos and videos here first, then add them to live. Use Upload above.');
     // fill previews for stored files (photos first-class, videos muted)
     const thumbs = [...document.querySelectorAll('.gal-thumb[data-key]:not([data-key=""])')];
     await Promise.all(thumbs.map(async t => {
@@ -2365,7 +2364,7 @@ async function loadBundles(){
           <button class="act" data-act="bun-edit" data-id="${b.id}" title="Edit">${ic('edit')}</button>
           <button class="act danger" data-act="bun-del" data-id="${b.id}" title="Delete">${ic('trash')}</button>
         </div></td></tr>`; }).join('')}</tbody></table>`
-      : empty('package','No bundles yet','Pick a few library items, set a TON price and start selling in DMs.', `<button class="btn sm primary" data-act="focus" data-target="bu-name">${ic('plus')}Create a bundle</button>`);
+      : empty('package','No bundles yet','Pick a few library items, set a TON price and start selling in DMs. Use New bundle above.');
     $('#bun-pager').innerHTML = pager('bundles', page, count);
   }catch(e){ el.innerHTML = errorState(e,'bundles'); }
 }
