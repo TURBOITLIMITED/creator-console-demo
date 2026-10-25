@@ -95,6 +95,26 @@ input.mono,textarea.mono{font-family:var(--f-mono);font-size:13px}
 .pill.ok{background:var(--ok-soft);color:var(--ok)}
 .pill.off{background:var(--sunk);color:var(--ink-3)}
 .action-row{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}
+
+/* phone: one column, finger-sized fields, no iOS zoom on focus */
+@media (max-width:640px){
+  .wrap{padding:18px 14px calc(48px + env(safe-area-inset-bottom,0px))}
+  .header{gap:10px;margin-bottom:16px}
+  .header h1{font-size:18px}
+  .back{width:42px;height:42px;flex:none}
+  .row2{grid-template-columns:1fr}
+  .panel-head{flex-direction:column;align-items:stretch;gap:10px;padding:12px 14px}
+  .tabs{width:100%;grid-template-columns:repeat(3,minmax(0,1fr));display:grid}
+  .tabs button{padding:9px 6px}
+  input,textarea,select{font-size:16px;height:44px}
+  input.mono,textarea.mono{font-size:15px}
+  textarea{height:auto}
+  .btn{height:44px}
+  .panel-body{padding:14px}
+  .action-row{gap:8px}
+  .action-row .btn{flex:1 1 100%}
+  .field [style*="min-width:200px"]{min-width:0!important}
+}
 </style>
 </head>
 <body>

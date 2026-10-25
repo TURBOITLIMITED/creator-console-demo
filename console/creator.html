@@ -59,6 +59,33 @@ th{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--in
 @keyframes spin{to{transform:rotate(360deg)}}
 #toast{position:fixed;bottom:20px;right:20px;background:var(--ink);color:var(--panel);padding:12px 16px;border-radius:8px;display:none;font-size:13px;z-index:50}
 .err-box{background:var(--bad-soft);color:var(--bad);border-radius:8px;padding:16px;margin-bottom:18px}
+
+/* phone: creators open their link on a phone, so the table becomes cards and
+   the fields grow past the 16px threshold iOS zooms at */
+@media (max-width:640px){
+  .wrap{padding:18px 14px calc(48px + env(safe-area-inset-bottom,0px))}
+  .brand{margin-bottom:18px}
+  h1{font-size:18px}
+  input,textarea{font-size:16px;height:44px}
+  textarea{height:auto}
+  .btn{height:44px;width:100%}
+  .btn.sm{height:38px;width:auto}
+  .row2{grid-template-columns:1fr}
+  table,tbody,tr,td{display:block;width:100%}
+  thead,th{display:none}
+  tr:has(th){display:none}
+  tr{padding:12px 0;border-bottom:1px solid var(--rule-2)}
+  tr:last-child{border-bottom:0}
+  td{border:0;padding:3px 0;white-space:normal;overflow-wrap:anywhere}
+  td[data-l]::before{content:attr(data-l) "  ";font-size:10.5px;font-weight:600;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--ink-3)}
+  td.t-actions{display:flex;gap:8px;padding-top:12px;text-align:left!important}
+  td.t-actions .btn{flex:1 1 0;width:auto}
+  .panel h2{padding:12px 14px}
+  .body{padding:14px}
+  .empty,.loading{padding:28px 12px}
+  #toast{left:14px;right:14px;bottom:calc(14px + env(safe-area-inset-bottom,0px))}
+}
 </style>
 </head>
 <body>
@@ -165,9 +192,9 @@ async function load(){
   el.innerHTML = `<table><tr><th>Title</th><th>Type</th><th>Price</th><th></th></tr>
     ${data.map(m => `<tr>
       <td><b>${esc(m.title)}</b>${m.description ? `<br><small style="color:var(--ink-3)">${esc(m.description)}</small>` : ''}</td>
-      <td>${esc(m.kind)}</td>
-      <td>${m.price_ton != null ? (Number(m.price_ton) > 0 ? Number(m.price_ton) + ' TON' : '<span class="pill">Free</span>') : '<small style="color:var(--ink-3)">Owner sets</small>'}</td>
-      <td style="text-align:right"><button class="btn sm" onclick="edit('${m.id}')">Edit</button> <button class="btn sm danger" onclick="del('${m.id}')">Remove</button></td>
+      <td data-l="Type">${esc(m.kind)}</td>
+      <td data-l="Price">${m.price_ton != null ? (Number(m.price_ton) > 0 ? Number(m.price_ton) + ' TON' : '<span class="pill">Free</span>') : '<small style="color:var(--ink-3)">Owner sets</small>'}</td>
+      <td class="t-actions" style="text-align:right"><button class="btn sm" onclick="edit('${m.id}')">Edit</button> <button class="btn sm danger" onclick="del('${m.id}')">Remove</button></td>
     </tr>`).join('')}</table>`;
 }
 

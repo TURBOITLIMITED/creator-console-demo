@@ -91,6 +91,8 @@ button,input,select,textarea{font:inherit;color:inherit}
 .plan-card b{font-size:12.5px;display:block}
 .plan-card span{font:500 11px var(--f-mono);color:var(--ink-3)}
 .collapse-btn{display:flex;align-items:center;gap:11px;height:34px;padding:0 10px;border:0;background:none;border-radius:7px;color:var(--ink-3);cursor:pointer;white-space:nowrap}
+.drawer-logout{display:none;align-items:center;justify-content:center;gap:9px;height:42px;margin-top:8px;border-radius:9px;
+  border:1px solid var(--rule);background:var(--panel);color:var(--ink-2);font-size:14px;font-weight:550;cursor:pointer}
 .collapse-btn:hover{background:var(--sunk);color:var(--ink)}
 .app[data-collapsed="true"] .collapse-btn .i{transform:scaleX(-1)}
 
@@ -524,6 +526,98 @@ input,select,textarea,.input{background:var(--sunk);border-color:var(--rule);col
     transition-duration:.001ms!important;scroll-behavior:auto!important}
   .btn:hover,.nav a:hover{transform:none}
 }
+
+/* ---------- phone pass ----------
+   The console is operated from a phone as often as a desk, so the phone rules
+   below are part of the product, not a fallback: one scrollable column, finger
+   sized controls, no sideways tables, and no input that triggers iOS zoom. */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+*{-webkit-tap-highlight-color:transparent}
+
+@media (max-width:860px){
+  /* the head bar: the page title keeps the room it needs */
+  .crumb{flex:1 1 auto;min-width:0}
+  .crumb small{display:none}
+  .crumb h1{font-size:18px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #logout{display:none}
+  .top{gap:10px;padding:10px 0;margin-bottom:18px}
+  .top-right{gap:8px}
+  /* 34px was a mouse target. A thumb needs ~40, and 44 inside the drawer. */
+  .icon-btn{width:40px;height:40px}
+  .search-btn{height:40px}
+  .avatar{width:32px;height:32px;font-size:13.5px}
+  .btn{height:42px;padding:0 16px}
+  .btn.sm{height:38px}
+  .act{height:36px;min-width:36px}
+  .nav a{height:44px}
+  /* iOS zooms any field under 16px on focus and never zooms back out */
+  .input,input,select,textarea{font-size:16px}
+  .input,select.input,textarea.input,.composer .input{height:44px}
+  .side{width:min(84vw,300px);padding-bottom:env(safe-area-inset-bottom,0px)}
+  .main{padding-bottom:calc(32px + env(safe-area-inset-bottom,0px))}
+  .drawer-logout{display:flex}
+  /* the inbox grows with the thread instead of reserving 560px of nothing */
+  .inbox{min-height:0}
+  .conv-list .list{min-height:0}
+  .msgs{max-height:none;min-height:45vh;padding:14px}
+  .msg-img{max-width:min(220px,62vw)}
+  .toasts{right:12px;left:12px;width:auto}
+}
+
+@media (max-width:720px){
+  /* a sentence and a button on one row squeeze both into a column */
+  .sec-head{display:block}
+  .sec-head p{min-width:0;max-width:none}
+  .sec-head > .btn{display:flex;width:100%;margin-top:12px}
+  .panel-head{gap:10px;padding:12px 14px}
+  .panel-head .end{margin-left:0}
+  .owner-pick{flex-wrap:wrap}
+  .owner-pick select{max-width:none!important;width:100%}
+  .row2,.tone-list,.earn,.wallet-grid{grid-template-columns:1fr}
+  .form-actions{flex-direction:column;align-items:stretch}
+  .form-actions .btn{width:100%}
+  .gal-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
+  /* tables become cards: a sideways table hides the action buttons */
+  .table-wrap.t-mob-wrap{overflow:visible;min-height:0}
+  table.t-mob,table.t-mob tbody{display:block;width:100%}
+  table.t-mob thead{display:none}
+  table.t-mob tr{display:block;padding:14px;border-bottom:1px solid var(--rule-2)}
+  table.t-mob tr:last-child{border-bottom:0}
+  table.t-mob td{display:flex;align-items:baseline;justify-content:space-between;gap:14px;
+    padding:5px 0;border:0;white-space:normal;text-align:left;overflow-wrap:anywhere}
+  table.t-mob td::before{content:attr(data-l);flex:none;font:600 10.5px var(--f-mono);
+    letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);padding-top:2px}
+  table.t-mob td:not([data-l])::before{display:none}
+  table.t-mob td.cell-lead{display:block;padding:0 0 10px}
+  table.t-mob td.cell-lead::before{display:none}
+  table.t-mob td.t-actions{display:block;padding:10px 0 0}
+  table.t-mob td.t-actions::before{display:none}
+  table.t-mob td.t-actions .row-actions{display:flex;flex-wrap:wrap;gap:6px;width:100%}
+  table.t-mob td.t-actions .act{flex:1 1 auto;justify-content:center;height:38px;
+    border-color:var(--rule);background:var(--panel)}
+  table.t-mob td .cell-main{min-width:0}
+  table.t-mob td .cell-main b{max-width:none}
+}
+
+@media (max-width:520px){
+  .search-btn{display:none}
+  .badge-admin{display:none}
+  .stats{gap:8px}
+  /* no history to compare is not a statistic: drop the empty "—" pill so labels
+     such as "Content items" stay on one line */
+  .trend.flat{display:none}
+  /* the mono face spaces "0.00" as "0. 00" at phone sizes; the UI face is even */
+  .stat-num,.earn b{font-family:var(--f-ui);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+  .stat-num{font-size:22px}
+  .stat.hero .stat-foot{font-size:12px}
+  .panel-body{padding:14px}
+  .thread-head{gap:8px;padding:10px 12px}
+  .bubble{max-width:88%}
+  .composer{padding:10px}
+  /* a heading and its action read better stacked than squeezed side by side */
+  .panel-head .end{width:100%;margin-left:0}
+  .panel-head .end .btn,.panel-head .end .act{flex:1 1 auto;justify-content:center}
+}
 </style>
 <script>
 /* Theme before first paint: dark by default, the operator's last choice wins.
@@ -555,6 +649,7 @@ input,select,textarea,.input{background:var(--sunk);border-color:var(--rule);col
     <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
     <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
     <symbol id="i-message" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9.9 9.9 0 0 1-4.2-.9L3 21l1.9-4.6A8.4 8.4 0 0 1 12 3a8.4 8.4 0 0 1 9 8.5z"/><path d="M8.5 11h.01M12 11h.01M15.5 11h.01"/></symbol>
     <symbol id="i-up" viewBox="0 0 24 24"><path d="M7 17 17 7M8 7h9v9"/></symbol>
     <symbol id="i-down" viewBox="0 0 24 24"><path d="M7 7l10 10M17 8v9H8"/></symbol>
     <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
@@ -594,6 +689,7 @@ input,select,textarea,.input{background:var(--sunk);border-color:var(--rule);col
         <div><b id="liveCount">–</b><small>Assistants live</small></div>
       </div>
       <button class="collapse-btn" id="collapse" type="button" aria-label="Collapse sidebar"><svg class="i"><use href="#i-panel"/></svg><span class="nav-label">Collapse</span></button>
+      <button class="drawer-logout" id="logoutMobile" type="button"><svg class="i"><use href="#i-logout"/></svg>Log out</button>
     </div>
   </aside>
 
@@ -956,13 +1052,50 @@ const ownerPicker = () => {
   const rows = state.aiCreators || [];
   const cur = ownerTarget();
   const name = c => c ? (c.name || c.id) : '';
+  const dupe = new Set(rows.map(name).filter((n, i, a) => a.indexOf(n) !== i));
   return `<div class="panel owner-pick" style="margin-bottom:16px;padding:10px 14px;display:flex;gap:12px;align-items:center">
     <select class="input" id="ai-creator" style="max-width:340px;padding:6px 10px;min-height:34px">
-      ${rows.map(c => `<option value="${esc(c.id)}" ${c.id===cur?'selected':''}>${esc(name(c))} · ${esc(c.id)}</option>`).join('')}
+      ${rows.map(c => `<option value="${esc(c.id)}" ${c.id===cur?'selected':''}>${esc(name(c))}${dupe.has(name(c)) ? ' · ' + esc(String(c.id).slice(0,6)) : ''}</option>`).join('')}
     </select>
   </div>`;
 };
-const setView = html => { const v = $('#view'); v.innerHTML = html; v.classList.remove('fade-in'); void v.offsetWidth; v.classList.add('fade-in'); $('#pageLoading').classList.remove('active'); };
+const setView = html => { const v = $('#view'); v.innerHTML = html; fitTables(v); v.classList.remove('fade-in'); void v.offsetWidth; v.classList.add('fade-in'); $('#pageLoading').classList.remove('active'); };
+
+/* Phones cannot scroll a six-column table sideways and still reach the buttons,
+   so on a narrow screen each row becomes a small card: the column name comes
+   from the table's own <thead>, the first cell leads, actions get their own row.
+   Runs on every render because sections rebuild their tables from scratch. */
+const narrow = matchMedia('(max-width:720px)');
+let fitQueued = false;
+function fitTables(root=document){
+  const on = narrow.matches;
+  root.querySelectorAll('table').forEach(t => {
+    const wrap = t.closest('.table-wrap');
+    if(!on){
+      if(t.classList.contains('t-mob')){
+        t.classList.remove('t-mob');
+        wrap?.classList.remove('t-mob-wrap');
+        t.querySelectorAll('td').forEach(td => { td.removeAttribute('data-l'); td.classList.remove('cell-lead','t-actions'); });
+      }
+      return;
+    }
+    if(t.classList.contains('t-mob')) return;
+    const heads = [...t.querySelectorAll('thead th')].map(th => (th.textContent || '').trim());
+    t.querySelectorAll('tbody tr').forEach(tr => {
+      [...tr.children].forEach((td, i) => {
+        const label = heads[i] || '';
+        if(label) td.setAttribute('data-l', label);
+        if(i === 0) td.classList.add('cell-lead');
+        if(td.querySelector('.row-actions')) td.classList.add('t-actions');
+      });
+    });
+    t.classList.add('t-mob');
+    wrap?.classList.add('t-mob-wrap');
+  });
+}
+function queueFit(){ if(fitQueued) return; fitQueued = true; setTimeout(() => { fitQueued = false; fitTables(); }, 50); }
+narrow.addEventListener('change', () => fitTables());
+new MutationObserver(queueFit).observe(document.body, { childList:true, subtree:true });
 function trend(now, prev){
   if(!prev && !now) return `<span class="trend flat">—</span>`;
   if(!prev) return `<span class="trend up">${ic('up')}New</span>`;
@@ -1332,7 +1465,7 @@ function wizFinish(message){
    conversations -> messages. The owner picker still narrows the whole page. */
 async function renderInbox(){
   setView(`
-    ${secHead('Every DM from your connected accounts. Messages tagged AI were answered by your assistant.')}\\
+    ${secHead('Every DM from your connected accounts. Messages tagged AI were answered by your assistant.')}
     <section class="panel inbox" id="inbox" data-open="false" data-level="creators">
       <div class="conv-list">
         <div class="panel-head"><div class="inbox-crumbs" id="inbox-crumbs">Creators</div></div>
@@ -1791,8 +1924,8 @@ async function openGirlLibrary(accountId, creatorId){
       <div class="table-wrap">${hers.length || herBuns.length ? `<table><tbody>
       ${hers.map(m => `<tr>
         <td><div class="cell-main"><div class="thumb ${m.kind} lib-thumb" data-key="${esc(m.media_key||'')}" data-kind="${esc(m.kind)}">${m.media_key ? '' : ic(typeIcon(m.kind))}</div><div><b>${esc(m.title)}</b><small>${esc(m.kind)}</small></div></div></td>
-          <td class="num"><span class="price">${fmtTon(m.price_ton,false)}<small>TON</small></span></td>
-          <td>${pill(m.visible,'Live','Hidden','draft')}</td>
+          <td class="num" data-l="Price"><span class="price">${fmtTon(m.price_ton,false)}<small>TON</small></span></td>
+          <td data-l="Status">${pill(m.visible,'Live','Hidden','draft')}</td>
           <td><div class="row-actions">
             <button class="act" data-act="lib-toggle" data-id="${m.id}" data-on="${m.visible?1:0}">${ic('power')}${m.visible?'Remove from live':'Add to live'}</button>
             <button class="act" data-act="lib-edit" data-id="${m.id}" title="Edit">${ic('edit')}</button>
@@ -1800,8 +1933,8 @@ async function openGirlLibrary(accountId, creatorId){
           </div></td></tr>`).join('')}
         ${herBuns.map(b => `<tr>
           <td><div class="cell-main"><div class="thumb bundle">${ic('package')}</div><div><b>${esc(b.name)}</b><small>Bundle · ${(b.bundle_items||[]).length} items</small></div></div></td>
-          <td class="num"><span class="price">${fmtTon(b.price_ton,false)}<small>TON</small></span></td>
-          <td>${pill(b.active)}</td>
+          <td class="num" data-l="Price"><span class="price">${fmtTon(b.price_ton,false)}<small>TON</small></span></td>
+          <td data-l="Status">${pill(b.active)}</td>
           <td><div class="row-actions">
             <button class="act" data-act="bun-toggle" data-id="${b.id}" data-on="${b.active?1:0}">${ic('power')}${b.active?'Deactivate':'Activate'}</button>
             <button class="act" data-act="bun-edit" data-id="${b.id}" title="Edit">${ic('edit')}</button>
@@ -2442,6 +2575,7 @@ $('#logout').onclick = async () => {
   if(state.sb && state.session){ await state.sb.auth.signOut(); }
   toast('Signed out', 'info'); setTimeout(() => location.href = 'login.html', 400);
 };
+$('#logoutMobile').onclick = () => $('#logout').click();
 window.addEventListener('hashchange', () => route());
 document.addEventListener('keydown', e => { if(e.key==='Escape' && $('#app').dataset.drawer==='open'){ $('#app').dataset.drawer='closed'; document.querySelector('.scrim')?.remove(); } });
 
