@@ -337,7 +337,7 @@ async function liveCatalogue(env, sb, conn) {
   if (menu && menu.length){
     const lines = ["Your menu for sale (the ONLY things you can offer, use these exact names and prices):"];
     for (const m of menu){
-      const kind = m.kind === "physical" ? "posted to him" : (m.kind || "content");
+      const kind = m.kind === "physical" ? "posted to him" : m.kind === "service" ? "done with you live" : (m.kind || "content");
       lines.push("- " + m.name + " (" + kind + ", £" + Number(m.price_gbp || 0) +
         (m.description ? " - " + String(m.description).slice(0, 60) : "") + ")");
     }

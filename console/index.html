@@ -758,7 +758,7 @@ document.addEventListener('gesturechange', e => e.preventDefault(), { passive:fa
       <div class="nav-group">TELEGRAM</div>
       <a href="#accounts" data-sec="accounts" title="Accounts"><svg class="i"><use href="#i-send"/></svg><span class="nav-label">Accounts</span></a>
       <a href="#inbox" data-sec="inbox" title="Inbox"><svg class="i"><use href="#i-inbox"/></svg><span class="nav-label">Inbox</span><span class="count" id="nav-unread" hidden>0</span></a>
-      <div class="nav-group">FABSWINGERS</div>
+      <div class="nav-group">MESSAGING</div>
       <a href="#fabswingers" data-sec="fabswingers" title="FabSwingers"><svg class="i"><use href="#i-chat"/></svg><span class="nav-label">FabSwingers</span><span class="count" id="nav-fab" hidden style="background:var(--bad);color:#fff">0</span></a>
       <a href="#telegram" data-sec="telegram" title="Telegram"><svg class="i"><use href="#i-send"/></svg><span class="nav-label">Telegram</span></a>
       <div class="nav-group">CONTENT</div>
@@ -1349,7 +1349,7 @@ const SECTIONS = {
   accounts:{ title:'Accounts', group:'Telegram', render:renderAccounts },
   inbox:{ title:'Inbox', group:'Telegram', render:renderInbox },
   fabswingers:{ title:'FabSwingers', group:'FabSwingers', render:renderFabSwingers },
-  telegram:{ title:'Telegram', group:'TELEGRAM', render:renderTelegram },
+  telegram:{ title:'Telegram', group:'MESSAGING', render:renderTelegram },
   library:{ title:'Library', group:'Content', render:renderLibrary },
   gallery:{ title:'Gallery', group:'Content', render:renderGallery },
   bundles:{ title:'Bundles', group:'Content', render:renderLibrary },
@@ -2393,6 +2393,7 @@ async function renderTelegram(){
                 <option value="image">Photo</option>
                 <option value="video">Video</option>
                 <option value="physical">Posted item (knickers, etc.)</option>
+                <option value="service">Service (sexting, custom, call)</option>
               </select></div>
             <div class="field"><label for="tm-file">File <span class="muted">(optional)</span></label>
               <input class="input" id="tm-file" name="file" type="file"></div>
@@ -2430,7 +2431,7 @@ async function tgLoadMenu(accountId){
     const items = data || [];
     $('#tg-menu-count').textContent = items.length ? `${items.length} item${items.length===1?'':'s'}` : '';
     if(!items.length){ el.innerHTML = `<div class="panel-body"><p class="muted" style="margin:0">Nothing on the menu yet. Add the first thing below.</p></div>`; return; }
-    const kindLabel = k => k === 'physical' ? 'Posted' : k === 'video' ? 'Video' : 'Photo';
+    const kindLabel = k => k === 'physical' ? 'Posted' : k === 'video' ? 'Video' : k === 'service' ? 'Service' : 'Photo';
     el.innerHTML = `<ul class="audit-list">${items.map(m => `<li>
       <span class="a-kind" style="background:${m.active?'var(--ok-soft)':'var(--sunk)'};color:${m.active?'var(--ok)':'var(--ink-3)'}">${esc(kindLabel(m.kind))}</span>
       <div class="a-body"><p><b>${esc(m.name)}</b> <small>£${Number(m.price_gbp||0).toFixed(2)}</small></p>
