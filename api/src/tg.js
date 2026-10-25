@@ -315,9 +315,28 @@ async function onMessage(env, sb, msg, edited) {
 
   // Auto-reply: deterministic intercept answers send straight away; everything
   // else asks the model, then sends through the business connection.
-  let sent = null;
+  let sent = null, vision = null;
   if (!outgoing && (reply || !intercept) && windowOpen && conv.mode !== "human" && !conv.ai_disabled) {
-    sent = await autoReply(env, sb, conn, conv, msg, text, reply);
+    let incoming = text;
+    if (!incoming && (msg.photo || msg.animation)) {
+      vision = await describeIncomingMedia(env, sb, conn, msg);
+      if (vision) {
+        // A picture that reads as illegal stops the thread for a person.
+        if (/\b(child|minor|underage|school|teen|kid)\b/i.test(vision)) {
+          await sb(env, "conversations?id=eq." + conv.id, {
+            method: "PATCH", headers: { Prefer: "return=minimal" },
+            body: JSON.stringify({ ai_disabled: true, mode: "human",
+                                   escalated_at: new Date().toISOString() }),
+          }).catch(() => {});
+          console.log(JSON.stringify({ evt: "tg.vision.age_stop", conversation: conv.id }));
+          return { conversation_id: conv.id, direction: "in", sender, window_open: windowOpen,
+                   intercept: "vision_age", reply: null, sent: null, vision };
+        }
+        incoming = "he sent you a photo: " + vision +
+          ". React to it in one line, like you just opened it. Never describe it back to him.";
+      }
+    }
+    sent = await autoReply(env, sb, conn, conv, msg, incoming, reply);
   }
 
   return {
@@ -325,6 +344,7 @@ async function onMessage(env, sb, msg, edited) {
     window_open: windowOpen, intercept,
     reply: reply ? { text: reply.text, register: reply.variant } : null,
     sent: sent ? { via: sent.via, text: sent.text } : null,
+    vision,
   };
 }
 
@@ -573,6 +593,43 @@ function repeatsSomething(candidate, previous) {
     if (shared / Math.max(ct.size, pt.size) >= 0.75) return true;
   }
   return false;
+}
+
+/* Inbound pictures used to be answered blind: the engine had a file id and
+   nothing else, so a joke picture and a real one got the same reply. Ask a
+   vision model what actually arrived, in one short line, and give that line to
+   the chat model as what he sent. */
+const VISION_PROMPT = "Describe this image in one short line for a private adult chat. Say what it shows and how explicit it is. If it shows a penis, say whether it looks real, small, fake or a toy. Never moralise. Max 20 words.";
+
+async function describeIncomingMedia(env, sb, conn, msg) {
+  const fid = (msg.photo && msg.photo.length ? msg.photo[msg.photo.length - 1].file_id : null)
+    || (msg.animation && msg.animation.file_id) || null;
+  if (!fid) return null;
+  const token = await botTokenFor(env, sb, conn);
+  if (!token) return null;
+  try {
+    const info = await (await fetch("https://api.telegram.org/bot" + token +
+      "/getFile?file_id=" + encodeURIComponent(fid))).json();
+    const path = info && info.result && info.result.file_path;
+    if (!path) return null;
+    const r = await fetch("https://api.telegram.org/file/bot" + token + "/" + path);
+    const buf = await r.arrayBuffer();
+    if (!buf.byteLength || buf.byteLength > 5000000) return null;
+    const bytes = [...new Uint8Array(buf)];
+    for (const model of ["@cf/meta/llama-3.2-11b-vision-instruct",
+                         "@cf/meta/llama-4-scout-17b-16e-instruct",
+                         "@cf/google/gemma-3-12b-it"]) {
+      try {
+        const out = await env.AI.run(model, { image: bytes, prompt: VISION_PROMPT, max_tokens: 60 });
+        const txt = (typeof out === "string" ? out : (out && (out.response || out.description)) || "")
+          .trim().replace(/\s+/g, " ");
+        if (txt) return txt.slice(0, 200);
+      } catch (e) { /* try the next vision model */ }
+    }
+  } catch (e) {
+    console.log(JSON.stringify({ evt: "tg.vision.failed", err: String(e && e.message || e).slice(0, 160) }));
+  }
+  return null;
 }
 
 async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
