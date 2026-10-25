@@ -498,7 +498,10 @@ async function generateReply(env, system, history, incoming) {
       const d = await r.json().catch(() => null);
       const text = d && d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
       const clean = String(text || "").trim().replace(/^["']|["']$/g, "");
-      if (clean) return clean;
+      if (clean) {
+        console.log(JSON.stringify({ evt: "tg.reply.deepseek_ok" }));
+        return clean;
+      }
       console.log(JSON.stringify({ evt: "tg.reply.deepseek_empty", status: r.status }));
     } catch (e) {
       console.log(JSON.stringify({ evt: "tg.reply.deepseek_failed", err: String(e && e.message || e).slice(0, 160) }));
