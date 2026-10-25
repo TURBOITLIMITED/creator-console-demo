@@ -399,12 +399,12 @@ async function pollFab(env){
       }
       // FabSwingers blocks an account that pushes too hard, so there is an
       // hourly ceiling as well as a daily one: sixty an hour has been safe.
-      const perHour = Number(env.FS_PER_HOUR || 60);
+      const perHour = Number(env.FS_PER_HOUR || 90);
       const hourAgo = new Date(Date.now() - 3600 * 1000).toISOString();
       const lastHour = await sb(env, `fabswingers_messages?fabswingers_account_id=eq.${acct.id}&direction=eq.out&at=gte.${encodeURIComponent(hourAgo)}&select=id`).catch(() => []);
       if ((lastHour || []).length >= perHour){
         await sb(env, `fabswingers_accounts?id=eq.${acct.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" },
-          body: JSON.stringify({ last_poll_at: new Date().toISOString(), last_error: `Paced: ${perHour} messages in the last hour, the safe ceiling. Carries on when the hour rolls.` }) }).catch(() => null);
+          body: JSON.stringify({ last_poll_at: new Date().toISOString(), last_error: `Paced: ${perHour} messages in the last hour. Carries on when the hour rolls.` }) }).catch(() => null);
         continue;
       }
 
@@ -434,7 +434,7 @@ async function pollFab(env){
       const ready = (snap.rows || []).filter(eligible);
       // a batch per run, still one message per man and never the same thread
       // twice in a run. Default five, borrowed from the monthly allowance.
-      const perRun = Math.max(1, Math.min(10, Number(env.FS_PER_RUN || 4)));
+      const perRun = Math.max(1, Math.min(10, Number(env.FS_PER_RUN || 2)));
       // the inbox lists one row per message, so the same man can appear several
       // times. One message each per batch, first row wins.
       const picked = new Set();
@@ -458,7 +458,7 @@ async function pollFab(env){
       for(const row of todo){
        // one broken thread must never take the batch down with it
        try{
-        if (sent > 0) await pause(700 + Math.random() * 1500);
+        if (sent > 0) await pause(3000 + Math.random() * 5000);
         const reason = fsStopReason(row.snippet);
         let status = "sent", text = null;
         if(reason){
