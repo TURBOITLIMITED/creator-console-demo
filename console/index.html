@@ -2776,17 +2776,31 @@ function updateAIPreview(){
 async function renderWallet(){
   const ai = await Data.getAI().catch(() => null);
   const c = { ...(state.creator || {}), ton_wallet: ai?.wallet_address || '' };
+  const pay = {
+    bank: ai?.pay_bank_name || '', sort: ai?.pay_sort_code || '', acct: ai?.pay_account_no || '',
+    pp: ai?.pay_paypal || '', note: ai?.pay_note || '',
+  };
+  const ready = [pay.bank || pay.sort || pay.acct, pay.pp, c.ton_wallet].filter(Boolean).length;
   setView(`
-    ${secHead('Where your share of every sale is paid out. Payouts go to this TON address only.')}
+    ${secHead('How customers pay. She only offers the methods that are filled in here, and she quotes everything in pounds.')}
     <div class="wallet-grid" style="grid-template-columns:minmax(0,1fr)">
       <div style="display:flex;flex-direction:column;gap:20px;min-width:0">
-        <section class="panel"><div class="panel-head"><h2>Payout address</h2><span class="end">${c.ton_wallet?'<span class="pill ok">Verified format</span>':'<span class="pill warn">Not set</span>'}</span></div>
+        <section class="panel"><div class="panel-head"><h2>Payment details</h2><span class="end">${ready?`<span class="pill ok">${ready} method${ready===1?'':'s'} set</span>`:'<span class="pill warn">None set</span>'}</span></div>
           <form class="form panel-body" data-form="wallet" autocomplete="off">
-            ${c.ton_wallet?`<div class="addr">${ic('wallet')}<span id="addr-text">${esc(c.ton_wallet)}</span><button type="button" class="act" data-act="copy-addr" title="Copy address">${ic('copy')}Copy</button></div>`:''}
-            <div class="field"><label for="w-addr">${c.ton_wallet?'Change address':'TON address'}</label>
-              <input class="input mono" id="w-addr" name="ton_wallet" spellcheck="false" placeholder="UQ… or EQ… (48 characters)" value="">
-              <span class="hint" id="w-hint">User-friendly format, starting UQ (non-bounceable) or EQ. Check it twice — TON transfers can't be reversed.</span></div>
-            <div class="form-actions"><button class="btn primary" type="submit">${ic('check')}Save address</button></div>
+            <div class="field"><label for="w-bank">Bank transfer: account name</label>
+              <input class="input" id="w-bank" name="pay_bank_name" value="${esc(pay.bank)}" placeholder="M Jones"></div>
+            <div class="row2">
+              <div class="field"><label for="w-sort">Sort code</label>
+                <input class="input mono" id="w-sort" name="pay_sort_code" inputmode="numeric" value="${esc(pay.sort)}" placeholder="12-34-56"></div>
+              <div class="field"><label for="w-acct">Account number</label>
+                <input class="input mono" id="w-acct" name="pay_account_no" inputmode="numeric" value="${esc(pay.acct)}" placeholder="12345678"></div>
+            </div>
+            <div class="field"><label for="w-pp">PayPal</label>
+              <input class="input" id="w-pp" name="pay_paypal" value="${esc(pay.pp)}" placeholder="paypal.me/yourname or your PayPal email"></div>
+            <div class="field"><label for="w-addr">TON address <span class="muted">(optional, only if he asks for crypto)</span></label>
+              <input class="input mono" id="w-addr" name="ton_wallet" spellcheck="false" placeholder="UQ… or EQ… (48 characters)" value="${esc(c.ton_wallet)}">
+              <span class="hint">Leave any of these blank and she simply will not offer that method.</span></div>
+            <div class="form-actions"><button class="btn primary" type="submit">${ic('check')}Save payment details</button></div>
           </form></section>
         <section class="panel"><div class="panel-head"><h2>Recent sales</h2><span class="end muted" id="w-count"></span></div>
           <div class="table-wrap" id="w-sales">${spinner('Loading sales…')}</div></section>
@@ -3026,9 +3040,9 @@ view.addEventListener('click', async e => {
       break; }
     case 'setup-close': $('#setup-steps')?.remove(); break;
     case 'copy-addr': {
-      const t = $('#addr-text')?.textContent || '';
+      const t = $('#w-addr')?.value || '';
       try{ await navigator.clipboard.writeText(t); toast('Address copied','success'); }
-      catch{ const r=document.createRange(); r.selectNodeContents($('#addr-text')); getSelection().removeAllRanges(); getSelection().addRange(r); toast('Address selected','info','Press ⌘C / Ctrl+C to copy.'); }
+      catch{ const el = $('#w-addr'); if(el){ el.focus(); el.select(); } toast('Address selected','info','Press ⌘C / Ctrl+C to copy.'); }
       break; }
   }
 });
@@ -3147,9 +3161,20 @@ view.addEventListener('submit', async e => {
     if(await withBusy(btn, () => Data.saveAI(data, ownerTarget()), 'Personality saved')) renderAI();
   }
   if(kind === 'wallet'){
-    const v = f.ton_wallet.value.trim();
-    if(!TON_RE.test(v)){ f.ton_wallet.classList.add('invalid'); toast("That isn't a valid TON address", 'error', 'Expect 48 characters starting with UQ or EQ.'); return; }
-    if(await withBusy(btn, async () => { await Data.saveAI({ wallet_address:v }); state.creator = { ...state.creator, ton_wallet:v }; }, 'Payout address saved')) renderWallet();
+    const ton = (f.ton_wallet?.value || '').trim();
+    const sort = (f.pay_sort_code?.value || '').replace(/\s/g, '');
+    const acct = (f.pay_account_no?.value || '').replace(/\s/g, '');
+    if(ton && !TON_RE.test(ton)){ f.ton_wallet.classList.add('invalid'); toast("That isn't a valid TON address", 'error', 'Expect 48 characters starting with UQ or EQ, or leave it blank.'); return; }
+    if(sort && !/^\d{6}$/.test(sort)){ f.pay_sort_code.classList.add('invalid'); toast('Sort code should be six digits', 'error'); return; }
+    if(acct && !/^\d{8}$/.test(acct)){ f.pay_account_no.classList.add('invalid'); toast('Account number should be eight digits', 'error'); return; }
+    const patch = {
+      wallet_address: ton || null,
+      pay_bank_name: (f.pay_bank_name?.value || '').trim() || null,
+      pay_sort_code: sort || null,
+      pay_account_no: acct || null,
+      pay_paypal: (f.pay_paypal?.value || '').trim() || null,
+    };
+    if(await withBusy(btn, async () => { await Data.saveAI(patch); }, 'Payment details saved')) renderWallet();
   }
   if(kind === 'reply'){
     const conv = convCache.find(c=>c.id===id), text = f.text.value.trim(); if(!text) return;

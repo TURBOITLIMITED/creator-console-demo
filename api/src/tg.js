@@ -337,6 +337,28 @@ async function liveCatalogue(env, sb, conn) {
   return lines.join("\n");
 }
 
+/* The owner's payment details, as the model is allowed to speak them. Only
+   methods that are actually filled in are offered: a missing method is a
+   method she does not have. */
+function payLineFrom(prof) {
+  const f = prof || {};
+  const bits = [];
+  if (f.pay_bank_name || f.pay_sort_code || f.pay_account_no) {
+    const b = [];
+    if (f.pay_bank_name) b.push("name " + f.pay_bank_name);
+    if (f.pay_sort_code) b.push("sort code " + f.pay_sort_code);
+    if (f.pay_account_no) b.push("account " + f.pay_account_no);
+    bits.push("bank transfer (" + b.join(", ") + ")");
+  }
+  if (f.pay_paypal) bits.push("PayPal (" + f.pay_paypal + ")");
+  if (f.wallet_address) bits.push("TON, only if he asks for crypto (" + f.wallet_address + ")");
+  if (f.pay_note) bits.push(f.pay_note);
+  if (!bits.length) return "";
+  return "Payment methods you have, and the ONLY details you may give: " + bits.join("; ") +
+    ". Everything is quoted in pounds. Offer bank transfer first unless he asks for something else. " +
+    "Never invent or alter a detail, never mention crypto unless he does, and never promise a link.";
+}
+
 function personaSystemPrompt(p, conn, catalogue, wallet) {
   const name = (p && p.display_name) || "the creator";
   const tone = { warm: "friendly, personal, a little chatty",
@@ -353,7 +375,7 @@ function personaSystemPrompt(p, conn, catalogue, wallet) {
     "You are here to sell your content: weave what you offer into the chat naturally, flirt a little and invite them to buy. Never say you are 'not here for that' or push away from selling; selling is the whole point.",
     // Real payment details are the owner's to give. Never quote a placeholder
     // sort code or an address at a paying customer.
-    `Prices are always in pounds, like £15. Never dollars, never crypto, never TON, never a wallet address. When they ask how to pay, say \"give me a sec and I'll send you the details x\" and leave it for the human. Never invent a bank account, a sort code, a PayPal address or a link.`,
+    wallet || `Prices are always in pounds, like £15, never dollars. You have no payment details set, so when he asks how to pay say \"give me a sec and I'll send you the details x\" and leave it for the human. Never invent a bank account, sort code, PayPal address or link.`,
     "Write like a real human woman texting: natural, warm, playful, small imperfections are fine.",
     "Replies should be 2 to 4 sentences, chatty and engaging, not one-word answers.",
     "Never mention being a bot or AI unless directly asked.",
@@ -482,13 +504,13 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
           if (days >= 1) custLine += " You two have been chatting for " + (days === 1 ? "a day" : days + " days") + " - pick up where you left off, don't restart like it's a first conversation.";
         }
       }
-      let walletAddr = null;
+      let payLine = "";
       {
         const prof = await sb(env, "ai_profiles?creator_id=eq." + encodeURIComponent(conn.creator_id) +
-          "&select=wallet_address").catch(() => null);
-        if (prof && prof[0] && prof[0].wallet_address) walletAddr = prof[0].wallet_address;
+          "&select=wallet_address,pay_bank_name,pay_sort_code,pay_account_no,pay_paypal,pay_note").catch(() => null);
+        payLine = payLineFrom(prof && prof[0]);
       }
-      const system = personaSystemPrompt(p, conn, catalogue, walletAddr) + (custLine ? " " + custLine : "");
+      const system = personaSystemPrompt(p, conn, catalogue, payLine) + (custLine ? " " + custLine : "");
       replyText = await generateReply(env, system, history, text);
       via = "workers-ai";
       if (!replyText) { stopTyping(); return null; }
@@ -881,17 +903,18 @@ async function onCallback(env, sb, cq, persona) {
     ];
     const closer = CLOSERS[Math.floor(Math.random() * CLOSERS.length)];
     let detail = null;
-    if (method === "ton") {
-      const prof2 = await sb(env, "ai_profiles?creator_id=eq." +
-        encodeURIComponent(conn.creator_id) + "&select=wallet_address").catch(() => null);
-      const w = prof2 && prof2[0] && prof2[0].wallet_address;
-      // No address means no address. A placeholder here would take a paying
-      // man's money into nothing at all.
-      detail = w
-        ? `my ton address is\n${w}\nput your username in the comment so I know it's you x\n${closer}`
-        : `give me a sec and I'll send you the details x`;
+    const prof2 = await sb(env, "ai_profiles?creator_id=eq." +
+      encodeURIComponent(conn.creator_id) +
+      "&select=wallet_address,pay_bank_name,pay_sort_code,pay_account_no,pay_paypal").catch(() => null);
+    const pay = (prof2 && prof2[0]) || {};
+    if (method === "ton" && pay.wallet_address) {
+      detail = `my ton address is\n${pay.wallet_address}\nput your username in the comment so I know it's you x\n${closer}`;
+    } else if (method === "paypal" && pay.pay_paypal) {
+      detail = `paypal me at ${pay.pay_paypal} x\n${closer}`;
+    } else if (method === "bank" && (pay.pay_sort_code || pay.pay_account_no)) {
+      detail = `bank transfer x\nname ${pay.pay_bank_name || ""}\nsort code ${pay.pay_sort_code || ""}\naccount ${pay.pay_account_no || ""}\n${closer}`;
     } else {
-      // PayPal and bank details are the owner's to give, not ours to invent.
+      // Nothing set for that method: never invent it.
       detail = `give me a sec and I'll send you the details x`;
     }
     try {
