@@ -887,7 +887,7 @@ function renderAudit(){
   const items = state.audit || [];
   setView(`
     ${secHead('Everything that failed in this browser: errors caught at runtime, requests that did not load and actions that were rejected.',
-      items.length ? `<button class="btn" data-act="audit-clear">${ic('trash')}Clear log</button>` : '')}
+      items.length ? `<span style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="audit-copy">${ic('copy')}Copy log</button><button class="btn" data-act="audit-clear">${ic('trash')}Clear log</button></span>` : '')}
     <section class="panel">
       <div class="panel-head"><h2>Audit log</h2><span class="end muted">${items.length} entr${items.length===1?'y':'ies'}</span></div>
       ${items.length ? `<ul class="audit-list">${items.map(e => `<li>
@@ -2501,6 +2501,22 @@ view.addEventListener('click', async e => {
   switch(act){
     case 'retry': route(true); break;
     case 'audit-clear': state.audit = []; auditSave(); paintAudit(); route(true); break;
+    case 'audit-copy': {
+      const text = (state.audit || []).map(e => `${e.at} [${e.kind}] ${e.message}${e.meta ? ' (' + e.meta + ')' : ''}`).join('\n');
+      const done = () => toast('Audit log copied', 'success', 'Paste it wherever you need it.');
+      try{
+        await navigator.clipboard.writeText(text); done();
+      }catch(err){
+        // clipboard access can be refused on http or in an in-app browser
+        const ta = document.createElement('textarea');
+        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        try{ document.execCommand('copy'); done(); }
+        catch(e2){ toast('Could not copy the log', 'error', 'Select the entries and copy them by hand.'); }
+        ta.remove();
+      }
+      break;
+    }
     case 'range': {
       const key = a.dataset.range;
       if(key === 'custom'){
