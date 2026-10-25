@@ -17,6 +17,7 @@ const json = (data, status = 200, origin) =>
 
 import { sign, timingSafe } from "./media.js";
 import { sealSecret, openSecret } from "./crypto.js";
+import { inboxSnapshot, parseThread, sendReply } from "./fabswingers.js";
 import { handleWebhook } from "./tg.js";
 import * as tgapi from "./telegram.js";
 import { validateBotAnswer, DEFAULT_BOT_ANSWERS, EXPLICIT_BOT_ANSWER } from "./persona.js";
@@ -531,24 +532,94 @@ export default {
       catch (e) { return json({ ok: false, error: "The stored password cannot be opened: " + String(e).slice(0, 120) }, 500, origin); }
 
       const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36";
-      let loginRes, cookies = [], loginText = "";
+      const setCookies = (r) => {
+        const raw = typeof r.headers.getSetCookie === "function" ? r.headers.getSetCookie() : [r.headers.get("set-cookie") || ""];
+        return raw.filter(Boolean).map((c) => c.split(";")[0]);
+      };
+      // FabSwingers is ASP.NET WebForms: the login is a form post carrying
+      // __VIEWSTATE and friends, so the form has to be read before it is sent.
+      const readForm = (html) => {
+        const forms = [...html.matchAll(/<form\b[^>]*>[\s\S]*?<\/form>/gi)].map((m) => m[0]);
+        const form = forms.find((f) => /<input[^>]+type=["']?password/i.test(f)) || forms[0];
+        if (!form) return null;
+        const attr = (tag, name) => (tag.match(new RegExp(name + '=["\']([^"\']*)["\']', "i")) || [])[1];
+        const fields = [];
+        for (const m of form.matchAll(/<input\b[^>]*>/gi)) {
+          const tag = m[0];
+          const name = attr(tag, "name");
+          if (!name) continue;
+          const type = (attr(tag, "type") || "text").toLowerCase();
+          const value = attr(tag, "value") || "";
+          const checked = /\bchecked\b/i.test(tag);
+          fields.push({ name, type, value, checked });
+        }
+        return {
+          action: attr(form.match(/<form\b[^>]*>/i)[0], "action") || "",
+          method: (attr(form.match(/<form\b[^>]*>/i)[0], "method") || "post").toLowerCase(),
+          fields,
+        };
+      };
+      let loginRes, cookies = [], loginText = "", formInfo = null;
       try {
-        loginRes = await fetch("https://www.fabswingers.com/login", {
+        const g = await fetch("https://www.fabswingers.com/login.aspx", {
+          headers: { "User-Agent": UA, "Accept": "text/html,application/xhtml+xml" },
+          redirect: "follow",
+        });
+        const preCookies = setCookies(g);
+        const html = await g.text();
+        const form = readForm(html);
+        if (!form) return json({ ok: false, error: "No login form found at /login.aspx" }, 502, origin);
+        const userField = form.fields.find((f) => f.type !== "password" && f.type !== "hidden" && /user|email|login|name/i.test(f.name));
+        const passField = form.fields.find((f) => f.type === "password");
+        formInfo = {
+          action: form.action, method: form.method,
+          userField: userField && userField.name, passField: passField && passField.name,
+          hidden: form.fields.filter((f) => f.type === "hidden").map((f) => f.name),
+        };
+        const body = new URLSearchParams();
+        for (const f of form.fields) {
+          if (f.type === "hidden") { body.set(f.name, f.value); continue; }
+          if (f.type === "password") { body.set(f.name, password); continue; }
+          if (f === userField) { body.set(f.name, acct.username); continue; }
+          if (f.type === "checkbox") { if (f.checked) body.set(f.name, f.value || "on"); continue; }
+          if (f.type === "submit") { continue; }
+          body.set(f.name, f.value);
+        }
+        if (!userField) body.set("username", acct.username);
+        if (!passField) body.set("password", password);
+        cookies = preCookies;
+        const action = new URL(form.action || "/login.aspx", "https://www.fabswingers.com").href;
+        loginRes = await fetch(action, {
           method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": UA, "Accept": "text/html,application/xhtml+xml" },
-          body: `username=${encodeURIComponent(acct.username)}&password=${encodeURIComponent(password)}&permacookie=1`,
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": UA, "Accept": "text/html,application/xhtml+xml",
+            "Referer": "https://www.fabswingers.com/login.aspx",
+            ...(cookies.length ? { "Cookie": cookies.join("; ") } : {}),
+          },
+          body: body.toString(),
           redirect: "manual",
         });
-        const raw = typeof loginRes.headers.getSetCookie === "function"
-          ? loginRes.headers.getSetCookie()
-          : [loginRes.headers.get("set-cookie") || ""];
-        cookies = raw.filter(Boolean).map((c) => c.split(";")[0]);
+        cookies = [...new Set([...cookies, ...setCookies(loginRes)])];
         loginText = await loginRes.text().catch(() => "");
       } catch (e) {
         return json({ ok: false, error: "Could not reach FabSwingers: " + String(e).slice(0, 160) }, 502, origin);
       }
 
       const cookieHeader = cookies.join("; ");
+      // raw mode: hand back the page markup so the parser is written against the
+      // real thing. Only console admins can call this.
+      if (b.raw) {
+        const path = typeof b.path === "string" && b.path.startsWith("/") ? b.path : "/my/messages";
+        const r = await fetch("https://www.fabswingers.com" + path, {
+          headers: { "User-Agent": UA, "Cookie": cookieHeader, "Accept": "text/html,application/xhtml+xml" },
+          redirect: "follow",
+        });
+        const html = await r.text();
+        return json({ ok: true, path, status: r.status, url: r.url, bytes: html.length,
+          html: html.slice(0, Number(b.limit) || 14000),
+          cookies: cookies.map((c) => c.split("=")[0]) }, 200, origin);
+      }
       const strip = (h) => h
         .replace(/<script[\s\S]*?<\/script>/gi, " ")
         .replace(/<style[\s\S]*?<\/style>/gi, " ")
@@ -585,9 +656,123 @@ export default {
       return json({
         ok: true,
         account: { username: acct.username, telegram_username: acct.telegram_username },
-        login: { status: loginRes.status, location: loginRes.headers.get("location") || "", cookies: cookies.map((c) => c.split("=")[0]), sample: strip(loginText).slice(0, 300) },
+        login: { status: loginRes.status, location: loginRes.headers.get("location") || "", cookies: cookies.map((c) => c.split("=")[0]), form: formInfo, sample: strip(loginText).slice(0, 300) },
         pages,
       }, 200, origin);
+    }
+
+    /* ---- FabSwingers inbox: read the real site, draft, send ---- */
+    const fsAccount = async (env, id) => {
+      const rows = await sb(env, `fabswingers_accounts?id=eq.${id}&select=*`);
+      return rows && rows[0];
+    };
+
+    if (url.pathname === "/fabswingers/inbox" && request.method === "POST") {
+      const denied = await requireConsoleAdmin(env, request, origin);
+      if (denied) return denied;
+      const b = await request.json().catch(() => ({}));
+      const acct = await fsAccount(env, b.id);
+      if (!acct) return json({ ok: false, error: "unknown account" }, 404, origin);
+      try {
+        const snap = await inboxSnapshot(env, acct);
+        return json({ ok: true, count: snap.rows.length, unread: snap.rows.filter((r) => r.unread).length, rows: snap.rows }, 200, origin);
+      } catch (e) {
+        return json({ ok: false, error: String((e && e.message) || e) }, 200, origin);
+      }
+    }
+
+    if (url.pathname === "/fabswingers/thread" && request.method === "POST") {
+      const denied = await requireConsoleAdmin(env, request, origin);
+      if (denied) return denied;
+      const b = await request.json().catch(() => ({}));
+      if (!b.guid) return json({ ok: false, error: "guid is required" }, 400, origin);
+      const acct = await fsAccount(env, b.id);
+      if (!acct) return json({ ok: false, error: "unknown account" }, 404, origin);
+      try {
+        const snap = await inboxSnapshot(env, acct);
+        const row = snap.rows.find((r) => r.guid === b.guid) || { guid: b.guid, user: b.user || "" };
+        const r = await fetch("https://www.fabswingers.com/my/messagesnew/" + b.guid, {
+          headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36", Cookie: snap.cookie, Accept: "text/html" },
+          redirect: "follow",
+        });
+        const html = await r.text();
+        return json({ ok: true, row, thread: parseThread(html) }, 200, origin);
+      } catch (e) {
+        return json({ ok: false, error: String((e && e.message) || e) }, 200, origin);
+      }
+    }
+
+    if (url.pathname === "/fabswingers/draft" && request.method === "POST") {
+      const denied = await requireConsoleAdmin(env, request, origin);
+      if (denied) return denied;
+      const b = await request.json().catch(() => ({}));
+      if (!b.guid) return json({ ok: false, error: "guid is required" }, 400, origin);
+      const acct = await fsAccount(env, b.id);
+      if (!acct) return json({ ok: false, error: "unknown account" }, 404, origin);
+      try {
+        const snap = await inboxSnapshot(env, acct);
+        const row = snap.rows.find((r) => r.guid === b.guid);
+        if (!row) return json({ ok: false, error: "That thread is not in the inbox any more" }, 404, origin);
+        const tr = await fetch("https://www.fabswingers.com/my/messagesnew/" + b.guid, {
+          headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36", Cookie: snap.cookie, Accept: "text/html" },
+          redirect: "follow",
+        }).then((r) => r.text());
+        const thread = parseThread(tr);
+        const personas = await sb(env, `fabswingers_personas?fabswingers_account_id=eq.${acct.id}&select=*`);
+        const p = (personas && personas[0]) || {};
+        const rules = [
+          p.system_prompt || "You are a real woman chatting on FabSwingers. Be cheeky, playful and short.",
+          p.tone ? `Tone: ${p.tone}.` : "",
+          p.emoji_level ? `Emoji use: ${p.emoji_level}.` : "",
+          p.message_length ? `Message length: ${p.message_length}.` : "",
+          "Reply with the message text only. No quotes, no labels, no explanation.",
+        ].filter(Boolean).join("\n");
+        const history = (thread.messages || []).slice(-8).map((m) => m.text).join("\n");
+        const out = await env.AI.run(env.AI_MODEL || "@cf/mistralai/mistral-small-3.1-24b-instruct", {
+          messages: [
+            { role: "system", content: rules },
+            { role: "user", content: `His profile: ${row.name}, ${row.meta}.\nWhat he has written so far:\n${history || row.snippet}\n\nWrite her next message to him.` },
+          ],
+          max_tokens: 220,
+        });
+        const text = String(typeof out === "string" ? out : (out && out.response) || "").trim().replace(/^["']|["']$/g, "");
+        return json({ ok: true, row, thread, draft: text }, 200, origin);
+      } catch (e) {
+        return json({ ok: false, error: String((e && e.message) || e) }, 200, origin);
+      }
+    }
+
+    if (url.pathname === "/fabswingers/send" && request.method === "POST") {
+      const denied = await requireConsoleAdmin(env, request, origin);
+      if (denied) return denied;
+      const b = await request.json().catch(() => ({}));
+      const acct = await fsAccount(env, b.id);
+      if (!acct) return json({ ok: false, error: "unknown account" }, 404, origin);
+      // A human tapping Send is not an auto-reply: the switch governs the
+      // poller, not the operator. Without this you could not test the voice.
+      const text = String(b.text || "").trim();
+      if (!text) return json({ ok: false, error: "Nothing to send" }, 400, origin);
+      if (!b.user || !b.guid) return json({ ok: false, error: "user and guid are required" }, 400, origin);
+      try {
+        const snap = await inboxSnapshot(env, acct);
+        const res = await sendReply(snap.cookie, b.user, b.guid, text);
+        if (res.ok) {
+          await sb(env, "fabswingers_conversations?on_conflict=fabswingers_account_id,fs_user_id", {
+            method: "POST",
+            headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+            body: JSON.stringify({
+              fabswingers_account_id: acct.id,
+              fs_user_id: b.user,
+              fs_user_name: b.name || null,
+              message_count: 1,
+              last_message_at: new Date().toISOString(),
+            }),
+          }).catch(() => null);
+        }
+        return json({ ok: res.ok, status: res.status }, res.ok ? 200 : 502, origin);
+      } catch (e) {
+        return json({ ok: false, error: String((e && e.message) || e) }, 200, origin);
+      }
     }
 
     // Create or update the FabSwingers login for one Telegram account.

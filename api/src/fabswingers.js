@@ -1,253 +1,172 @@
-// FabSwingers scraper and auto-reply service
-// Login, poll messages, auto-reply 4-5 times, then pivot to Telegram
-
-const BASE_URL = 'https://www.fabswingers.com';
-
-// FabSwingers session state per account
-const sessions = new Map();
-
-// Conversation state: {fs_user_id: {messageCount, lastReplyAt, tgPivoted}}
-const conversations = new Map();
-
 /**
- * Login to FabSwingers and return session cookies
+ * FabSwingers: log in, read the inbox, read a thread, send a reply.
+ *
+ * The site is classic ASP.NET: the login is a form post (field names email and
+ * password) and the reply needs a `pat` token minted per thread by
+ * /account/pm.aspx. Everything below is written against the live markup, not a
+ * guess, so selectors are deliberately narrow and each one has a test row.
  */
-async function login(username, password) {
-  const client = await fetch(BASE_URL);
-  const formAction = '/login';
-  
-  const res = await fetch(`${BASE_URL}${formAction}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-    },
-    body: `username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`
-  });
 
-  if (!res.ok) {
-    throw new Error(`FabSwingers login failed: ${res.status}`);
-  }
+const BASE = "https://www.fabswingers.com";
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36";
 
-  // Extract cookies from response
-  const cookies = res.headers.get('set-cookie') || '';
-  const sessionId = cookies.match(/PHPSESSID=([^;]+)/)?.[1];
-  
-  if (!sessionId) {
-    throw new Error('No session cookie found after login');
-  }
+const strip = (h) => String(h)
+  .replace(/<script[\s\S]*?<\/script>/gi, " ")
+  .replace(/<style[\s\S]*?<\/style>/gi, " ")
+  .replace(/<br\s*\/?>/gi, " ")
+  .replace(/<[^>]+>/g, " ")
+  .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&quot;/g, '"')
+  .replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+  .replace(/\s+/g, " ").trim();
 
-  return {
-    cookies: `PHPSESSID=${sessionId}`,
-    username
-  };
-}
-
-/**
- * Get new messages for a user
- */
-async function getMessages(session) {
-  const res = await fetch(`${BASE_URL}/messages/inbox/`, {
-    headers: {
-      'Cookie': session.cookies,
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-    }
-  });
-
-  if (!res.ok) {
-    throw new Error(`Failed to fetch messages: ${res.status}`);
-  }
-
-  const html = await res.text();
-  
-  // Parse message list - FabSwingers uses a table structure
-  // Each row has: user link, preview, timestamp
-  const messages = [];
-  
-  // Regex to find message rows (adjust based on actual HTML structure)
-  const messageRegex = /href="\/users\/([^"]+)"/g;
-  let match;
-  
-  while ((match = messageRegex.exec(html)) !== null) {
-    messages.push({
-      username: match[1],
-      unread: html.includes('class="new"') // simplistic check
-    });
-  }
-
-  return messages;
-}
-
-/**
- * Send a message to a user
- */
-async function sendMessage(session, toUsername, message) {
-  const res = await fetch(`${BASE_URL}/messages/send/`, {
-    method: 'POST',
-    headers: {
-      'Cookie': session.cookies,
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-    },
-    body: `to=${encodeURIComponent(toUsername)}&message=${encodeURIComponent(message)}`
-  });
-
-  if (!res.ok) {
-    throw new Error(`Failed to send message: ${res.status}`);
-  }
-
-  return true;
-}
-
-/**
- * Get conversation state or initialize
- */
-function getConversationState(fsUserId) {
-  if (!conversations.has(fsUserId)) {
-    conversations.set(fsUserId, {
-      messageCount: 0,
-      lastReplyAt: null,
-      tgPivoted: false
-    });
-  }
-  return conversations.get(fsUserId);
-}
-
-/**
- * Generate auto-reply based on conversation stage
- * Logs brief memory/summary to DB, not full history
- */
-function generateReply(fsUserId, accountConfig) {
-  const state = getConversationState(fsUserId);
-  state.messageCount++;
-  state.lastReplyAt = Date.now();
-
-  const stage = state.messageCount;
-  const tgUsername = accountConfig.telegram_username; // e.g. "michelle0161" (her personal TG username)
-
-  // Generate brief summary for DB logging
-  const summary = stage <= 2 
-    ? "Early conversation - friendly exchange"
-    : stage <= 4
-    ? "Building rapport - discussing interests"
-    : stage === 5
-    ? "Pivoted to Telegram - shared personal username"
-    : "Reminded about Telegram connection";
-
-  // Stage 1-5: casual chat
-  if (stage <= 2) {
-    // Early: friendly, light
-    const replies = [
-      "hey there 😊 how are you doing?",
-      "hi babe! thanks for the message",
-      "hey! lovely to hear from you",
-      "hi there! how's your day going?"
-    ];
-    return {
-      reply: replies[Math.floor(Math.random() * replies.length)],
-      summary: summary
-    };
-  } else if (stage <= 4) {
-    // Middle: build rapport, hint at more
-    const replies = [
-      "you seem really nice 😊 i'd love to chat more",
-      "i'm enjoying this! you're quite charming",
-      "you're making me smile 😊 want to see more of me?",
-      "we're getting along well! i've got some pics if you'd like to see"
-    ];
-    return {
-      reply: replies[Math.floor(Math.random() * replies.length)],
-      summary: summary
-    };
-  } else if (stage === 5) {
-    // Pivot: introduce Telegram (her personal username, not the bot)
-    state.tgPivoted = true;
-    return {
-      reply: `i'd love to show you some pics and chat properly 😊
-
-add me on telegram: @${tgUsername}
-
-it's way easier to share stuff there! 💕`,
-      summary: summary
-    };
-  } else {
-    // Already pivoted - remind
-    return {
-      reply: `hey! did you find me on telegram? @${tgUsername} 😊
-
-i've got some lovely pics to share! 💕`,
-      summary: summary
-    };
-  }
-}
-
-/**
- * Main poll handler - check for new messages and reply
- */
-async function pollMessages(accountConfig, supabase) {
-  const {username, password, telegram_username} = accountConfig;
-
-  let session = sessions.get(username);
-  
-  // Login if no session
-  if (!session) {
-    try {
-      session = await login(username, password);
-      sessions.set(username, session);
-    } catch (err) {
-      console.error(`FabSwingers login error for ${username}:`, err);
-      return;
-    }
-  }
-
-  // Get messages
-  try {
-    const messages = await getMessages(session);
-    
-    for (const msg of messages) {
-      const state = getConversationState(msg.username);
-      
-      // Skip if we just replied (avoid loops)
-      if (state.lastReplyAt && (Date.now() - state.lastReplyAt) < 60000) {
-        continue;
-      }
-
-      // Generate and send reply
-      const reply = generateReply(msg.username, accountConfig);
-      
-      await sendMessage(session, msg.username, reply);
-      
-      console.log(`Replied to ${msg.username} (stage ${state.messageCount}): ${reply.substring(0, 50)}...`);
-    }
-  } catch (err) {
-    console.error(`FabSwingers poll error for ${username}:`, err);
-  }
-}
-
-/**
- * Initialize FabSwingers account from Supabase
- */
-async function initFabSwingersAccount(env, accountId) {
-  const sb = getSupabaseClient(env);
-  
-  const {data: account} = await sb
-    .from('fabswingers_accounts')
-    .select('*')
-    .eq('id', accountId)
-    .single();
-
-  if (!account) {
-    throw new Error(`FabSwingers account ${accountId} not found`);
-  }
-
-  return account;
-}
-
-export {
-  login,
-  getMessages,
-  sendMessage,
-  pollMessages,
-  initFabSwingersAccount,
-  getConversationState
+const attr = (tag, name) => {
+  const m = tag.match(new RegExp(name + '=["\']([^"\']*)["\']', "i"));
+  return m ? m[1].replace(/&amp;/g, "&") : "";
 };
+
+const cookiesFrom = (r) => {
+  const raw = typeof r.headers.getSetCookie === "function" ? r.headers.getSetCookie() : [r.headers.get("set-cookie") || ""];
+  return raw.filter(Boolean).map((c) => c.split(";")[0]).filter((c) => c.includes("="));
+};
+
+/** Log in and return the cookie header for every later call. */
+export async function login(username, password) {
+  const pre = await fetch(BASE + "/login.aspx", { headers: { "User-Agent": UA, Accept: "text/html" }, redirect: "follow" });
+  const jar = cookiesFrom(pre);
+  const html = await pre.text();
+  const forms = [...html.matchAll(/<form\b[^>]*>[\s\S]*?<\/form>/gi)].map((m) => m[0]);
+  const form = forms.find((f) => /<input[^>]+type=["']?password/i.test(f));
+  if (!form) throw new Error("no login form on /login.aspx");
+
+  const fields = [...form.matchAll(/<input\b[^>]*>/gi)].map((m) => m[0]);
+  const body = new URLSearchParams();
+  let usedEmail = false, usedPassword = false;
+  for (const tag of fields) {
+    const name = attr(tag, "name");
+    if (!name) continue;
+    const type = (attr(tag, "type") || "text").toLowerCase();
+    if (type === "hidden") { body.set(name, attr(tag, "value")); continue; }
+    if (type === "password") { body.set(name, password); usedPassword = true; continue; }
+    if (type === "checkbox") { continue; }
+    if (type === "submit") { continue; }
+    if (type === "text" || type === "email") { body.set(name, username); usedEmail = true; continue; }
+  }
+  if (!usedEmail) body.set("email", username);
+  if (!usedPassword) body.set("password", password);
+
+  const res = await fetch(BASE + "/login.aspx", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "User-Agent": UA, Accept: "text/html",
+      Referer: BASE + "/login.aspx",
+      Cookie: jar.join("; "),
+    },
+    body: body.toString(),
+    redirect: "manual",
+  });
+  const after = cookiesFrom(res);
+  const all = [...new Set([...jar, ...after])];
+  const authed = all.some((c) => /^ticket=/i.test(c)) && res.status >= 300 && res.status < 400;
+  if (!authed) {
+    const text = await res.text().catch(() => "");
+    throw new Error("login refused: status " + res.status + " " + strip(text).slice(0, 160));
+  }
+  return { cookie: all.join("; "), status: res.status, location: res.headers.get("location") || "" };
+}
+
+/** Parse /my/messagesnew into rows, newest first as the site orders them. */
+export function parseInbox(html) {
+  const rows = [];
+  const blocks = html.split(/<div id="pm_/i).slice(1);
+  for (const raw of blocks) {
+    const guid = (raw.match(/^([0-9a-f-]{36})/i) || [])[1];
+    if (!guid) continue;
+    const rowHtml = raw.split(/<input type="hidden" id="s_/i)[0];
+    const tr = (rowHtml.match(/<tr class="messageRowx"[^>]*>/i) || [])[0] || "";
+    const profileLink = rowHtml.match(/href="\/profile\/([^"\/]+)"/i) || [];
+    const nameLink = rowHtml.match(/<a[^>]+href="\/my\/messagesnew\/[0-9a-f-]{36}"[^>]*>([\s\S]*?)<\/a>/i) || [];
+    const ageLine = rowHtml.match(/<span style="[^"]*">([\s\S]*?)<\/span>/i) || [];
+    const when = rowHtml.match(/<font color="#808080">([\s\S]*?)<\/font>/i) || [];
+    const snippet = rowHtml.match(/<p style="margin-top: 8px[^"]*">([\s\S]*?)<\/p>/i) || [];
+    // the site marks a thread unread with a hidden s_<guid> carrying 1, and
+    // paints the row yellow. Either signal is enough.
+    const unread = html.includes('id="s_' + guid + '" value="1"') || /#FFFF33/i.test(tr);
+    rows.push({
+      guid,
+      user: (profileLink[1] || "").toLowerCase(),
+      name: strip(nameLink[1] || ""),
+      meta: strip(ageLine[1] || "").replace(/\s+/g, " ").trim(),
+      when: strip(when[1] || ""),
+      snippet: strip(snippet[1] || ""),
+      unread,
+    });
+  }
+  return rows;
+}
+
+/** Read one thread: sender, meta and the message blocks the site renders. */
+export function parseThread(html) {
+  const user = (html.match(/href="\/profile\/([^"\/]+)"/i) || [])[1] || "";
+  const name = (html.match(/<a style="font-size: 10pt;" href="\/profile\/[^"]+">([\s\S]*?)<\/a>/i) || [])[1] || "";
+  const meta = (html.match(/<div style="font-size: 10pt;; padding-bottom: 5px">([\s\S]*?)<\/div>/i) || [])[1] || "";
+  const messages = [];
+  const re = /<span class="standard-paragraph"[^>]*>([\s\S]*?)<\/span>/gi;
+  let m;
+  while ((m = re.exec(html))) {
+    const text = strip(m[1].replace(/<\/?MessageText>/gi, " "));
+    if (text) messages.push({ text });
+  }
+  const when = (html.match(/<font color="#808080">([\s\S]*?)<\/font>/i) || [])[1] || "";
+  return { user: user.toLowerCase(), name: strip(name), meta: strip(meta).replace(/\s+/g, " "), when: strip(when), messages };
+}
+
+/** The reply page carries the hidden fields the POST needs, including `pat`. */
+export async function replyTokens(cookie, user, guid) {
+  const url = BASE + "/account/pm.aspx?username=" + encodeURIComponent(user) + "&pmguid=" + encodeURIComponent(guid);
+  const r = await fetch(url, { headers: { "User-Agent": UA, Cookie: cookie, Accept: "text/html" }, redirect: "follow" });
+  const html = await r.text();
+  const form = (html.match(/<form[^>]*id="pmform"[\s\S]*?<\/form>/i) || [])[0];
+  if (!form) throw new Error("reply form not found for " + user);
+  const fields = {};
+  for (const m of form.matchAll(/<input[^>]*>/gi)) {
+    const name = attr(m[0], "name");
+    if (name) fields[name] = attr(m[0], "value");
+  }
+  const textareaName = (form.match(/<textarea[^>]*name="([^"]+)"/i) || [])[1] || "messagetext";
+  return { fields, textareaName };
+}
+
+/** Send one message on a thread. Returns the status so the caller can log it. */
+export async function sendReply(cookie, user, guid, text) {
+  const { fields, textareaName } = await replyTokens(cookie, user, guid);
+  const body = new URLSearchParams();
+  for (const [k, v] of Object.entries(fields)) body.set(k, v);
+  body.set("username", user);
+  body.set("pmguid", guid);
+  body.set(textareaName, text);
+  const r = await fetch(BASE + "/account/pm.aspx", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "User-Agent": UA, Accept: "text/html",
+      Cookie: cookie, Referer: BASE + "/account/pm.aspx",
+    },
+    body: body.toString(),
+    redirect: "manual",
+  });
+  return { ok: r.status >= 200 && r.status < 400, status: r.status, location: r.headers.get("location") || "" };
+}
+
+/** Everything the owner can see right now, read only. */
+export async function inboxSnapshot(env, account) {
+  const { openSecret } = await import("./crypto.js");
+  if (!account.password_enc || !String(account.password_enc).includes(":")) {
+    throw new Error("No usable password stored. Open Edit and save the FabSwingers password again.");
+  }
+  const password = await openSecret(env, account.password_enc);
+  const session = await login(account.username, password);
+  const r = await fetch(BASE + "/my/messagesnew", { headers: { "User-Agent": UA, Cookie: session.cookie, Accept: "text/html" }, redirect: "follow" });
+  const html = await r.text();
+  return { rows: parseInbox(html), cookie: session.cookie, status: r.status };
+}

@@ -1970,7 +1970,12 @@ async function renderFabSwingers() {
     <div class="panel"><div class="panel-head"><h2>FabSwingers accounts</h2>
       <span class="end"><button class="btn sm primary" data-act="fs-link">${ic('plus')}Add account</button></span></div>
       <div id="fs-list">${spinner('Loading accounts...')}</div></div>
-    <div id="fs-detail"></div>`);
+    <div id="fs-detail"></div>
+    <section class="panel" style="margin-top:16px">
+      <div class="panel-head"><h2>Inbox</h2>
+        <span class="end"><button class="btn sm" data-act="fs-inbox-check">${ic('refresh')}Check inbox</button></span></div>
+      <div id="fs-inbox" class="panel-body"><p class="muted">Check the inbox to read what has arrived on FabSwingers. Nothing is sent from here without you.</p></div>
+    </section>`);
   loadFabSwingers();
 }
 
@@ -1994,6 +1999,7 @@ async function loadFabSwingers() {
     const byAccount = new Map((accounts || []).map(a => [a.id, a]));
     const byPersona = new Map((pers || []).map(p => [p.fabswingers_account_id, p]));
     const rows = fas || [];
+    state.fsAccounts = rows;
     if (!rows.length) {
       el.innerHTML = empty('message', 'No FabSwingers accounts yet',
         'FabSwingers is set up per bot account. Use Add account above, or do it during Connect account.');
@@ -2101,6 +2107,57 @@ async function fsSaveAll(accountId, btn) {
   const saved = await fsSaveLogin(accountId, btn);
   if (!saved) return null;
   return fsSavePersona(accountId, null);
+}
+
+/* ---------- FabSwingers inbox ----------
+   Reads the real site through the Worker (which holds the sealed login), lists
+   what has arrived, drafts in her voice and sends only on an explicit tap. */
+async function fsInboxLoad(){
+  const el = $('#fs-inbox'); if(!el) return;
+  const acc = (state.fsAccounts || [])[0];
+  if(!acc){ el.innerHTML = '<p class="muted">Add a FabSwingers login first.</p>'; return; }
+  el.innerHTML = spinner('Reading FabSwingers…');
+  try{
+    const r = await fsCall('/fabswingers/inbox', { method:'POST', body: JSON.stringify({ id: acc.id }) });
+    if(!r.ok){ el.innerHTML = `<p class="muted">${esc(r.error || 'Could not read the inbox')}</p>`; return; }
+    state.fsInbox = r.rows || [];
+    el.innerHTML = `<p class="muted" style="margin:0 0 10px">${state.fsInbox.length} threads, ${r.unread || 0} unread.</p>
+      <ul class="audit-list">${state.fsInbox.map((m, i) => `<li>
+        <span class="a-kind" style="background:${m.unread ? 'var(--accent-soft)' : 'var(--sunk)'};color:${m.unread ? 'var(--accent)' : 'var(--ink-3)'}">${m.unread ? 'NEW' : 'READ'}</span>
+        <div class="a-body"><p><b>${esc(m.name || m.user)}</b> <small>${esc(m.meta)} · ${esc(m.when)}</small></p>
+          <p style="color:var(--ink-2)">${esc(m.snippet)}</p>
+          <button class="btn sm" data-act="fs-draft" data-guid="${esc(m.guid)}" data-user="${esc(m.user)}">${ic('sparkles')}Draft reply</button>
+        </div></li>`).join('')}</ul>`;
+  }catch(e){ el.innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
+}
+
+async function fsDraft(guid, user){
+  const el = $('#fs-inbox'); if(!el) return;
+  const acc = (state.fsAccounts || [])[0]; if(!acc) return;
+  el.innerHTML = spinner('Writing a reply as her…');
+  try{
+    const r = await fsCall('/fabswingers/draft', { method:'POST', body: JSON.stringify({ id: acc.id, guid }) });
+    if(!r.ok) throw new Error(r.error || 'Could not draft a reply');
+    const row = r.row || {};
+    el.innerHTML = `<div class="panel-body" style="padding:0">
+      <p class="muted" style="margin:0 0 6px"><b>${esc(row.name || user)}</b> · ${esc(row.meta || '')}</p>
+      <p style="margin:0 0 12px;color:var(--ink-2)">${esc(row.snippet || '')}</p>
+      <label class="flabel" for="fs-draft-text">Her reply</label>
+      <textarea class="input" id="fs-draft-text" rows="4">${esc(r.draft || '')}</textarea>
+      <div class="form-actions" style="display:flex;gap:8px;margin-top:10px">
+        <button class="btn primary" data-act="fs-send" data-guid="${esc(guid)}" data-user="${esc(row.user || user)}">${ic('send')}Send</button>
+        <button class="btn" data-act="fs-inbox-check">Back to inbox</button>
+      </div></div>`;
+  }catch(e){ el.innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
+}
+
+async function fsSend(guid, user, btn){
+  const text = ($('#fs-draft-text')?.value || '').trim();
+  const acc = (state.fsAccounts || [])[0]; if(!acc) return;
+  if(!text){ toast('Write something first', 'error'); return; }
+  const r = await withBusy(btn, () => fsCall('/fabswingers/send', { method:'POST', body: JSON.stringify({ id: acc.id, guid, user, text }) }));
+  if(r && r.ok){ toast('Sent on FabSwingers', 'success'); fsInboxLoad(); }
+  else if(r) toast('FabSwingers refused it', 'error', r.error || ('Status ' + r.status));
 }
 
 /* ---------- Library ---------- */
@@ -2641,6 +2698,10 @@ view.addEventListener('click', async e => {
       toast('FabSwingers account removed', 'success'); loadFabSwingers();
       break;
     }
+    /* fabswingers inbox */
+    case 'fs-inbox-check': fsInboxLoad(); break;
+    case 'fs-draft': fsDraft(a.dataset.guid, a.dataset.user); break;
+    case 'fs-send': fsSend(a.dataset.guid, a.dataset.user, a); break;
     /* library */
     case 'lib-type': state.libType = a.dataset.type; state.pages.library = 1;
       a.parentElement.querySelectorAll('button').forEach(b=>b.setAttribute('aria-selected', b===a)); loadLibrary(); break;
