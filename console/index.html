@@ -1060,6 +1060,19 @@ const Data = {
   },
 
   async messages(convId){
+    // Full bodies come from the Worker, which can open body_enc. The table
+    // itself only holds an 80-character preview, which is what made every
+    // thread look cut off mid-sentence in the console.
+    try {
+      const tok = state.session?.user?.access_token || (await state.sb.auth.getSession())?.data?.session?.access_token;
+      const r = await fetch('https://api-telebotcreator.turboit.uk/conversations/messages?conversation_id=' + encodeURIComponent(convId), {
+        headers: { Authorization: 'Bearer ' + tok }
+      });
+      if (r.ok) {
+        const d = await r.json();
+        if (Array.isArray(d.messages)) return d.messages.map(m => ({ ...m, body_preview: m.body }));
+      }
+    } catch(e) { /* fall back to the preview below */ }
     const { data, error } = await state.sb.from('messages').select('*').eq('creator_id', uid()).eq('conversation_id', convId).order('sent_at',{ascending:true}).limit(100);
     if(error) throw error; return data || [];
   },

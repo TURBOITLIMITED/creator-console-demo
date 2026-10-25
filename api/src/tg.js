@@ -15,7 +15,7 @@
  */
 
 import * as tg from "./telegram.js";
-import { getDek, seal, preview } from "./crypto.js";
+import { getDek, seal, open, preview } from "./crypto.js";
 import { isAskingIfBot, isAskingForHuman, hasAgeSignal, COPY_VERSION } from "./copy.js";
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -649,18 +649,27 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
     }
   }
 
-  // Recent history (decrypted previews are enough context for tone).
+  // Recent history. The stored preview is cut at 80 characters, so the end of
+  // everything he said is lost; open the sealed body when the key is available.
   const hist = await sb(env, "messages?conversation_id=eq." + conv.id +
-    "&direction=in.(" + encodeURIComponent("in,out") + ")&select=direction,body_preview,sent_at" +
+    "&direction=in.(" + encodeURIComponent("in,out") + ")&select=direction,body_preview,body_enc,body_nonce,sent_at" +
     "&order=sent_at.desc&limit=30").catch(() => null);
+  let histDek = null;
+  try { histDek = await getDek(env, sb, conn.creator_id); } catch (e) { histDek = null; }
   // Internal rows carry console-only labels like "[free] PIC TITLE" or
   // "[menu] 2 paid". They are bookkeeping, not chat the girl said, so strip
   // them before the model sees them - otherwise it parrots the tag verbatim.
   const stripInternal = s => String(s || "").replace(/\s*\[[^\]]{1,40}\]\s*/g, " ").replace(/\s+/g, " ").trim();
-  const history = (hist || []).reverse()
-    .filter(m => m.body_preview && m.body_preview !== text)
-    .map(m => ({ dir: m.direction, text: stripInternal(m.body_preview) }))
-    .filter(m => m.text);
+  const history = [];
+  for (const m of (hist || []).reverse()) {
+    let body = m.body_preview;
+    if (histDek && m.body_enc && m.body_nonce) {
+      try { body = await open(histDek, m.body_enc, m.body_nonce); } catch (e) { /* keep the preview */ }
+    }
+    if (!body || body === text) continue;
+    const t = stripInternal(body);
+    if (t) history.push({ dir: m.direction, text: t });
+  }
 
   // Generate. A forced intercept answer skips the model.
   let replyText = null, via = null;
@@ -756,6 +765,7 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
         sender: "ai",
         kind: "text",
         body_preview: preview(replyText),
+        ...(histDek ? await seal(histDek, replyText) : {}),
         raw: { via, business_connection_id: conn.id },
         sent_at: new Date().toISOString(),
         delivered: true,

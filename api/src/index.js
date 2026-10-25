@@ -16,7 +16,7 @@ const json = (data, status = 200, origin) =>
   });
 
 import { sign, timingSafe } from "./media.js";
-import { sealSecret, openSecret } from "./crypto.js";
+import { sealSecret, openSecret, getDek, open } from "./crypto.js";
 import { inboxSnapshot, inboxPage, login as fsLogin, ageMinutes, parseInbox, parseThread, sendReply } from "./fabswingers.js";
 import { handleWebhook } from "./tg.js";
 import * as tgapi from "./telegram.js";
@@ -929,6 +929,33 @@ export default {
       return json({ ok: true, message: row }, 200, origin);
     }
 
+    // Full bodies for the console thread. The list keeps the 80-character
+    // preview, but opening a chat needs what was actually said, and the full
+    // text is sealed in body_enc. Console admins only, same gate as reply.
+    if (url.pathname === "/conversations/messages" && request.method === "GET") {
+      const denied = await requireConsoleAdmin(env, request, origin);
+      if (denied) return denied;
+      const convId = url.searchParams.get("conversation_id") || "";
+      if (!convId) return json({ error: "conversation_id required" }, 400, origin);
+      const convs = await sb(env, "conversations?id=eq." + encodeURIComponent(convId) + "&select=id,creator_id");
+      const conv = convs && convs[0];
+      if (!conv) return json({ error: "no such conversation" }, 404, origin);
+      const rows = await sb(env, "messages?conversation_id=eq." + encodeURIComponent(convId) +
+        "&select=id,direction,sender,kind,body_preview,body_enc,body_nonce,media_key,raw,sent_at&order=sent_at.asc&limit=100");
+      let dek = null;
+      try { dek = await getDek(env, sb, conv.creator_id); } catch (e) { dek = null; }
+      const out = [];
+      for (const m of rows || []) {
+        let body = m.body_preview;
+        if (dek && m.body_enc && m.body_nonce) {
+          try { body = await open(dek, m.body_enc, m.body_nonce); } catch (e) { /* keep preview */ }
+        }
+        out.push({ id: m.id, direction: m.direction, sender: m.sender, kind: m.kind, body,
+                   media_key: m.media_key, raw: m.raw, sent_at: m.sent_at });
+      }
+      return json({ messages: out }, 200, origin);
+    }
+
     // ---------- FabSwingers ----------
     // One FabSwingers login per Telegram account, with that account's own persona.
     // All routes are console-admin only and sit above the generic 404.
@@ -1264,6 +1291,16 @@ export default {
       try {
         const snap = await inboxSnapshot(env, acct);
         const res = await sendReply(snap.cookie, b.user, b.guid, text);
+        // follow the redirect so a silent refusal is visible in the response
+        if (res.location) {
+          try {
+            const land = await fetch(new URL(res.location, "https://www.fabswingers.com").toString(),
+              { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36", Cookie: snap.cookie, Accept: "text/html" }, redirect: "follow" });
+            const html = await land.text();
+            res.landed = { status: land.status, url: land.url,
+              text: html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 300) };
+          } catch (e) { res.landed = { error: String(e).slice(0, 120) }; }
+        }
         if (res.ok) {
           await sb(env, "fabswingers_conversations?on_conflict=fabswingers_account_id,fs_user_id", {
             method: "POST",
