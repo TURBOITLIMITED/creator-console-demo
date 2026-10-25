@@ -15,35 +15,48 @@
 <style>
 /* Layout: collapsible icon rail on the left, sticky header, work area = table panel + sticky form panel */
 :root{
-  --paper:#f7f7f6; --panel:#ffffff; --sunk:#f1f1ef;
-  --ink:#141519; --ink-2:#55585f; --ink-3:#8a8d95;
-  --rule:#e6e6e3; --rule-2:#efefec;
-  --accent:#3346ff; --accent-hi:#2233ee; --accent-ink:#ffffff; --accent-soft:#eceeff; --accent-line:#c9cfff;
-  --ok:#11804a; --ok-soft:#e2f3e9; --warn:#9a5c00; --warn-soft:#fbefd9; --bad:#c42f37; --bad-soft:#fbe5e6;
-  --shadow:0 1px 2px rgba(20,21,25,.04),0 8px 24px -12px rgba(20,21,25,.12);
-  --f-ui:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
-  --f-mono:"Geist Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
-  --r:8px; --side-w:244px;
+  color-scheme: dark;
+  /* ground and surface */
+  --bg:#05060a; --mesh-a:rgba(43,58,247,.26); --mesh-b:rgba(124,92,255,.20);
+  --panel:rgba(255,255,255,.04); --sunk:rgba(255,255,255,.03);
+  --rule:rgba(255,255,255,.08); --rule-2:rgba(255,255,255,.05);
+  /* text */
+  --ink:#f3f5fb; --ink-2:#a6abc0; --ink-3:#6d728a;
+  /* brand */
+  --accent:#2b3af7; --accent-hi:#4a58ff; --accent-ink:#ffffff;
+  --accent-soft:rgba(43,58,247,.14); --accent-line:rgba(43,58,247,.38);
+  --violet:#7c5cff; --cyan:#27d3ff; --pink:#e05cff;
+  /* status */
+  --ok:#2fd18b; --ok-soft:rgba(47,209,139,.14);
+  --warn:#f5b84a; --warn-soft:rgba(245,184,74,.14);
+  --bad:#ff5d73; --bad-soft:rgba(255,93,115,.14);
+  /* shape and motion */
+  --r:16px; --r-sm:10px; --ease:cubic-bezier(.2,.8,.2,1);
+  --shadow:0 1px 2px rgba(0,0,0,.45), 0 24px 60px -28px rgba(0,0,0,.85);
+  --glow:0 0 0 1px rgba(43,58,247,.35), 0 12px 40px -12px rgba(43,58,247,.55);
+  --f-ui:ui-sans-serif, Inter, "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono:ui-monospace, "Geist Mono", "SF Mono", Menlo, Consolas, monospace;
+  --side-w:244px;
 }
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --paper:#111215; --panel:#18191d; --sunk:#141518;
-  --ink:#ececef; --ink-2:#a6a9b1; --ink-3:#73767e;
-  --rule:#2a2c32; --rule-2:#212328;
-  --accent:#6876ff; --accent-hi:#8792ff; --accent-ink:#0b0c10; --accent-soft:#1f2347; --accent-line:#363e86;
-  --ok:#4fc58b; --ok-soft:#14301f; --warn:#e3a84d; --warn-soft:#33270f; --bad:#ff6e75; --bad-soft:#3a1a1d;
-  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px -12px rgba(0,0,0,.6); color-scheme:dark}}
-:root[data-theme="dark"]{
-  --paper:#111215; --panel:#18191d; --sunk:#141518;
-  --ink:#ececef; --ink-2:#a6a9b1; --ink-3:#73767e;
-  --rule:#2a2c32; --rule-2:#212328;
-  --accent:#6876ff; --accent-hi:#8792ff; --accent-ink:#0b0c10; --accent-soft:#1f2347; --accent-line:#363e86;
-  --ok:#4fc58b; --ok-soft:#14301f; --warn:#e3a84d; --warn-soft:#33270f; --bad:#ff6e75; --bad-soft:#3a1a1d;
-  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px -12px rgba(0,0,0,.6); color-scheme:dark}
-
+/* Light theme. Dark is the default, so this is an override, not a media query:
+   the choice belongs to the operator (theme toggle), not to the OS. */
+:root[data-theme="light"]{
+  color-scheme: light;
+  --bg:#f2f3f9; --mesh-a:rgba(43,58,247,.12); --mesh-b:rgba(124,92,255,.10);
+  --panel:#ffffff; --sunk:#f6f7fb;
+  --rule:rgba(20,24,60,.09); --rule-2:rgba(20,24,60,.06);
+  --ink:#0e101a; --ink-2:#4a5068; --ink-3:#858ba1;
+  --accent-hi:#1f2ddb;
+  --accent-soft:rgba(43,58,247,.08); --accent-line:rgba(43,58,247,.28);
+  --ok:#0e9f66; --ok-soft:rgba(14,159,102,.10);
+  --warn:#b86e00; --warn-soft:rgba(184,110,0,.10);
+  --bad:#d9304f; --bad-soft:rgba(217,48,79,.10);
+  --shadow:0 1px 2px rgba(20,24,60,.06), 0 24px 60px -30px rgba(20,24,60,.30);
+}
 *{box-sizing:border-box}
 html,body{height:100%}
-body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 var(--f-ui);-webkit-font-smoothing:antialiased}
-body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:40;background:var(--paper)}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--f-ui);-webkit-font-smoothing:antialiased}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:40;background:var(--bg)}
 button,input,select,textarea{font:inherit;color:inherit}
 .i{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
@@ -87,7 +100,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 .demo .tag{font:600 10.5px var(--f-mono);letter-spacing:.1em;background:var(--accent);color:var(--accent-ink);padding:3px 7px;border-radius:5px}
 .demo p{margin:0;flex:1;min-width:200px;color:var(--ink-2)}
 .demo p b{color:var(--ink);font-weight:600}
-.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;display:flex;align-items:center;gap:14px;padding:14px 0;background:color-mix(in srgb,var(--paper) 88%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--rule);margin-bottom:24px}
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;display:flex;align-items:center;gap:14px;padding:14px 0;background:color-mix(in srgb,var(--bg) 78%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--rule);margin-bottom:24px}
 .crumb{display:flex;flex-direction:column;min-width:0}
 .crumb small{font:500 11px var(--f-mono);letter-spacing:.08em;color:var(--ink-3);text-transform:uppercase}
 .crumb h1{margin:0;font-size:20px;font-weight:650;letter-spacing:-.02em;line-height:1.25}
@@ -441,7 +454,82 @@ input[type=range]{accent-color:var(--accent);width:100%}
 }
 .back-btn{display:none!important}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important;transition-duration:.001ms!important}}
+
+/* ---------- skin: surfaces, shell, motion (tokens only, no new palette values) ---------- */
+html{background:var(--bg)}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-ui);transition:background .3s var(--ease),color .3s var(--ease)}
+body::after{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(58vw 42vw at 6% -12%, var(--mesh-a), transparent 62%),
+    radial-gradient(52vw 38vw at 102% -4%, var(--mesh-b), transparent 64%);
+  opacity:.85}
+.app{position:relative;z-index:1}
+.side{background:color-mix(in srgb,var(--bg) 72%, transparent);border-right:1px solid var(--rule);
+  backdrop-filter:blur(18px) saturate(150%);-webkit-backdrop-filter:blur(18px) saturate(150%)}
+:root[data-theme="light"] .side{background:rgba(255,255,255,.88)}
+.panel{background:var(--panel);border:1px solid var(--rule);border-radius:var(--r);box-shadow:var(--shadow);
+  backdrop-filter:blur(16px) saturate(140%);-webkit-backdrop-filter:blur(16px) saturate(140%)}
+.panel-head{border-bottom:1px solid var(--rule-2)}
+.top{background:color-mix(in srgb,var(--bg) 66%, transparent);border-bottom:1px solid var(--rule);
+  backdrop-filter:blur(16px) saturate(150%);-webkit-backdrop-filter:blur(16px) saturate(150%)}
+.mark{background:linear-gradient(140deg, var(--accent), var(--violet));box-shadow:var(--glow);border-radius:10px}
+.brand b{letter-spacing:-.02em;font-weight:700}
+.brand small,.nav-group,.crumb small,th{font-family:var(--f-mono)}
+.nav-group{letter-spacing:.14em;opacity:.85}
+.nav a{border-radius:var(--r-sm);transition:background .16s var(--ease),color .16s var(--ease),transform .16s var(--ease)}
+.nav a:hover{background:var(--sunk);transform:translateX(1px)}
+.nav a[aria-current="page"]{background:linear-gradient(90deg,var(--accent-soft),transparent);
+  color:var(--ink);box-shadow:inset 0 0 0 1px var(--accent-line)}
+.nav .count{background:var(--accent);box-shadow:var(--glow)}
+.btn{border-radius:var(--r-sm);transition:transform .16s var(--ease),background .16s var(--ease),border-color .16s var(--ease),box-shadow .16s var(--ease)}
+.btn:hover{transform:translateY(-1px)}
+.btn.primary{background:linear-gradient(140deg,var(--accent),var(--violet));border-color:transparent;
+  box-shadow:0 12px 34px -16px rgba(43,58,247,.95)}
+.btn.primary:hover{filter:brightness(1.08)}
+.icon-btn,.user,.input,.seg,.tabs{border-radius:var(--r-sm)}
+.pill{border-radius:999px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:8px}
+input,select,textarea,.input{background:var(--sunk);border-color:var(--rule);color:var(--ink)}
+.input:focus{border-color:var(--accent-line);box-shadow:0 0 0 3px var(--accent-soft)}
+/* sidebar live card */
+.live-card{display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:var(--r-sm);
+  background:var(--panel);border:1px solid var(--rule);white-space:nowrap;box-shadow:var(--shadow)}
+.live-card .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 4px var(--ok-soft);flex:none}
+.live-card b{font-size:13px;display:block;letter-spacing:-.01em}
+.live-card small{font:500 10.5px var(--f-mono);letter-spacing:.1em;color:var(--ink-3);text-transform:uppercase}
+.app[data-collapsed="true"] .live-card small,.app[data-collapsed="true"] .live-card b{display:none}
+/* top bar additions */
+.search-btn{display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 10px;border-radius:var(--r-sm);
+  border:1px solid var(--rule);background:var(--panel);color:var(--ink-2);cursor:pointer;font-size:13px}
+.search-btn:hover{color:var(--ink);border-color:var(--accent-line)}
+.search-btn kbd{font:600 10.5px var(--f-mono);letter-spacing:.06em;padding:2px 5px;border-radius:5px;
+  background:var(--sunk);border:1px solid var(--rule);color:var(--ink-3)}
+@media (max-width:720px){.search-btn kbd,.search-btn span{display:none}}
+/* command palette */
+.palette{position:fixed;inset:0;z-index:60;display:none;align-items:flex-start;justify-content:center;
+  padding-top:14vh;background:rgba(4,6,12,.62);backdrop-filter:blur(6px)}
+.palette[data-open="true"]{display:flex}
+.palette-box{width:min(560px,92vw);background:color-mix(in srgb,var(--bg) 88%, black);border:1px solid var(--rule);
+  border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+:root[data-theme="light"] .palette-box{background:#fff}
+.palette input{width:100%;height:48px;padding:0 16px;border:0;border-bottom:1px solid var(--rule);
+  background:transparent;color:var(--ink);font-size:14px;outline:none}
+.palette ul{list-style:none;margin:0;padding:6px;max-height:44vh;overflow:auto}
+.palette li{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--r-sm);cursor:pointer;color:var(--ink-2)}
+.palette li[aria-selected="true"]{background:var(--accent-soft);color:var(--ink);box-shadow:inset 0 0 0 1px var(--accent-line)}
+.palette li small{margin-left:auto;font:500 10.5px var(--f-mono);color:var(--ink-3)}
+/* honour reduced motion everywhere: no entrance animation, no hover lift */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;
+    transition-duration:.001ms!important;scroll-behavior:auto!important}
+  .btn:hover,.nav a:hover{transform:none}
+}
 </style>
+<script>
+/* Theme before first paint: dark by default, the operator's last choice wins.
+   Kept inline and tiny so there is no flash of the wrong ground. */
+(function(){ try { var t = localStorage.getItem('cc-theme'); document.documentElement.dataset.theme = t === 'light' ? 'light' : 'dark'; } catch (e) { document.documentElement.dataset.theme = 'dark'; } })();
+</script>
 </head>
 <body>
 
@@ -501,6 +589,10 @@ input[type=range]{accent-color:var(--accent);width:100%}
       <a href="#links" data-sec="links" title="Creator Links"><svg class="i"><use href="#i-copy"/></svg><span class="nav-label">Creator Links</span></a>
     </nav>
     <div class="side-foot">
+      <div class="live-card" id="liveCard" title="Bot accounts with a live Telegram connection">
+        <span class="dot" aria-hidden="true"></span>
+        <div><b id="liveCount">–</b><small>Assistants live</small></div>
+      </div>
       <button class="collapse-btn" id="collapse" type="button" aria-label="Collapse sidebar"><svg class="i"><use href="#i-panel"/></svg><span class="nav-label">Collapse</span></button>
     </div>
   </aside>
@@ -511,7 +603,17 @@ input[type=range]{accent-color:var(--accent);width:100%}
       <button class="icon-btn menu-btn" id="menu" type="button" aria-label="Open navigation"><svg class="i"><use href="#i-menu"/></svg></button>
       <div class="crumb"><small id="crumb-group">Dashboard</small><h1 id="crumb-title">Overview</h1></div>
       <div class="top-right">
+        <button class="search-btn" id="paletteBtn" type="button" aria-label="Search and jump to a section">
+          <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <span>Search</span><kbd>⌘K</kbd>
+        </button>
         <span class="badge-admin" id="admin-badge" hidden>ADMIN</span>
+        <button class="icon-btn" id="themeBtn" type="button" aria-label="Switch theme" title="Switch theme">
+          <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></svg>
+        </button>
+        <button class="icon-btn" id="notifBtn" type="button" aria-label="Notifications" title="Notifications">
+          <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 15v-4a6 6 0 10-12 0v4l-2 3h16z"/><path d="M10 21h4"/></svg>
+        </button>
         <div class="user"><div class="avatar" id="avatar">?</div><span class="email" id="user-email">…</span></div>
         <button class="icon-btn" id="logout" type="button" aria-label="Log out" title="Log out"><svg class="i"><use href="#i-logout"/></svg></button>
       </div>
@@ -520,6 +622,12 @@ input[type=range]{accent-color:var(--accent);width:100%}
   </div>
 </div>
 <div class="toasts" id="toasts" role="status"></div>
+<div class="palette" id="palette" data-open="false" role="dialog" aria-modal="true" aria-label="Jump to a section">
+  <div class="palette-box">
+    <input id="paletteInput" type="text" placeholder="Jump to a section…" aria-label="Search sections" autocomplete="off">
+    <ul id="paletteList" role="listbox" aria-label="Sections"></ul>
+  </div>
+</div>
 <div class="page-loading" id="pageLoading"><div class="spinner"></div></div>
 
 <script type="module">
@@ -2337,6 +2445,72 @@ $('#logout').onclick = async () => {
 window.addEventListener('hashchange', () => route());
 document.addEventListener('keydown', e => { if(e.key==='Escape' && $('#app').dataset.drawer==='open'){ $('#app').dataset.drawer='closed'; document.querySelector('.scrim')?.remove(); } });
 
+/* ---------- theme, command palette, live card ---------- */
+function applyTheme(t){
+  document.documentElement.dataset.theme = t;
+  try{ localStorage.setItem('cc-theme', t); }catch(e){}
+  const b = $('#themeBtn');
+  if(b) b.setAttribute('aria-label', t === 'light' ? 'Switch to dark theme' : 'Switch to light theme');
+}
+$('#themeBtn')?.addEventListener('click', () => applyTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light'));
+
+const paletteItems = () => Object.entries(SECTIONS).map(([key, v]) => ({ key, label: v.title, group: v.group }));
+function renderPalette(filter){
+  const q = (filter || '').trim().toLowerCase();
+  const rows = paletteItems().filter(i => !q || i.label.toLowerCase().includes(q) || i.group.toLowerCase().includes(q));
+  const list = $('#paletteList'); if(!list) return;
+  list.innerHTML = rows.length
+    ? rows.map((i, n) => `<li role="option" data-key="${esc(i.key)}" aria-selected="${n === 0}"><span>${esc(i.label)}</span><small>${esc(i.group)}</small></li>`).join('')
+    : '<li aria-disabled="true"><span class="muted">No section matches that</span></li>';
+}
+function openPalette(){
+  const p = $('#palette'); if(!p) return;
+  p.dataset.open = 'true'; renderPalette('');
+  const inp = $('#paletteInput'); if(inp){ inp.value = ''; inp.focus(); }
+}
+function closePalette(){ const p = $('#palette'); if(p) p.dataset.open = 'false'; }
+function movePalette(dir){
+  const items = [...document.querySelectorAll('#paletteList li[data-key]')];
+  if(!items.length) return;
+  const at = items.findIndex(li => li.getAttribute('aria-selected') === 'true');
+  const next = (at + dir + items.length) % items.length;
+  items.forEach((li, i) => li.setAttribute('aria-selected', String(i === next)));
+  items[next].scrollIntoView({ block: 'nearest' });
+}
+function runPalette(){
+  const sel = document.querySelector('#paletteList li[aria-selected="true"][data-key]');
+  if(!sel) return;
+  closePalette();
+  location.hash = '#' + sel.dataset.key;
+}
+$('#paletteBtn')?.addEventListener('click', openPalette);
+$('#palette')?.addEventListener('click', e => { if(e.target.id === 'palette') closePalette(); });
+$('#paletteInput')?.addEventListener('input', e => renderPalette(e.target.value));
+$('#paletteList')?.addEventListener('click', e => {
+  const li = e.target.closest('li[data-key]'); if(!li) return;
+  closePalette(); location.hash = '#' + li.dataset.key;
+});
+document.addEventListener('keydown', e => {
+  const open = $('#palette')?.dataset.open === 'true';
+  if((e.key === 'k' || e.key === 'K') && (e.metaKey || e.ctrlKey)){ e.preventDefault(); open ? closePalette() : openPalette(); return; }
+  if(!open) return;
+  if(e.key === 'Escape') closePalette();
+  else if(e.key === 'ArrowDown'){ e.preventDefault(); movePalette(1); }
+  else if(e.key === 'ArrowUp'){ e.preventDefault(); movePalette(-1); }
+  else if(e.key === 'Enter'){ e.preventDefault(); runPalette(); }
+});
+
+async function paintLiveCard(){
+  const el = $('#liveCount'); if(!el) return;
+  try{
+    const { rows } = await Data.list('telegram_accounts', { select:'id, connected', size:100, scopeOwner:true });
+    const live = (rows || []).filter(a => a.connected).length;
+    el.textContent = String(live);
+    const card = $('#liveCard');
+    if(card) card.title = `${live} bot account${live === 1 ? '' : 's'} with a live Telegram connection`;
+  }catch(e){ el.textContent = '-' }
+}
+
 /* ---------- boot ---------- */
 (async function boot(){
   if(store.get('cc-collapsed') === 'true') $('#app').dataset.collapsed = 'true';
@@ -2344,6 +2518,7 @@ document.addEventListener('keydown', e => { if(e.key==='Escape' && $('#app').dat
   try{ await checkAuth(); }
   catch(e){ console.error(e); toast('Could not load your profile', 'error', e.message); }
   paintHeader();
+  paintLiveCard();
   route(true);
 })();
 </script>
