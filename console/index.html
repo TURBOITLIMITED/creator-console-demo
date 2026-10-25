@@ -99,6 +99,22 @@ button,input,select,textarea{font:inherit;color:inherit}
 .app[data-collapsed="true"] .audit-btn{position:relative;justify-content:center;padding:0}
 .app[data-collapsed="true"] .audit-count{position:absolute;top:3px;right:3px;padding:0 5px;font-size:9.5px}
 #fs-detail:empty,#fs-alerts:empty,#fs-manual:empty{display:none}
+.fs-log{list-style:none;margin:0;padding:0}
+.fs-log li{display:flex;gap:10px;padding:11px 14px;border-bottom:1px solid var(--rule-2);align-items:flex-start;cursor:pointer}
+.fs-log li:last-child{border-bottom:0}
+.fs-log li.needs{background:color-mix(in srgb,var(--accent) 9%,transparent)}
+.fs-log li.done{opacity:.72}
+.fs-log .av{width:30px;height:30px;border-radius:50%;background:var(--sunk);display:grid;place-items:center;
+  font:600 11px var(--f-ui);color:var(--ink-2);flex:none;text-transform:uppercase}
+.fs-log .body{flex:1;min-width:0}
+.fs-log .top{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.fs-log .nm{font-size:13.5px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fs-log li.needs .nm{font-weight:600}
+.fs-log .tm{font-size:11px;color:var(--ink-3);flex:none}
+.fs-log .pv{font-size:12.5px;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px}
+.fs-log li.needs .pv{color:var(--ink-2)}
+.fs-log .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);flex:none;margin-top:12px}
+.fs-log .tick{font-size:10px;color:var(--ok);flex:none;margin-top:3px}
 .audit-list{list-style:none;margin:0;padding:0}
 .audit-list li{display:flex;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rule-2)}
 .audit-list li:last-child{border-bottom:0}
@@ -2027,17 +2043,29 @@ async function fsLoadConvos(){
       t.count++;
       if(new Date(m.at) > new Date(t.last.at)) { t.last = m; t.name = m.fs_user_name || t.name; }
     }
-    $('#fs-convo-count').textContent = threads.size ? `${threads.size} threads` : '';
-    if(!threads.size){
+    const list = [...threads.values()].sort((a, b) => {
+      const an = a.last.direction === 'in' ? 1 : 0, bn = b.last.direction === 'in' ? 1 : 0;
+      if (an !== bn) return bn - an;                       // waiting on us first
+      return new Date(b.last.at) - new Date(a.last.at);    // then newest
+    });
+    const waiting = list.filter(t => t.last.direction === 'in').length;
+    $('#fs-convo-count').textContent = list.length ? (waiting ? `${waiting} waiting · ${list.length} threads` : `${list.length} threads`) : '';
+    if(!list.length){
       el.innerHTML = `<div class="panel-body"><p class="muted" style="margin:0">No messages recorded yet. Each exchange she has is logged here from now on, so you can read the whole thing.</p></div>`;
       return;
     }
-    el.innerHTML = `<ul class="audit-list">${[...threads.values()].map(t => `<li>
-      <span class="a-kind" style="background:${t.last.direction === 'out' ? 'var(--ok-soft)' : 'var(--accent-soft)'};color:${t.last.direction === 'out' ? 'var(--ok)' : 'var(--accent)'}">${t.last.direction === 'out' ? 'HER' : 'HIM'}</span>
-      <div class="a-body"><p><b>${esc(t.name)}</b> <small>${esc(ago(t.last.at))} · ${t.count} ${t.count === 1 ? 'message' : 'messages'}</small></p>
-        <p style="color:var(--ink-2)">${esc((t.last.body || '').slice(0, 140))}</p>
-        <button class="btn sm" data-act="fs-open-convo" data-user="${esc(t.user)}" data-name="${esc(t.name)}">Read the thread</button>
-      </div></li>`).join('')}</ul>`;
+    el.innerHTML = `<ul class="fs-log">${list.map(t => {
+      const needs = t.last.direction === 'in';
+      const initials = (t.name || t.user || '?').replace(/[^A-Za-z0-9]/g, '').slice(0, 2);
+      return `<li class="${needs ? 'needs' : 'done'}" data-act="fs-open-convo" data-user="${esc(t.user)}" data-name="${esc(t.name)}">
+        <span class="av">${esc(initials)}</span>
+        <div class="body">
+          <div class="top"><span class="nm">${esc(t.name)}</span><span class="tm">${esc(ago(t.last.at))}</span></div>
+          <div class="pv">${needs ? '' : 'you: '}${esc((t.last.body || '').slice(0, 120))}</div>
+        </div>
+        ${needs ? '<span class="dot"></span>' : '<span class="tick">✓</span>'}
+      </li>`;
+    }).join('')}</ul>`;
   }catch(e){ el.innerHTML = `<div class="panel-body"><p class="muted">${esc(e.message)}</p></div>`; }
 }
 

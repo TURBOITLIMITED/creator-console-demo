@@ -255,12 +255,13 @@ async function fsSaveRecord(env, acctId, cookie, nextSendAt){
     }));
   }catch(e){}
 }
-/* One answer at a time, between twenty seconds and a minute apart. The timer
-   wakes once a minute, so in practice that is one message per tick: the long
-   wander is gone, the two daily breaks are what make it read as a person. */
+/* A run sends a handful, one after another, with a couple of seconds between
+   them the way someone works through their inbox in one go. The timer wakes
+   once a minute, so the next batch is a minute away. */
 function humanGapSeconds(){
-  return 20 + Math.random() * 40;
+  return 5 + Math.random() * 15;
 }
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 const UK_HOUR = () => Number(new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: "Europe/London" }).format(new Date()));
 
 /* Two breaks a day, roughly an hour each, at times that shift with the date
@@ -357,7 +358,10 @@ async function pollFab(env){
       // older unread threads are left alone: answering something from weeks ago
       // reads as a bot working through a backlog, and it is exactly what gets
       // an account reported
-      const maxAge = Number(env.FS_MAX_AGE_MIN || 180);
+      // everything waiting is from today, so a full day is the reach. Anything
+      // older than that is left alone: answering a months-old thread is what
+      // reads as a bot working a backlog.
+      const maxAge = Number(env.FS_MAX_AGE_MIN || 1440);
       const fresh = (x) => { const a = ageMinutes(x.when); return a === null || a <= maxAge; };
       for (const r of snap.rows.filter((x) => x.unread && !done.has(x.user) && fresh(x))){
         firstSeen.push(r);
@@ -376,21 +380,47 @@ async function pollFab(env){
           body: JSON.stringify({ last_poll_at: new Date().toISOString(), last_error: "UPGRADE: FabSwingers is asking for a Site Supporter upgrade before more messages can be sent." }) }).catch(() => null);
         continue;
       }
-      const dailyCap = Number(env.FS_DAILY_CAP || 150);
+      const dailyCap = Number(env.FS_DAILY_CAP || 400);
       if (await fsAnsweredToday(env, acct.id) >= dailyCap){
         await sb(env, `fabswingers_accounts?id=eq.${acct.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" },
           body: JSON.stringify({ last_error: `Daily cap reached (${dailyCap}). Resumes tomorrow.` }) }).catch(() => null);
         continue;
       }
       const minWait = Number(env.FS_MIN_WAIT || 45) * 1000;
-      const ready = (doneRows || []).filter((r) => r.notes === "pending" && Date.now() - new Date(r.created_at).getTime() >= minWait);
-      // one message per tick, never a burst: the next thread waits for the
-      // next minute even when several are queued
-      const todo = ready.length
-        ? snap.rows.filter((r) => r.unread && ready.some((d) => d.fs_user_id === r.user)).slice(0, 1)
+
+      // when she last wrote to each man, so a thread that has already been
+      // answered opens again only if he has written since
+      const outs = await sb(env, `fabswingers_messages?fabswingers_account_id=eq.${acct.id}&direction=eq.out&select=fs_user_id,at&order=at.desc&limit=500`).catch(() => []);
+      const lastOut = new Map();
+      for (const o of outs || []) if (!lastOut.has(o.fs_user_id)) lastOut.set(o.fs_user_id, new Date(o.at).getTime());
+
+      const eligible = (r) => {
+        const d = done.get(r.user);
+        if (!d) return false;
+        const inboundAt = Date.now() - (ageMinutes(r.when) || 0) * 60000;
+        if (d.notes === "pending") return Date.now() - new Date(d.created_at).getTime() >= minWait;
+        // answered before, but he has written again since: keep the chat going
+        if (d.notes === "answered") return inboundAt > (lastOut.get(r.user) || 0) + 60000;
+        return false;
+      };
+      const ready = (snap.rows || []).filter(eligible);
+      // a batch per run, still one message per man and never the same thread
+      // twice in a run. Default five, borrowed from the monthly allowance.
+      const perRun = Math.max(1, Math.min(8, Number(env.FS_PER_RUN || 5)));
+      // the inbox lists one row per message, so the same man can appear several
+      // times. One message each per batch, first row wins.
+      const picked = new Set();
+      const readyUsers = new Set((ready || []).map((r) => r.user));
+      const todo = readyUsers.size
+        ? snap.rows.filter((r) => {
+            if (!r.unread || !readyUsers.has(r.user) || picked.has(r.user)) return false;
+            picked.add(r.user);
+            return true;
+          }).slice(0, perRun)
         : [];
       let halted = false, sent = 0;
       for(const row of todo){
+        if (sent > 0) await pause(1200 + Math.random() * 2200);
         const reason = fsStopReason(row.snippet);
         let status = "sent", text = null;
         if(reason){
