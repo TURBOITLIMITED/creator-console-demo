@@ -163,7 +163,17 @@ export async function sendReply(cookie, user, guid, text) {
     redirect: "manual",
   });
   const page = await r.text().catch(() => "");
-  return { ok: r.status >= 200 && r.status < 400, status: r.status, location: r.headers.get("location") || "", page };
+  const flat = strip(page);
+  // Fab answers a refused send with a 200 and a page saying so. Trusting the
+  // status alone made the log say "sent" for messages that never existed.
+  const refused = /can'?t send messages|block will have cleared|you have been blocked|too many messages|message could not be sent/i.test(flat);
+  return {
+    ok: r.status >= 200 && r.status < 400 && !refused,
+    status: r.status,
+    location: r.headers.get("location") || "",
+    page,
+    refused: refused ? flat.slice(0, 160) : null,
+  };
 }
 
 /** Fetch the inbox with an existing cookie. If FabSwingers bounced us to the
