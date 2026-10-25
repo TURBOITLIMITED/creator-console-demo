@@ -399,7 +399,7 @@ async function pollFab(env){
       }
       // FabSwingers blocks an account that pushes too hard, so there is an
       // hourly ceiling as well as a daily one: sixty an hour has been safe.
-      const perHour = Number(env.FS_PER_HOUR || 90);
+      const perHour = Number(env.FS_PER_HOUR || 120);
       const hourAgo = new Date(Date.now() - 3600 * 1000).toISOString();
       const lastHour = await sb(env, `fabswingers_messages?fabswingers_account_id=eq.${acct.id}&direction=eq.out&at=gte.${encodeURIComponent(hourAgo)}&select=id`).catch(() => []);
       if ((lastHour || []).length >= perHour){
@@ -458,7 +458,7 @@ async function pollFab(env){
       for(const row of todo){
        // one broken thread must never take the batch down with it
        try{
-        if (sent > 0) await pause(3000 + Math.random() * 5000);
+        if (sent > 0) await pause(8000 + Math.random() * 6000);
         const reason = fsStopReason(row.snippet);
         let status = "sent", text = null;
         if(reason){
