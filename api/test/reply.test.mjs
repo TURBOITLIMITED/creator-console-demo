@@ -39,8 +39,8 @@ test("the prompt names the lines already sent and the role-play rule", async () 
   const prompt = personaSystemPrompt({ display_name: "Michaela", tone: "playful", emoji_level: "medium" }, {}, "", "", ["you're a bad boy x"]);
   assert.match(prompt, /You have already sent these lines in this chat/);
   assert.match(prompt, /you're a bad boy x/);
-  assert.match(prompt, /If he calls you mummy/);
-  assert.match(prompt, /Never correct him, never say you are not his mummy/);
+  assert.match(prompt, /Play along with absolutely anything he is into/);
+  assert.match(prompt, /Never correct him/);
   assert.doesNotMatch(prompt, /I'm not your mummy/);
 });
 
