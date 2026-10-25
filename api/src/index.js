@@ -267,6 +267,13 @@ async function fsLoadRecord(env, acctId){
 async function fsOpenCookie(env, rec){
   try{ return rec && rec.sealed ? await openSecret(env, rec.sealed) : null; }catch(e){ return null; }
 }
+async function fsSaveFlags(env, acctId, patch){
+  try{
+    const prev = (await fsLoadRecord(env, acctId)) || {};
+    await env.MEDIA.put(fsSessionKey(acctId), JSON.stringify({ ...prev, ...patch }));
+  }catch(e){}
+}
+
 async function fsSaveRecord(env, acctId, cookie, nextSendAt, blockedUntil){
   try{
     const prev = await fsLoadRecord(env, acctId);
@@ -353,6 +360,11 @@ async function pollFab(env){
       const record = await fsLoadRecord(env, acct.id);
       const dueAt = record && record.next_send_at ? new Date(record.next_send_at).getTime() : 0;
       if (Date.now() < dueAt) continue;
+
+      // One run at a time. A slow batch can outlive the minute, and two runs
+      // racing each other queued the same man twice.
+      if (record && record.running_until && Date.now() < new Date(record.running_until).getTime()) continue;
+      await fsSaveFlags(env, acct.id, { running_until: new Date(Date.now() + 150000).toISOString() });
 
       // If we cannot send, we do not open anything either: opening a thread
       // marks it read on FabSwingers, and a man whose message has been read and
@@ -597,10 +609,12 @@ async function pollFab(env){
         }).catch(() => null);
        }
       }
+      await fsSaveFlags(env, acct.id, { running_until: null });
       await fsSaveRecord(env, acct.id, cookie, new Date(Date.now() + humanGapSeconds() * 1000).toISOString());
       await sb(env, `fabswingers_accounts?id=eq.${acct.id}`, { method:"PATCH", headers:{Prefer:"return=minimal"},
         body: JSON.stringify({ last_poll_at: new Date().toISOString(), last_error: halted ? undefined : null }) }).catch(() => null);
     }catch(e){
+      await fsSaveFlags(env, acct.id, { running_until: null });
       await sb(env, `fabswingers_accounts?id=eq.${acct.id}`, { method:"PATCH", headers:{Prefer:"return=minimal"},
         body: JSON.stringify({ last_poll_at: new Date().toISOString(), last_error: String((e && e.message) || e).slice(0, 300) }) }).catch(() => null);
     }
