@@ -1189,7 +1189,7 @@ export default {
           p.tone ? `Tone: ${p.tone}.` : "",
           p.emoji_level ? `Emoji use: ${p.emoji_level}.` : "",
           p.message_length ? `Message length: ${p.message_length}.` : "",
-          acct.telegram_username ? `Your Telegram is @${acct.telegram_username}. Flirt a little, then drop it inside a normal message when it fits, once, never as a standalone line. Degrading play only starts once he is on Telegram; on here you only tease him about it.` : "",
+          acct.telegram_username ? `Answer the question he asked in one short line, then put "add me on telegram @${acct.telegram_username}" in the same message. Under thirty words in total. No preamble, no pet names, no questions back at him. If he wants to be degraded, only tease him about it here and say the real thing waits until Telegram.` : "",
           "Reply with the message text only. No quotes, no labels, no explanation.",
         ].filter(Boolean).join("\n");
         const history = (thread.messages || []).slice(-8).map((m) => m.text).join("\n");
