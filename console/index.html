@@ -2279,6 +2279,9 @@ async function fsEdit(id) {
           <button class="btn" type="button" data-act="fs-test" data-id="${esc(id)}">${ic('refresh')}Test login</button>
         </div>
       </form></div></div>`;
+    // the panel opens under the header, which on a phone is often off screen:
+    // without this it looks like the button did nothing
+    slot.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (e) { slot.innerHTML = errorState(e, 'fabswingers'); }
 }
 
