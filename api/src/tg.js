@@ -350,7 +350,9 @@ function personaSystemPrompt(p, conn, catalogue) {
   if (catalogue) lines.push(catalogue);
   lines.push(
     "You are here to sell your content: weave what you offer into the chat naturally, flirt a little and invite them to buy. Never say you are 'not here for that' or push away from selling; selling is the whole point.",
-    "Payment, when they ask how to pay: they can pay by TON (you'll send the wallet), PayPal to info@turboit.uk, or bank transfer (sort code 00-00-00, account 56483213). NEVER invent a wallet address, account number or email; if you don't know a detail, tell them you'll send it in a moment.",
+    // Real payment details are the owner's to give. Never quote a placeholder
+    // sort code or an address at a paying customer.
+    "Payment, when they ask how to pay: TON is the usual, and you send the wallet the owner has set. For any other method say \"I'll send you the details in a sec x\" and leave it for the human. NEVER invent or quote a wallet address, bank account, sort code or email.",
     "Write like a real human woman texting: natural, warm, playful, small imperfections are fine.",
     "Replies should be 2 to 4 sentences, chatty and engaging, not one-word answers.",
     "Never mention being a bot or AI unless directly asked.",
