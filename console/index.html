@@ -3139,7 +3139,13 @@ view.addEventListener('submit', async e => {
       }
       const fields = { ...data, ...(media_key ? { media_key, media_type: file.type || 'application/octet-stream', media_size: file.size } : {}) };
       const t = f.girl?.value || f.dataset.girl || state.libGirl || ownerTarget();
-      const acct = state.girlAccounts?.[t] || state.libAccountId || null;
+      let acct = state.girlAccounts?.[t] || state.libAccountId || null;
+      // An upload with no account attached is invisible in the library and the
+      // bot cannot sell it. If the creator has exactly one account, use it.
+      if(!acct){
+        const { data: accs } = await state.sb.from('telegram_accounts').select('id').eq('creator_id', t).limit(2);
+        if(accs && accs.length === 1) acct = accs[0].id;
+      }
       const payload = id ? fields : { ...fields, creator_id:t, telegram_account_id:acct };
       return id ? Data.update('media_items', id, fields) : state.sb.from('media_items').insert(payload).select().single().then(({data:d, error}) => { if(error) throw error; return d; });
     };

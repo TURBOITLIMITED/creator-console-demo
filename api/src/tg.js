@@ -322,9 +322,15 @@ async function loadPersonaRow(env, sb, conn) {
    she has nothing live; the model then avoids naming products. */
 async function liveCatalogue(env, sb, conn) {
   if (!conn.telegram_account_id) return "";
-  const rows = await sb(env, "media_items?telegram_account_id=eq." +
+  let rows = await sb(env, "media_items?telegram_account_id=eq." +
     encodeURIComponent(conn.telegram_account_id) +
     "&visible=eq.true&select=title,kind,price_ton,price_gbp&order=price_ton.desc&limit=15").catch(() => null);
+  // Content uploaded before an account existed sits unassigned. It is still
+  // hers, so it counts rather than the bot saying she has nothing to sell.
+  if (!(rows && rows.length)){
+    rows = await sb(env, "media_items?creator_id=eq." + encodeURIComponent(conn.creator_id) +
+      "&telegram_account_id=is.null&visible=eq.true&select=title,kind,price_ton,price_gbp&order=price_ton.desc&limit=15").catch(() => null);
+  }
   const items = (rows || []).filter(m => m.title);
   if (!items.length) return "";
   const lines = ["Your current live content for sale (the ONLY things you can offer, use these exact names and prices):"];
