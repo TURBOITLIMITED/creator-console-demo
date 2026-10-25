@@ -1976,6 +1976,12 @@ async function renderFabSwingers() {
     <div id="fs-detail"></div>
     <div id="fs-alerts"></div>
     <section class="panel" style="margin-top:16px">
+      <div class="panel-head"><h2>Conversations</h2>
+        <span class="end muted" id="fs-convo-count"></span></div>
+      <div id="fs-convos">${spinner('Loading conversations...')}</div>
+      <div id="fs-transcript"></div>
+    </section>
+    <section class="panel" style="margin-top:16px">
       <div class="panel-head"><h2>What she has been doing</h2>
         <span class="end muted" id="fs-activity-count"></span></div>
       <div id="fs-activity">${spinner('Loading activity...')}</div>
@@ -1986,6 +1992,7 @@ async function renderFabSwingers() {
       <div id="fs-inbox" class="panel-body"><p class="muted">Check the inbox to read what has arrived on FabSwingers. Nothing is sent from here without you.</p></div>
     </section>`);
   loadFabSwingers();
+  fsLoadConvos();
   fsLoadActivity();
   fsUpgradeAlerts('#fs-alerts');
 }
@@ -2001,6 +2008,62 @@ async function refreshFabBadge(){
     if(el){ el.textContent = n > 99 ? '99+' : String(n); el.hidden = !n; }
     return n;
   }catch(e){ if(el) el.hidden = true; return 0; }
+}
+
+/* ---------- Conversations ----------
+   The site keeps one message per thread view, so the transcript is what this
+   console recorded as the two of them talked. */
+async function fsLoadConvos(){
+  const el = $('#fs-convos'); if(!el) return;
+  try{
+    const { data } = await state.sb.from('fabswingers_messages')
+      .select('fs_user_id,fs_user_name,direction,body,at')
+      .order('at', { ascending:false }).limit(400);
+    const rows = data || [];
+    const threads = new Map();
+    for(const m of rows){
+      const t = threads.get(m.fs_user_id);
+      if(!t){ threads.set(m.fs_user_id, { user:m.fs_user_id, name:m.fs_user_name || m.fs_user_id, last:m, count:1 }); continue; }
+      t.count++;
+      if(new Date(m.at) > new Date(t.last.at)) { t.last = m; t.name = m.fs_user_name || t.name; }
+    }
+    $('#fs-convo-count').textContent = threads.size ? `${threads.size} threads` : '';
+    if(!threads.size){
+      el.innerHTML = `<div class="panel-body"><p class="muted" style="margin:0">No messages recorded yet. Each exchange she has is logged here from now on, so you can read the whole thing.</p></div>`;
+      return;
+    }
+    el.innerHTML = `<ul class="audit-list">${[...threads.values()].map(t => `<li>
+      <span class="a-kind" style="background:${t.last.direction === 'out' ? 'var(--ok-soft)' : 'var(--accent-soft)'};color:${t.last.direction === 'out' ? 'var(--ok)' : 'var(--accent)'}">${t.last.direction === 'out' ? 'HER' : 'HIM'}</span>
+      <div class="a-body"><p><b>${esc(t.name)}</b> <small>${esc(ago(t.last.at))} · ${t.count} ${t.count === 1 ? 'message' : 'messages'}</small></p>
+        <p style="color:var(--ink-2)">${esc((t.last.body || '').slice(0, 140))}</p>
+        <button class="btn sm" data-act="fs-open-convo" data-user="${esc(t.user)}" data-name="${esc(t.name)}">Read the thread</button>
+      </div></li>`).join('')}</ul>`;
+  }catch(e){ el.innerHTML = `<div class="panel-body"><p class="muted">${esc(e.message)}</p></div>`; }
+}
+
+async function fsOpenConvo(user, name){
+  const el = $('#fs-transcript'); if(!el) return;
+  el.innerHTML = `<div class="panel-body">${spinner('Opening...')}</div>`;
+  el.scrollIntoView({ behavior:'smooth', block:'start' });
+  try{
+    const { data } = await state.sb.from('fabswingers_messages')
+      .select('fs_user_id,direction,body,at').eq('fs_user_id', user).order('at', { ascending:true }).limit(300);
+    const msgs = (data || []).filter(m => m.fs_user_id === user)
+      .sort((a, b) => new Date(a.at) - new Date(b.at));
+    el.innerHTML = `<div class="panel-head" style="border-top:1px solid var(--rule-2)">
+        <h2>${esc(name || user)}</h2>
+        <span class="end"><button class="btn sm" data-act="fs-close-convo">Close</button></span></div>
+      <div class="panel-body">
+        ${msgs.length ? msgs.map(m => `<div style="display:flex;justify-content:${m.direction === 'out' ? 'flex-end' : 'flex-start'};margin:0 0 8px">
+          <div style="max-width:82%;padding:8px 11px;border-radius:12px;font-size:13.5px;line-height:1.4;
+            background:${m.direction === 'out' ? 'var(--accent-soft)' : 'var(--sunk)'};
+            color:${m.direction === 'out' ? 'var(--ink)' : 'var(--ink-2)'}">
+            <div>${esc(m.body)}</div>
+            <div class="muted" style="font-size:10.5px;margin-top:4px;text-align:right">${m.direction === 'out' ? 'her' : 'him'} · ${esc(ago(m.at))}</div>
+          </div></div>`).join('') : '<p class="muted" style="margin:0">Nothing recorded for this thread yet.</p>'}
+        <button class="btn sm" style="margin-top:10px" data-act="fs-reply-user" data-user="${esc(user)}">${ic('send')}Reply by hand</button>
+      </div>`;
+  }catch(e){ el.innerHTML = `<div class="panel-body"><p class="muted">${esc(e.message)}</p></div>`; }
 }
 
 /* The log the owner actually needs: who was answered, what she said, and who
@@ -2244,7 +2307,7 @@ async function fsSend(guid, user, btn){
       .update({ notes:'answered (manual)', last_message_at:new Date().toISOString() })
       .eq('fabswingers_account_id', acc.id).eq('fs_user_id', user); }catch(e){}
     toast('Sent on FabSwingers', 'success');
-    fsInboxLoad(); refreshFabBadge(); fsLoadActivity();
+    fsInboxLoad(); refreshFabBadge(); fsLoadActivity(); fsLoadConvos();
   }
   else if(r) toast('FabSwingers refused it', 'error', r.error || ('Status ' + r.status));
 }
@@ -2789,6 +2852,8 @@ view.addEventListener('click', async e => {
     }
     /* fabswingers inbox */
     case 'fs-inbox-check': fsInboxLoad(); break;
+    case 'fs-open-convo': fsOpenConvo(a.dataset.user, a.dataset.name); break;
+    case 'fs-close-convo': { const t = $('#fs-transcript'); if(t) t.innerHTML = ''; break; }
     case 'fs-reply-user': {
       const who = a.dataset.user;
       await fsInboxLoad();

@@ -278,6 +278,18 @@ function fsUpgradeAsked(html){ return FS_UPGRADE_RE.test(String(html || "")); }
 const FS_RATE_RE = /(too many messages|slow down|rate limit|temporarily blocked|try again later|you are sending messages too quickly)/i;
 function fsRateLimited(html){ return FS_RATE_RE.test(String(html || "")); }
 
+/* Transcript log. The site keeps one message per thread view, so the console
+   reads its own record of the exchange instead of trying to scrape a history
+   page that does not exist. */
+async function fsLogMessage(env, acctId, user, name, direction, body, at){
+  if(!body) return;
+  await sb(env, "fabswingers_messages", {
+    method: "POST", headers: { Prefer: "return=minimal" },
+    body: JSON.stringify({ fabswingers_account_id: acctId, fs_user_id: user, fs_user_name: name || null,
+      direction, body: String(body).slice(0, 2000), at: at || new Date().toISOString() }),
+  }).catch(() => null);
+}
+
 async function fsAnsweredToday(env, acctId){
   const start = new Date(); start.setHours(0, 0, 0, 0);
   const rows = await sb(env, `fabswingers_conversations?fabswingers_account_id=eq.${acctId}&notes=eq.answered&last_message_at=gte.${encodeURIComponent(start.toISOString())}&select=fs_user_id`).catch(() => []);
@@ -371,6 +383,9 @@ async function pollFab(env){
         if(reason){
           status = "flagged: " + reason;
         } else {
+          const inAge = ageMinutes(row.when);
+          await fsLogMessage(env, acct.id, row.user, row.name, "in", row.snippet,
+            new Date(Date.now() - (inAge || 0) * 60000).toISOString());
           const tr = await fetch("https://www.fabswingers.com/my/messagesnew/" + row.guid, {
             headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36", Cookie: snap.cookie, Accept: "text/html" },
             redirect: "follow",
@@ -382,6 +397,7 @@ async function pollFab(env){
           else if(drafted){ status = "skipped: own reply mentioned " + drafted; }
           else {
             const res = await sendReply(snap.cookie, row.user, row.guid, text);
+          if(res.ok) await fsLogMessage(env, acct.id, row.user, row.name, "out", text);
             if(!res.ok){ status = "send failed: " + res.status; }
             else if(fsRateLimited(res.page)){
               status = "rate limited";
@@ -925,6 +941,33 @@ export default {
       }
     }
 
+    // read-only view of the site's own pages, admin only, whitelisted paths.
+    // Used to confirm a send actually landed and to read the thread markup.
+    if (url.pathname === "/fabswingers/page" && request.method === "POST") {
+      const denied = await requireConsoleAdmin(env, request, origin);
+      if (denied) return denied;
+      const b = await request.json().catch(() => ({}));
+      const allowed = ["/my/messagesnew", "/my/sent_messages", "/my/messages"];
+      const path = String(b.path || "");
+      if (!allowed.includes(path) && !path.startsWith("/account/pm.aspx?")) {
+        return json({ ok: false, error: "path not allowed" }, 400, origin);
+      }
+      const acct = await fsAccount(env, b.id);
+      if (!acct) return json({ ok: false, error: "unknown account" }, 404, origin);
+      try {
+        const snap = await inboxSnapshot(env, acct);
+        const r = await fetch("https://www.fabswingers.com" + path, {
+          headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36", Cookie: snap.cookie, Accept: "text/html" },
+          redirect: "follow",
+        });
+        const html = await r.text();
+        const text = html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+        return json({ ok: true, status: r.status, text: text.slice(0, 6000), html: b.raw ? html.slice(0, 60000) : undefined }, 200, origin);
+      } catch (e) {
+        return json({ ok: false, error: String((e && e.message) || e) }, 200, origin);
+      }
+    }
+
     if (url.pathname === "/fabswingers/thread" && request.method === "POST") {
       const denied = await requireConsoleAdmin(env, request, origin);
       if (denied) return denied;
@@ -940,6 +983,9 @@ export default {
           redirect: "follow",
         });
         const html = await r.text();
+        // raw is for working out the site's markup, admin only, and it never
+        // goes near a message: read only, no sends
+        if (b.raw) return json({ ok: true, row, thread: parseThread(html), html: html.slice(0, 60000) }, 200, origin);
         return json({ ok: true, row, thread: parseThread(html) }, 200, origin);
       } catch (e) {
         return json({ ok: false, error: String((e && e.message) || e) }, 200, origin);
