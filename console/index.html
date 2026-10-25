@@ -2429,6 +2429,7 @@ async function tgLoadMenu(accountId){
       .select('id,name,kind,price_gbp,description,media_key,active')
       .eq('telegram_account_id', accountId).order('position').order('created_at');
     const items = data || [];
+    state.tgMenu = items;
     $('#tg-menu-count').textContent = items.length ? `${items.length} item${items.length===1?'':'s'}` : '';
     if(!items.length){ el.innerHTML = `<div class="panel-body"><p class="muted" style="margin:0">Nothing on the menu yet. Add the first thing below.</p></div>`; return; }
     const kindLabel = k => k === 'physical' ? 'Posted' : k === 'video' ? 'Video' : k === 'service' ? 'Service' : 'Photo';
@@ -2437,6 +2438,7 @@ async function tgLoadMenu(accountId){
       <div class="a-body"><p><b>${esc(m.name)}</b> <small>£${Number(m.price_gbp||0).toFixed(2)}</small></p>
         ${m.description ? `<p style="color:var(--ink-2)">${esc(m.description)}</p>` : ''}
         <div class="row-actions" style="margin-top:6px">
+          <button class="act" data-act="tg-menu-edit" data-id="${esc(m.id)}">${ic('edit')}Edit</button>
           <button class="act" data-act="tg-menu-toggle" data-id="${esc(m.id)}" data-on="${m.active?1:0}">${ic('power')}${m.active?'Hide':'Show'}</button>
           <button class="act danger" data-act="tg-menu-del" data-id="${esc(m.id)}">${ic('trash')}</button>
         </div>
@@ -2454,6 +2456,7 @@ async function tgSaveMenuItem(f, btn){
   if(!(price > 0)){ f.price.classList.add('invalid'); toast('Set a price', 'error', 'Everything on the menu is priced in pounds.'); return; }
   const acct = (state.tgAccounts || []).find(a => a.id === accountId);
   const file = f.file?.files?.[0];
+  const editId = f.dataset.edit || '';
   await withBusy(btn, async () => {
     let media_key = null;
     if(file){
@@ -2462,13 +2465,24 @@ async function tgSaveMenuItem(f, btn){
       if(upErr) throw upErr;
       media_key = path;
     }
-    const { error } = await state.sb.from('telegram_menu_items').insert({
-      telegram_account_id: accountId, creator_id: acct?.creator_id || ownerTarget(),
-      name, kind, price_gbp: price, description, media_key,
-    });
-    if(error) throw error;
-  }, 'Added to the menu');
+    if(editId){
+      // Editing keeps the existing file unless a new one was chosen.
+      const row = { name, kind, price_gbp: price, description };
+      if (media_key) row.media_key = media_key;
+      const { error } = await state.sb.from('telegram_menu_items').update(row).eq('id', editId);
+      if(error) throw error;
+    } else {
+      const { error } = await state.sb.from('telegram_menu_items').insert({
+        telegram_account_id: accountId, creator_id: acct?.creator_id || ownerTarget(),
+        name, kind, price_gbp: price, description, media_key,
+      });
+      if(error) throw error;
+    }
+  }, editId ? 'Menu item updated' : 'Added to the menu');
+  delete f.dataset.edit;
   f.reset();
+  const sbBtn = f.querySelector('button[type="submit"]');
+  if (sbBtn) sbBtn.innerHTML = ic('plus') + 'Add to menu';
   tgLoadMenu(accountId);
 }
 
@@ -3104,6 +3118,20 @@ view.addEventListener('click', async e => {
     case 'tg-load': tgLoadAccounts(); break;
     case 'tg-open': { state.tgOpenFor = a.dataset.id; if(!state.tgAccounts || !state.tgAccounts.length) await tgLoadAccounts(); renderTelegram(); window.scrollTo({top:0}); break; }
     case 'tg-back': { state.tgOpenFor = null; renderTelegram(); window.scrollTo({top:0}); break; }
+    case 'tg-menu-edit': {
+      const m = (state.tgMenu || []).find(x => x.id === id);
+      const f = document.querySelector('form[data-form="tg-menu"]');
+      if (!m || !f) break;
+      f.dataset.edit = m.id;
+      f.querySelector('#tm-name').value = m.name || '';
+      f.querySelector('#tm-price').value = m.price_gbp != null ? m.price_gbp : '';
+      f.querySelector('#tm-kind').value = m.kind || 'image';
+      f.querySelector('#tm-desc').value = m.description || '';
+      const b = f.querySelector('button[type="submit"]');
+      if (b) b.innerHTML = ic('check') + 'Save changes';
+      f.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      break;
+    }
     case 'tg-menu-toggle': {
       const on = a.dataset.on === '1';
       if(await withBusy(a, () => state.sb.from('telegram_menu_items').update({ active: !on }).eq('id', id), on ? 'Hidden from the menu' : 'Back on the menu')){
