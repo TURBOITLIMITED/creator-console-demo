@@ -557,7 +557,7 @@ body.drawer-open .side{overscroll-behavior:contain}
   /* iOS zooms any field under 16px on focus and never zooms back out */
   .input,input,select,textarea{font-size:16px}
   .input,select.input,textarea.input,.composer .input{height:44px}
-  .side{width:min(84vw,300px);padding-bottom:env(safe-area-inset-bottom,0px)}
+  .side{width:min(84vw,300px);padding-bottom:calc(env(safe-area-inset-bottom,0px) + 8px);z-index:30}
   .main{padding-bottom:calc(32px + env(safe-area-inset-bottom,0px))}
   .drawer-logout{display:flex}
   /* the inbox grows with the thread instead of reserving 560px of nothing */
@@ -2586,7 +2586,9 @@ function setDrawer(open, restore=true){
     if(!document.querySelector('.scrim')){
       const s = document.createElement('div'); s.className = 'scrim';
       s.onclick = () => setDrawer(false);
-      document.body.appendChild(s);
+      /* inside .app, not body: .app is its own stacking context, so a scrim
+         appended to body would paint over the sidebar and swallow every tap */
+      app.appendChild(s);
     }
   } else {
     if(app.dataset.drawer !== 'open') return;
