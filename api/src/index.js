@@ -464,6 +464,159 @@ export default {
       return json({ ok: true, message: row }, 200, origin);
     }
 
+    // ---------- FabSwingers ----------
+    // One FabSwingers login per Telegram account, with that account's own persona.
+    // All routes are console-admin only and sit above the generic 404.
+    const sha256hex = async (s) => {
+      const enc = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+      return Array.from(new Uint8Array(enc)).map((b) => b.toString(16).padStart(2, "0")).join("");
+    };
+    const fsAccountByTelegram = async (telegramAccountId) => {
+      const rows = await sb(env, `fabswingers_accounts?telegram_account_id=eq.${telegramAccountId}&select=*`);
+      return rows && rows.length ? rows[0] : null;
+    };
+
+    if (url.pathname === "/fabswingers" && request.method === "GET") {
+      const denied = await requireConsoleAdmin(env, request, origin);
+      if (denied) return denied;
+      const tg = url.searchParams.get("telegram_account_id");
+      const filter = tg ? `telegram_account_id=eq.${tg}&` : "";
+      const rows = await sb(env, `fabswingers_accounts?${filter}select=id,telegram_account_id,creator_id,username,telegram_username,enabled,last_poll_at,last_error,created_at,updated_at&order=created_at.desc`);
+      const personas = await sb(env, "fabswingers_personas?select=fabswingers_account_id,tone,emoji_level,message_length,system_prompt,pivot_message");
+      const byId = new Map((personas || []).map((p) => [p.fabswingers_account_id, p]));
+      return json({ accounts: (rows || []).map((a) => ({ ...a, persona: byId.get(a.id) || null })) }, 200, origin);
+    }
+
+    // Verify a FabSwingers login without saving it. This really does try the site, so
+    // the console can tell a wrong password from FabSwingers being unreachable.
+    if (url.pathname === "/fabswingers/verify" && request.method === "POST") {
+      const denied = await requireConsoleAdmin(env, request, origin);
+      if (denied) return denied;
+      const b = await request.json().catch(() => ({}));
+      if (!b.username || !b.password) return json({ ok: false, error: "Enter the FabSwingers username and password first" }, 400, origin);
+      try {
+        const r = await fetch("https://www.fabswingers.com/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/141.0 Safari/537.36" },
+          body: `username=${encodeURIComponent(b.username)}&password=${encodeURIComponent(b.password)}`,
+          redirect: "manual",
+        });
+        const cookie = r.headers.get("set-cookie") || "";
+        const ok = /PHPSESSID=/i.test(cookie) && r.status < 400;
+        return json({ ok, status: r.status, detail: ok ? "Logged in" : "FabSwingers did not return a session. Check the username and password." }, 200, origin);
+      } catch (e) {
+        return json({ ok: false, error: "Could not reach FabSwingers: " + String(e).slice(0, 160) }, 200, origin);
+      }
+    }
+
+    // Create or update the FabSwingers login for one Telegram account.
+    if (url.pathname === "/fabswingers" && request.method === "POST") {
+      const denied = await requireConsoleAdmin(env, request, origin);
+      if (denied) return denied;
+      const b = await request.json().catch(() => ({}));
+      const { telegram_account_id, username, password, telegram_username } = b;
+      if (!telegram_account_id) return json({ error: "telegram_account_id is required" }, 400, origin);
+      if (!username || !telegram_username) return json({ error: "FabSwingers username and her Telegram handle are both required" }, 400, origin);
+      const existing = await fsAccountByTelegram(telegram_account_id);
+      const accounts = await sb(env, `telegram_accounts?id=eq.${telegram_account_id}&select=id,creator_id,username`);
+      const tg = accounts && accounts[0];
+      if (!tg) return json({ error: "That Telegram account does not exist" }, 404, origin);
+
+      const body = {
+        telegram_account_id,
+        creator_id: tg.creator_id || null,
+        username: username.trim(),
+        telegram_username: telegram_username.trim().replace(/^@/, ""),
+      };
+      if (password) {
+        body.password_enc = await sha256hex(password);
+        body.password_nonce = crypto.randomUUID();
+      } else if (!existing) {
+        return json({ error: "A password is required the first time" }, 400, origin);
+      }
+      let row;
+      if (existing) {
+        row = await sb(env, `fabswingers_accounts?id=eq.${existing.id}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(body) });
+      } else {
+        row = await sb(env, "fabswingers_accounts", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ ...body, enabled: true }) });
+      }
+      return json({ ok: true, account: Array.isArray(row) ? row[0] : row }, 200, origin);
+    }
+
+    if (url.pathname.startsWith("/fabswingers/") && request.method === "DELETE") {
+      const denied = await requireConsoleAdmin(env, request, origin);
+      if (denied) return denied;
+      const id = url.pathname.split("/")[2];
+      await sb(env, `fabswingers_accounts?id=eq.${id}`, { method: "DELETE" });
+      return json({ ok: true }, 200, origin);
+    }
+
+    if (url.pathname.startsWith("/fabswingers/") && request.method === "PATCH") {
+      const denied = await requireConsoleAdmin(env, request, origin);
+      if (denied) return denied;
+      const id = url.pathname.split("/")[2];
+      const b = await request.json().catch(() => ({}));
+      const body = {};
+      if (typeof b.enabled === "boolean") body.enabled = b.enabled;
+      if (b.telegram_username) body.telegram_username = String(b.telegram_username).trim().replace(/^@/, "");
+      if (b.password) { body.password_enc = await sha256hex(b.password); body.password_nonce = crypto.randomUUID(); }
+      if (!Object.keys(body).length) return json({ error: "nothing to update" }, 400, origin);
+      const row = await sb(env, `fabswingers_accounts?id=eq.${id}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(body) });
+      return json({ ok: true, account: Array.isArray(row) ? row[0] : row }, 200, origin);
+    }
+
+    // Persona for one FabSwingers account (one row per account).
+    if (url.pathname === "/fabswingers/persona" && request.method === "GET") {
+      const denied = await requireConsoleAdmin(env, request, origin);
+      if (denied) return denied;
+      const fsId = url.searchParams.get("fabswingers_account_id");
+      const tgId = url.searchParams.get("telegram_account_id");
+      let id = fsId;
+      if (!id && tgId) { const a = await fsAccountByTelegram(tgId); id = a && a.id; }
+      if (!id) return json({ persona: null }, 200, origin);
+      const rows = await sb(env, `fabswingers_personas?fabswingers_account_id=eq.${id}&select=*`);
+      return json({ persona: (rows && rows[0]) || null }, 200, origin);
+    }
+
+    if (url.pathname === "/fabswingers/persona" && (request.method === "PUT" || request.method === "POST")) {
+      const denied = await requireConsoleAdmin(env, request, origin);
+      if (denied) return denied;
+      const b = await request.json().catch(() => ({}));
+      let id = b.fabswingers_account_id;
+      if (!id && b.telegram_account_id) { const a = await fsAccountByTelegram(b.telegram_account_id); id = a && a.id; }
+      if (!id) return json({ error: "Save the FabSwingers login before the personality" }, 400, origin);
+      const body = {
+        fabswingers_account_id: id,
+        tone: b.tone || null,
+        emoji_level: b.emoji_level || null,
+        message_length: b.message_length || null,
+        system_prompt: b.system_prompt || null,
+        pivot_message: b.pivot_message || null,
+      };
+      const existing = await sb(env, `fabswingers_personas?fabswingers_account_id=eq.${id}&select=id`);
+      const row = existing && existing.length
+        ? await sb(env, `fabswingers_personas?fabswingers_account_id=eq.${id}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(body) })
+        : await sb(env, "fabswingers_personas", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(body) });
+      return json({ ok: true, persona: Array.isArray(row) ? row[0] : row }, 200, origin);
+    }
+
+    // Poll trigger. The scraper is not deployed yet, so this reports that honestly
+    // instead of pretending a poll happened.
+    if (url.pathname === "/fabswingers/poll" && request.method === "POST") {
+      const denied = await requireConsoleAdmin(env, request, origin);
+      if (denied) return denied;
+      return json({ ok: false, error: "FabSwingers auto-reply is not live yet: the account and personality save, the scraper is still to be built." }, 501, origin);
+    }
+
+    if (url.pathname === "/fabswingers/conversations" && request.method === "GET") {
+      const denied = await requireConsoleAdmin(env, request, origin);
+      if (denied) return denied;
+      const accountId = url.searchParams.get("account_id");
+      if (!accountId) return json({ error: "need account_id" }, 400, origin);
+      const rows = await sb(env, `fabswingers_conversations?fabswingers_account_id=eq.${accountId}&select=*&order=last_message_at.desc`);
+      return json({ conversations: rows || [] }, 200, origin);
+    }
+
     const me = await whoami(env, request, url);
     if (!me) return json({ error: "unauthorised" }, 401, origin);
     if (me.role === "nobody") {
@@ -791,159 +944,6 @@ export default {
       }
     }
 
-
-    // ---------- FabSwingers ----------
-    // One FabSwingers login per Telegram account, with that account's own persona.
-    // All routes are console-admin only and sit above the generic 404.
-    const sha256hex = async (s) => {
-      const enc = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
-      return Array.from(new Uint8Array(enc)).map((b) => b.toString(16).padStart(2, "0")).join("");
-    };
-    const fsAccountByTelegram = async (telegramAccountId) => {
-      const rows = await sb(env, `fabswingers_accounts?telegram_account_id=eq.${telegramAccountId}&select=*`);
-      return rows && rows.length ? rows[0] : null;
-    };
-
-    if (url.pathname === "/fabswingers" && request.method === "GET") {
-      const denied = await requireConsoleAdmin(env, request, origin);
-      if (denied) return denied;
-      const tg = url.searchParams.get("telegram_account_id");
-      const filter = tg ? `telegram_account_id=eq.${tg}&` : "";
-      const rows = await sb(env, `fabswingers_accounts?${filter}select=id,telegram_account_id,creator_id,username,telegram_username,enabled,last_poll_at,last_error,created_at,updated_at&order=created_at.desc`);
-      const personas = await sb(env, "fabswingers_personas?select=fabswingers_account_id,tone,emoji_level,message_length,system_prompt,pivot_message");
-      const byId = new Map((personas || []).map((p) => [p.fabswingers_account_id, p]));
-      return json({ accounts: (rows || []).map((a) => ({ ...a, persona: byId.get(a.id) || null })) }, 200, origin);
-    }
-
-    // Verify a FabSwingers login without saving it. This really does try the site, so
-    // the console can tell a wrong password from FabSwingers being unreachable.
-    if (url.pathname === "/fabswingers/verify" && request.method === "POST") {
-      const denied = await requireConsoleAdmin(env, request, origin);
-      if (denied) return denied;
-      const b = await request.json().catch(() => ({}));
-      if (!b.username || !b.password) return json({ ok: false, error: "Enter the FabSwingers username and password first" }, 400, origin);
-      try {
-        const r = await fetch("https://www.fabswingers.com/login", {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/141.0 Safari/537.36" },
-          body: `username=${encodeURIComponent(b.username)}&password=${encodeURIComponent(b.password)}`,
-          redirect: "manual",
-        });
-        const cookie = r.headers.get("set-cookie") || "";
-        const ok = /PHPSESSID=/i.test(cookie) && r.status < 400;
-        return json({ ok, status: r.status, detail: ok ? "Logged in" : "FabSwingers did not return a session. Check the username and password." }, 200, origin);
-      } catch (e) {
-        return json({ ok: false, error: "Could not reach FabSwingers: " + String(e).slice(0, 160) }, 200, origin);
-      }
-    }
-
-    // Create or update the FabSwingers login for one Telegram account.
-    if (url.pathname === "/fabswingers" && request.method === "POST") {
-      const denied = await requireConsoleAdmin(env, request, origin);
-      if (denied) return denied;
-      const b = await request.json().catch(() => ({}));
-      const { telegram_account_id, username, password, telegram_username } = b;
-      if (!telegram_account_id) return json({ error: "telegram_account_id is required" }, 400, origin);
-      if (!username || !telegram_username) return json({ error: "FabSwingers username and her Telegram handle are both required" }, 400, origin);
-      const existing = await fsAccountByTelegram(telegram_account_id);
-      const accounts = await sb(env, `telegram_accounts?id=eq.${telegram_account_id}&select=id,creator_id,username`);
-      const tg = accounts && accounts[0];
-      if (!tg) return json({ error: "That Telegram account does not exist" }, 404, origin);
-
-      const body = {
-        telegram_account_id,
-        creator_id: tg.creator_id || null,
-        username: username.trim(),
-        telegram_username: telegram_username.trim().replace(/^@/, ""),
-      };
-      if (password) {
-        body.password_enc = await sha256hex(password);
-        body.password_nonce = crypto.randomUUID();
-      } else if (!existing) {
-        return json({ error: "A password is required the first time" }, 400, origin);
-      }
-      let row;
-      if (existing) {
-        row = await sb(env, `fabswingers_accounts?id=eq.${existing.id}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(body) });
-      } else {
-        row = await sb(env, "fabswingers_accounts", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({ ...body, enabled: true }) });
-      }
-      return json({ ok: true, account: Array.isArray(row) ? row[0] : row }, 200, origin);
-    }
-
-    if (url.pathname.startsWith("/fabswingers/") && request.method === "DELETE") {
-      const denied = await requireConsoleAdmin(env, request, origin);
-      if (denied) return denied;
-      const id = url.pathname.split("/")[2];
-      await sb(env, `fabswingers_accounts?id=eq.${id}`, { method: "DELETE" });
-      return json({ ok: true }, 200, origin);
-    }
-
-    if (url.pathname.startsWith("/fabswingers/") && request.method === "PATCH") {
-      const denied = await requireConsoleAdmin(env, request, origin);
-      if (denied) return denied;
-      const id = url.pathname.split("/")[2];
-      const b = await request.json().catch(() => ({}));
-      const body = {};
-      if (typeof b.enabled === "boolean") body.enabled = b.enabled;
-      if (b.telegram_username) body.telegram_username = String(b.telegram_username).trim().replace(/^@/, "");
-      if (b.password) { body.password_enc = await sha256hex(b.password); body.password_nonce = crypto.randomUUID(); }
-      if (!Object.keys(body).length) return json({ error: "nothing to update" }, 400, origin);
-      const row = await sb(env, `fabswingers_accounts?id=eq.${id}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(body) });
-      return json({ ok: true, account: Array.isArray(row) ? row[0] : row }, 200, origin);
-    }
-
-    // Persona for one FabSwingers account (one row per account).
-    if (url.pathname === "/fabswingers/persona" && request.method === "GET") {
-      const denied = await requireConsoleAdmin(env, request, origin);
-      if (denied) return denied;
-      const fsId = url.searchParams.get("fabswingers_account_id");
-      const tgId = url.searchParams.get("telegram_account_id");
-      let id = fsId;
-      if (!id && tgId) { const a = await fsAccountByTelegram(tgId); id = a && a.id; }
-      if (!id) return json({ persona: null }, 200, origin);
-      const rows = await sb(env, `fabswingers_personas?fabswingers_account_id=eq.${id}&select=*`);
-      return json({ persona: (rows && rows[0]) || null }, 200, origin);
-    }
-
-    if (url.pathname === "/fabswingers/persona" && (request.method === "PUT" || request.method === "POST")) {
-      const denied = await requireConsoleAdmin(env, request, origin);
-      if (denied) return denied;
-      const b = await request.json().catch(() => ({}));
-      let id = b.fabswingers_account_id;
-      if (!id && b.telegram_account_id) { const a = await fsAccountByTelegram(b.telegram_account_id); id = a && a.id; }
-      if (!id) return json({ error: "Save the FabSwingers login before the personality" }, 400, origin);
-      const body = {
-        fabswingers_account_id: id,
-        tone: b.tone || null,
-        emoji_level: b.emoji_level || null,
-        message_length: b.message_length || null,
-        system_prompt: b.system_prompt || null,
-        pivot_message: b.pivot_message || null,
-      };
-      const existing = await sb(env, `fabswingers_personas?fabswingers_account_id=eq.${id}&select=id`);
-      const row = existing && existing.length
-        ? await sb(env, `fabswingers_personas?fabswingers_account_id=eq.${id}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(body) })
-        : await sb(env, "fabswingers_personas", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(body) });
-      return json({ ok: true, persona: Array.isArray(row) ? row[0] : row }, 200, origin);
-    }
-
-    // Poll trigger. The scraper is not deployed yet, so this reports that honestly
-    // instead of pretending a poll happened.
-    if (url.pathname === "/fabswingers/poll" && request.method === "POST") {
-      const denied = await requireConsoleAdmin(env, request, origin);
-      if (denied) return denied;
-      return json({ ok: false, error: "FabSwingers auto-reply is not live yet: the account and personality save, the scraper is still to be built." }, 501, origin);
-    }
-
-    if (url.pathname === "/fabswingers/conversations" && request.method === "GET") {
-      const denied = await requireConsoleAdmin(env, request, origin);
-      if (denied) return denied;
-      const accountId = url.searchParams.get("account_id");
-      if (!accountId) return json({ error: "need account_id" }, 400, origin);
-      const rows = await sb(env, `fabswingers_conversations?fabswingers_account_id=eq.${accountId}&select=*&order=last_message_at.desc`);
-      return json({ conversations: rows || [] }, 200, origin);
-    }
 
     return json({ error: "no route" }, 404, origin);
    } catch (e) {
