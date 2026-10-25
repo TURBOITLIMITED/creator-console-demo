@@ -408,7 +408,7 @@ async function pollFab(env){
         continue;
       }
 
-      const dailyCap = Number(env.FS_DAILY_CAP || 400);
+      const dailyCap = Number(env.FS_DAILY_CAP || 1000);
       if (await fsAnsweredToday(env, acct.id) >= dailyCap){
         await sb(env, `fabswingers_accounts?id=eq.${acct.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" },
           body: JSON.stringify({ last_error: `Daily cap reached (${dailyCap}). Resumes tomorrow.` }) }).catch(() => null);
