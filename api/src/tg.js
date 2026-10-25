@@ -480,6 +480,30 @@ async function generateReply(env, system, history, incoming) {
     ...history.map(h => ({ role: h.dir === "in" ? "user" : "assistant", content: h.text })),
     { role: "user", content: incoming },
   ];
+  // DeepSeek first when the owner has given a key. It is the one that holds the
+  // voice and the emoji on a long persona, and thinking is switched off: left on
+  // it spends ~170 reasoning tokens and an extra second on every reply, and
+  // with a short max_tokens the actual message never arrives.
+  if (env.DEEPSEEK_API_KEY) {
+    try {
+      const r = await fetch("https://api.deepseek.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + env.DEEPSEEK_API_KEY },
+        body: JSON.stringify({
+          model: env.DEEPSEEK_MODEL || "deepseek-v4-pro",
+          messages, max_tokens: 120, temperature: 0.9,
+          thinking: { type: "disabled" },
+        }),
+      });
+      const d = await r.json().catch(() => null);
+      const text = d && d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
+      const clean = String(text || "").trim().replace(/^["']|["']$/g, "");
+      if (clean) return clean;
+      console.log(JSON.stringify({ evt: "tg.reply.deepseek_empty", status: r.status }));
+    } catch (e) {
+      console.log(JSON.stringify({ evt: "tg.reply.deepseek_failed", err: String(e && e.message || e).slice(0, 160) }));
+    }
+  }
   const models = [env.AI_MODEL, ...REPLY_MODELS].filter(Boolean);
   const tried = new Set();
   let lastErr = null;

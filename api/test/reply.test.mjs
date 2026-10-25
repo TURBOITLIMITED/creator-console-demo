@@ -52,3 +52,23 @@ test("emoji and warmth survive the length rule", async () => {
   assert.match(prompt, /two short lines at most, under twenty words/);
   assert.doesNotMatch(prompt, /three to six words/);
 });
+
+test("DeepSeek is used first when its key is set, with thinking switched off", async () => {
+  const realFetch = globalThis.fetch;
+  let seen = null;
+  globalThis.fetch = async (url, init) => {
+    seen = { url, body: JSON.parse(init.body) };
+    return new Response(JSON.stringify({ choices: [{ message: { content: "  hey you 😏  " } }] }), { status: 200 });
+  };
+  try {
+    const env = { DEEPSEEK_API_KEY: "k", AI: { run: async () => { throw new Error("Workers AI should not be reached"); } } };
+    const out = await generateReply(env, "sys", [], "hi");
+    assert.equal(out, "hey you 😏");
+    assert.match(seen.url, /api\.deepseek\.com/);
+    assert.equal(seen.body.model, "deepseek-v4-pro");
+    assert.deepEqual(seen.body.thinking, { type: "disabled" });
+    assert.ok(seen.body.max_tokens <= 150);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});

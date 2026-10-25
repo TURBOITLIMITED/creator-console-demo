@@ -33,4 +33,7 @@
   //   SUPABASE_URL         https://xsgvdlgmhuxozjlbjzxy.supabase.co
   //   SUPABASE_ANON_KEY    used ONLY for /auth/v1/user identity checks
   //   SUPABASE_SERVICE_KEY used for ALL table access -> bypasses RLS entirely
+  //   DEEPSEEK_API_KEY     optional: when set, chat replies run on deepseek-v4-pro
+  //   DEEPSEEK_MODEL       optional: overrides that model id
+  //   TELEGRAM_WEBHOOK_SECRET shared secret Telegram echoes in the webhook header
 }
