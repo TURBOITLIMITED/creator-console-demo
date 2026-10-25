@@ -252,6 +252,23 @@ function humanGapSeconds(){
 }
 const UK_HOUR = () => Number(new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: "Europe/London" }).format(new Date()));
 
+/* Two breaks a day, roughly an hour each, at times that shift with the date
+   instead of landing on the same clock minute every day. One is the small
+   hours, one is the evening. */
+function fsOfflineNow(){
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(new Date()).reduce((a, p) => (a[p.type] = p.value, a), {});
+  const nowMin = Number(parts.hour) * 60 + Number(parts.minute);
+  const seed = Number(parts.year + parts.month + parts.day);
+  const rnd = (n) => { const x = Math.sin(seed * 0.0001 + n) * 10000; return x - Math.floor(x); };
+  const windows = [
+    [2 * 60 + Math.floor(rnd(1) * 180), 60 + Math.floor(rnd(3) * 25)],   // 02:00 to 05:00
+    [17 * 60 + Math.floor(rnd(2) * 180), 60 + Math.floor(rnd(4) * 25)],  // 17:00 to 20:00
+  ];
+  return windows.some(([start, len]) => nowMin >= start && nowMin < start + len);
+}
+
 /* FabSwingers asks free accounts to become a Site Supporter once a limit is
    hit. That has to reach the dashboard as an action, not disappear into a
    failed send. */
@@ -284,6 +301,9 @@ async function pollFab(env){
       // she is online whenever the phone is, day or night. Whether this tick
       // sends is decided by the previous answer's gap, not by the clock, so the
       // spacing is uneven in the same way a person's is.
+      // she is off the site twice a day, the way anyone is
+      if (fsOfflineNow()) continue;
+
       const record = await fsLoadRecord(env, acct.id);
       const dueAt = record && record.next_send_at ? new Date(record.next_send_at).getTime() : 0;
       if (Date.now() < dueAt) continue;
