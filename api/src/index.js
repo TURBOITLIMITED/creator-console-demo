@@ -233,12 +233,32 @@ async function pollFab(env){
         continue;
       }
       const snap = await inboxSnapshot(env, acct);
-      const done = await sb(env, `fabswingers_conversations?fabswingers_account_id=eq.${acct.id}&select=fs_user_id`).catch(() => []);
-      const seen = new Set((done || []).map((r) => r.fs_user_id));
-      const todo = snap.rows.filter((r) => r.unread && !seen.has(r.user)).slice(0, 2);
-      let sent = 0;
+      const doneRows = await sb(env, `fabswingers_conversations?fabswingers_account_id=eq.${acct.id}&select=fs_user_id,notes,created_at`).catch(() => []);
+      const done = new Map((doneRows || []).map((r) => [r.fs_user_id, r]));
+
+      // First sight of an unread thread only starts its clock. The answer goes
+      // out on a later tick, at least FS_MIN_WAIT seconds later, so nobody gets
+      // a reply inside ten seconds of pressing send. One reply per run.
+      const firstSeen = [];
+      for (const r of snap.rows.filter((x) => x.unread && !done.has(x.user))){
+        firstSeen.push(r);
+        await sb(env, "fabswingers_conversations?on_conflict=fabswingers_account_id,fs_user_id", {
+          method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+          body: JSON.stringify({
+            fabswingers_account_id: acct.id, fs_user_id: r.user, fs_user_name: r.name,
+            message_count: 0, notes: "pending",
+          }),
+        }).catch(() => null);
+      }
+
+      const minWait = Number(env.FS_MIN_WAIT || 120) * 1000;
+      const ready = (doneRows || []).filter((r) => r.notes === "pending" && Date.now() - new Date(r.created_at).getTime() >= minWait);
+      const todo = ready.length
+        ? snap.rows.filter((r) => r.unread && ready.some((d) => d.fs_user_id === r.user)).slice(0, 1)
+        : [];
+      const reasonSoFar = todo.length ? fsStopReason(todo[0].snippet) : null;
       for(const row of todo){
-        const reason = fsStopReason(row.snippet);
+        const reason = reasonSoFar;
         let status = "sent", text = null;
         if(reason){
           status = "flagged: " + reason;
@@ -264,7 +284,7 @@ async function pollFab(env){
             fabswingers_account_id: acct.id, fs_user_id: row.user, fs_user_name: row.name,
             message_count: 1, last_message_at: new Date().toISOString(),
             conversation_summary: text ? text.slice(0, 200) : null,
-            notes: status === "sent" ? null : status,
+            notes: status === "sent" ? "answered" : status,
           }),
         }).catch(() => null);
       }
