@@ -764,7 +764,7 @@ document.addEventListener('gesturechange', e => e.preventDefault(), { passive:fa
       <a href="#library" data-sec="library" title="Library"><svg class="i"><use href="#i-layers"/></svg><span class="nav-label">Library</span></a>
       <a href="#gallery" data-sec="gallery" title="Gallery"><svg class="i"><use href="#i-image"/></svg><span class="nav-label">Gallery</span></a>
       <div class="nav-group">SETTINGS</div>
-      <a href="#wallet" data-sec="wallet" title="TON Wallet"><svg class="i"><use href="#i-wallet"/></svg><span class="nav-label">TON Wallet</span></a>
+      <a href="#wallet" data-sec="wallet" title="Payments"><svg class="i"><use href="#i-wallet"/></svg><span class="nav-label">Payments</span></a>
       <a href="#links" data-sec="links" title="Creator Links"><svg class="i"><use href="#i-copy"/></svg><span class="nav-label">Creator Links</span></a>
     </nav>
     <div class="side-foot">
@@ -1352,7 +1352,7 @@ const SECTIONS = {
   gallery:{ title:'Gallery', group:'Content', render:renderGallery },
   bundles:{ title:'Bundles', group:'Content', render:renderLibrary },
   ai:{ title:'Personality Engine', group:'Settings', render:renderAI },
-  wallet:{ title:'TON Wallet', group:'Settings', render:renderWallet },
+  wallet:{ title:'Payments', group:'Settings', render:renderWallet },
   links:{ title:'Creator Links', group:'Settings', render:renderLinks },
   audit:{ title:'Audit', group:'System', render:renderAudit }
 };
@@ -2787,7 +2787,12 @@ async function renderWallet(){
       <div style="display:flex;flex-direction:column;gap:20px;min-width:0">
         <section class="panel"><div class="panel-head"><h2>Payment details</h2><span class="end">${ready?`<span class="pill ok">${ready} method${ready===1?'':'s'} set</span>`:'<span class="pill warn">None set</span>'}</span></div>
           <form class="form panel-body" data-form="wallet" autocomplete="off">
-            <div class="field"><label for="w-bank">Bank transfer: account name</label>
+            <div class="panel-head" style="padding:0;border:0;margin:0 0 8px"><h2 style="font-size:13px">PayPal</h2></div>
+            <div class="field"><label for="w-pp">PayPal address</label>
+              <input class="input" id="w-pp" name="pay_paypal" value="${esc(pay.pp)}" placeholder="paypal.me/yourname or your PayPal email"></div>
+
+            <div class="panel-head" style="padding:0;border:0;margin:14px 0 8px"><h2 style="font-size:13px">Bank transfer</h2></div>
+            <div class="field"><label for="w-bank">Account name</label>
               <input class="input" id="w-bank" name="pay_bank_name" value="${esc(pay.bank)}" placeholder="M Jones"></div>
             <div class="row2">
               <div class="field"><label for="w-sort">Sort code</label>
@@ -2795,11 +2800,11 @@ async function renderWallet(){
               <div class="field"><label for="w-acct">Account number</label>
                 <input class="input mono" id="w-acct" name="pay_account_no" inputmode="numeric" value="${esc(pay.acct)}" placeholder="12345678"></div>
             </div>
-            <div class="field"><label for="w-pp">PayPal</label>
-              <input class="input" id="w-pp" name="pay_paypal" value="${esc(pay.pp)}" placeholder="paypal.me/yourname or your PayPal email"></div>
-            <div class="field"><label for="w-addr">TON address <span class="muted">(optional, only if he asks for crypto)</span></label>
+
+            <div class="panel-head" style="padding:0;border:0;margin:14px 0 8px"><h2 style="font-size:13px">TON</h2></div>
+            <div class="field"><label for="w-addr">TON address</label>
               <input class="input mono" id="w-addr" name="ton_wallet" spellcheck="false" placeholder="UQ… or EQ… (48 characters)" value="${esc(c.ton_wallet)}">
-              <span class="hint">Leave any of these blank and she simply will not offer that method.</span></div>
+              <span class="hint">Optional. She only mentions it if the customer asks for crypto. Leave anything blank and she will not offer that method.</span></div>
             <div class="form-actions"><button class="btn primary" type="submit">${ic('check')}Save payment details</button></div>
           </form></section>
         <section class="panel"><div class="panel-head"><h2>Recent sales</h2><span class="end muted" id="w-count"></span></div>
