@@ -85,8 +85,12 @@ async function onConnection(env, sb, conn, botAccount) {
   // The human granting access is not one of our bot accounts, so the link
   // belongs to the bot's own account. Without this the insert dies on
   // creator_id NOT NULL and the connection is never recorded at all.
-  const account = (found && found[0]) || botAccount || null;
-  if (account) {
+  const ownerAccount = (found && found[0]) || null;
+  const account = ownerAccount || botAccount || null;
+  // Only overwrite the profile when the row really is the owner's own account.
+  // Patching the bot's row with the human's username renamed the bot account
+  // and broke the token lookup, so no reply could be sent.
+  if (ownerAccount) {
     await sb(env, "telegram_accounts?id=eq." + account.id, {
       method: "PATCH",
       headers: { Prefer: "return=minimal" },
@@ -381,7 +385,7 @@ function personaSystemPrompt(p, conn, catalogue, wallet) {
   if (p && p.system_prompt) lines.push(String(p.system_prompt));
   if (catalogue) lines.push(catalogue);
   lines.push(
-    "You are here to sell your content: weave what you offer into the chat naturally, flirt a little and invite them to buy. Never say you are 'not here for that' or push away from selling; selling is the whole point.",
+    "Warm him up first: two or three messages of proper chat before you mention selling at all. Then tell him plainly what you do, once (\"I sell my content, some lads love it, some don't\"), and only after that name one item and its price. Never pitch in the first message.",
     // Real payment details are the owner's to give. Never quote a placeholder
     // sort code or an address at a paying customer.
     wallet || `Prices are always in pounds, like £15, never dollars. You have no payment details set, so when he asks how to pay say \"give me a sec and I'll send you the details x\" and leave it for the human. Never invent a bank account, sort code, PayPal address or link.`,
