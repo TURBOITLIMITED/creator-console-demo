@@ -1974,15 +1974,25 @@ async function renderFabSwingers() {
   loadFabSwingers();
 }
 
+/* One plain sentence per account: what it is doing right now, not just a pill. */
+function fsStatusLine(r, persona){
+  if(r.last_error) return `Last error: ${r.last_error}`;
+  const voice = persona ? `Personality saved ${ago(persona.updated_at)}` : 'No personality saved yet';
+  if(!r.enabled) return `${voice}.`;
+  if(!persona) return 'On, but there is nothing to reply with yet.';
+  return `${voice}. The reply engine is not live yet.`;
+}
 async function loadFabSwingers() {
   const el = $('#fs-list'); if (!el) return;
   el.innerHTML = spinner('Loading accounts...');
   try {
-    const [{ data: fas }, { rows: accounts }] = await Promise.all([
-      state.sb.from('fabswingers_accounts').select('id,telegram_account_id,username,telegram_username,enabled,created_at'),
+    const [{ data: fas }, { rows: accounts }, { data: pers }] = await Promise.all([
+      state.sb.from('fabswingers_accounts').select('id,telegram_account_id,username,telegram_username,enabled,last_error,created_at'),
       Data.list('telegram_accounts', { select: 'id, username, first_name, creator_id', size: 50, scopeOwner: true }),
+      state.sb.from('fabswingers_personas').select('fabswingers_account_id,updated_at'),
     ]);
     const byAccount = new Map((accounts || []).map(a => [a.id, a]));
+    const byPersona = new Map((pers || []).map(p => [p.fabswingers_account_id, p]));
     const rows = fas || [];
     if (!rows.length) {
       el.innerHTML = empty('message', 'No FabSwingers accounts yet',
@@ -1997,7 +2007,8 @@ async function loadFabSwingers() {
           <td><b>${esc(r.username)}</b></td>
           <td>${acct ? '@' + esc(acct.username || acct.first_name || '') : '<span class="muted">unlinked</span>'}</td>
           <td class="muted">@${esc(r.telegram_username)}</td>
-          <td><span class="pill ${r.enabled ? 'ok' : 'draft'}">${r.enabled ? 'On' : 'Off'}</span></td>
+          <td><div><span class="pill ${r.enabled ? 'ok' : 'draft'}">${r.enabled ? 'On' : 'Off'}</span>
+            <small class="muted" style="display:block;margin-top:5px;font-size:11.5px;line-height:1.35">${esc(fsStatusLine(r, byPersona.get(r.id)))}</small></div></td>
           <td class="num"><div class="row-actions">
             <button class="act" data-act="fs-edit" data-id="${esc(r.id)}" title="Edit login and personality">${ic('edit')}Edit</button>
             <button class="act" data-act="fs-toggle" data-id="${esc(r.id)}" data-on="${r.enabled ? 1 : 0}" title="${r.enabled ? 'Stop auto-reply for this account' : 'Start auto-reply for this account'}">${ic('power')}${r.enabled ? 'Turn off' : 'Turn on'}</button>
