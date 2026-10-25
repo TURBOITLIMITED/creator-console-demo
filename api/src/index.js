@@ -220,6 +220,18 @@ async function fsDraftFor(env, acct, persona, row, thread){
   return String(typeof out === "string" ? out : (out && out.response) || "").trim().replace(/^["']|["']$/g, "");
 }
 
+/* FabSwingers asks free accounts to become a Site Supporter once a limit is
+   hit. That has to reach the dashboard as an action, not disappear into a
+   failed send. */
+const FS_UPGRADE_RE = /(site supporter|become a supporter|upgrade your account|message limit|out of messages|you have reached your limit|limit reached)/i;
+function fsUpgradeAsked(html){ return FS_UPGRADE_RE.test(String(html || "")); }
+
+async function fsAnsweredToday(env, acctId){
+  const start = new Date(); start.setHours(0, 0, 0, 0);
+  const rows = await sb(env, `fabswingers_conversations?fabswingers_account_id=eq.${acctId}&notes=eq.answered&last_message_at=gte.${encodeURIComponent(start.toISOString())}&select=fs_user_id`).catch(() => []);
+  return (rows || []).length;
+}
+
 async function pollFab(env){
   const accounts = await sb(env, "fabswingers_accounts?enabled=eq.true&select=*").catch(() => null);
   if(!accounts || !accounts.length) return;
@@ -251,6 +263,17 @@ async function pollFab(env){
         }).catch(() => null);
       }
 
+      if (fsUpgradeAsked(await (await fetch("https://www.fabswingers.com/my/messagesnew", { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36", Cookie: snap.cookie, Accept: "text/html" }, redirect: "follow" })).text())) {
+        await sb(env, `fabswingers_accounts?id=eq.${acct.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" },
+          body: JSON.stringify({ last_error: "UPGRADE: FabSwingers is asking for a Site Supporter upgrade before more messages can be sent." }) }).catch(() => null);
+        continue;
+      }
+      const dailyCap = Number(env.FS_DAILY_CAP || 40);
+      if (await fsAnsweredToday(env, acct.id) >= dailyCap){
+        await sb(env, `fabswingers_accounts?id=eq.${acct.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" },
+          body: JSON.stringify({ last_error: `Daily cap reached (${dailyCap}). Resumes tomorrow.` }) }).catch(() => null);
+        continue;
+      }
       const minWait = Number(env.FS_MIN_WAIT || 120) * 1000;
       const ready = (doneRows || []).filter((r) => r.notes === "pending" && Date.now() - new Date(r.created_at).getTime() >= minWait);
       const todo = ready.length
@@ -275,6 +298,11 @@ async function pollFab(env){
           else {
             const res = await sendReply(snap.cookie, row.user, row.guid, text);
             if(!res.ok){ status = "send failed: " + res.status; }
+            else if(fsUpgradeAsked(res.page)){
+              status = "UPGRADE asked";
+              await sb(env, `fabswingers_accounts?id=eq.${acct.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" },
+                body: JSON.stringify({ last_error: "UPGRADE: FabSwingers is asking for a Site Supporter upgrade before more messages can be sent." }) }).catch(() => null);
+            }
             else sent++;
           }
         }

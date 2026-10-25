@@ -1339,6 +1339,7 @@ async function renderOverview(){
   const first = (state.creator?.name || 'there').split(' ')[0];
   setView(`
     ${secHead(`${hello}, ${first}.`)}
+    <div id="ov-alerts"></div>
     ${rangeBar()}
     <div class="stats" id="ov-stats">${[0,1,2,3].map(()=>`<div class="stat">${spinner('')}</div>`).join('')}</div>
     <div class="ov-grid">
@@ -1350,6 +1351,7 @@ async function renderOverview(){
     </div>`);
 
   loadStats();
+  fsUpgradeAlerts('#ov-alerts');
 
   Data.activity().then(items => {
     $('#ov-feed').innerHTML = items.length ? `<ul class="feed">${items.map(a => `
@@ -1971,12 +1973,14 @@ async function renderFabSwingers() {
       <span class="end"><button class="btn sm primary" data-act="fs-link">${ic('plus')}Add account</button></span></div>
       <div id="fs-list">${spinner('Loading accounts...')}</div></div>
     <div id="fs-detail"></div>
+    <div id="fs-alerts"></div>
     <section class="panel" style="margin-top:16px">
       <div class="panel-head"><h2>Inbox</h2>
         <span class="end"><button class="btn sm" data-act="fs-inbox-check">${ic('refresh')}Check inbox</button></span></div>
       <div id="fs-inbox" class="panel-body"><p class="muted">Check the inbox to read what has arrived on FabSwingers. Nothing is sent from here without you.</p></div>
     </section>`);
   loadFabSwingers();
+  fsUpgradeAlerts('#fs-alerts');
 }
 
 /* One plain sentence per account: what it is doing right now, not just a pill. */
@@ -2107,6 +2111,25 @@ async function fsSaveAll(accountId, btn) {
   const saved = await fsSaveLogin(accountId, btn);
   if (!saved) return null;
   return fsSavePersona(accountId, null);
+}
+
+/* Anything the poller flagged as needing a FabSwingers upgrade is an action
+   for the owner, so it gets a red bar on the dashboard and in the Fab section,
+   not just a line in a table. */
+async function fsUpgradeAlerts(sel){
+  const slot = $(sel); if(!slot) return;
+  try{
+    const { data } = await state.sb.from('fabswingers_accounts').select('username,last_error').ilike('last_error','UPGRADE%');
+    const rows = data || [];
+    if(!rows.length){ slot.innerHTML = ''; return; }
+    slot.innerHTML = `<div class="panel" style="border-color:color-mix(in srgb,var(--bad) 45%,var(--rule));margin-bottom:16px">
+      <div class="panel-body" style="display:flex;gap:12px;align-items:flex-start">
+        <div class="t-ico" style="background:var(--bad-soft);color:var(--bad);border-radius:6px;width:26px;height:26px;display:grid;place-items:center;flex:none">${ic('alert')}</div>
+        <div><b>FabSwingers wants an upgrade</b>
+          <p class="muted" style="margin:4px 0 0">${rows.map(r => esc(r.username)).join(', ')} ${rows.length === 1 ? 'has' : 'have'} hit a FabSwingers limit. More messages need a Site Supporter upgrade on the account.</p>
+          <a class="btn sm" style="margin-top:8px" href="https://www.fabswingers.com/supporters" target="_blank" rel="noopener">Open FabSwingers</a></div>
+      </div></div>`;
+  }catch(e){ slot.innerHTML = ''; }
 }
 
 /* ---------- FabSwingers inbox ----------

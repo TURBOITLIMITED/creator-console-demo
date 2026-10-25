@@ -155,7 +155,8 @@ export async function sendReply(cookie, user, guid, text) {
     body: body.toString(),
     redirect: "manual",
   });
-  return { ok: r.status >= 200 && r.status < 400, status: r.status, location: r.headers.get("location") || "" };
+  const page = await r.text().catch(() => "");
+  return { ok: r.status >= 200 && r.status < 400, status: r.status, location: r.headers.get("location") || "", page };
 }
 
 /** Everything the owner can see right now, read only. */

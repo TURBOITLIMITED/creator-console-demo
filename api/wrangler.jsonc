@@ -12,10 +12,10 @@
   ],
   "ai": { "binding": "AI" },
 
-  // Every minute the Fab poller looks for unread threads on switched-on
+  // Every three minutes the Fab poller looks for unread threads on switched-on
   // accounts. One reply per run, and never sooner than the minimum wait after
   // a thread is first seen, so she reads like a person rather than a machine.
-  "triggers": { "crons": ["* * * * *"] },
+  "triggers": { "crons": ["*/3 * * * *"] },
 
   "vars": {
     // Declared on the live worker but NEVER referenced anywhere in the source.
