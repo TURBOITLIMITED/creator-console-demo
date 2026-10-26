@@ -313,12 +313,14 @@ input[type=range]{accent-color:var(--accent);width:100%}
 .stat:hover{border-color:var(--accent-line);box-shadow:var(--shadow)}
 .stat-top{display:flex;align-items:center;gap:8px;color:var(--ink-2);font-size:13px;font-weight:500}
 .stat-top .i{width:16px;height:16px;color:var(--ink-3)}
-.stat-num{font:600 30px/1.1 var(--f-mono);letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.stat-num{font:600 clamp(28px,3.1vw,40px)/1.05 var(--f-mono);letter-spacing:-.035em;font-variant-numeric:tabular-nums;min-width:0;overflow-wrap:anywhere}
+/* the money card is the one that has to land from across the room */
+.stat.hero .stat-num{font-size:clamp(34px,4.4vw,52px)}
 .stat-num small{font-size:13px;color:var(--ink-3);letter-spacing:.04em;margin-left:6px;font-weight:500}
 /* the delta sits beside the number, not on the label line, so a two word label
    such as Content items never wraps to make room for it */
-.stat-row{display:flex;align-items:center;gap:8px}
-.stat-row .trend{margin-left:auto}
+.stat-row{display:flex;align-items:baseline;gap:8px;min-width:0}
+.stat-row .trend{margin-left:auto;flex:0 0 auto}
 .stat.hero{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 .stat.hero .stat-top,.stat.hero .stat-top .i,.stat.hero .stat-num small,.stat.hero .stat-foot{color:color-mix(in srgb,var(--accent-ink) 78%,transparent)}
 .stat.hero .trend{background:color-mix(in srgb,var(--accent-ink) 16%,transparent);color:var(--accent-ink);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent-ink) 22%,transparent)}
@@ -517,7 +519,8 @@ input[type=range]{accent-color:var(--accent);width:100%}
 }
 @media (max-width:520px){
   .stats{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
-  .stat-num{font-size:24px}
+  .stat-num{font-size:clamp(24px,7vw,32px)}
+  .stat.hero .stat-num{font-size:clamp(28px,8.5vw,38px)}
   .row2,.tone-list{grid-template-columns:1fr}
   .earn{grid-template-columns:1fr}
   .crumb h1{font-size:18px}
@@ -682,7 +685,8 @@ body.drawer-open .side{overscroll-behavior:contain}
   .trend.flat{display:none}
   /* the mono face spaces "0.00" as "0. 00" at phone sizes; the UI face is even */
   .stat-num,.earn b,.chart-sum b{font-family:var(--f-ui);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
-  .stat-num{font-size:22px}
+  .stat-num{font-size:clamp(22px,6.6vw,30px)}
+  .stat.hero .stat-num{font-size:clamp(26px,8vw,36px)}
   .stat.hero .stat-foot{font-size:12px}
   .panel-body{padding:14px}
   .thread-head{gap:8px;padding:10px 12px}
