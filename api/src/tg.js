@@ -244,7 +244,10 @@ async function onMessage(env, sb, msg, edited) {
   // lastInboundAt first and then tested it, so the window was always 0ms old
   // and the gate could never fire.
   const priorInbound = conv.last_inbound_at;
-  const windowOpen = tg.withinWindow(priorInbound, Date.now());
+  // An inbound message is arriving now, so the window is open by definition.
+  // priorInbound is null on the first message of a brand new chat, and reading
+  // that as closed is why every new customer went unanswered.
+  const windowOpen = outgoing ? tg.withinWindow(priorInbound, Date.now()) : true;
 
   const text = msg.text || msg.caption || null;
   const dek = await getDek(env, sb, conn.creator_id);
