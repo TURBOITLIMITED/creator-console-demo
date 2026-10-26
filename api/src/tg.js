@@ -19,6 +19,24 @@ import { getDek, seal, open, preview } from "./crypto.js";
 import { isAskingIfBot, isAskingForHuman, hasAgeSignal, COPY_VERSION } from "./copy.js";
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+/* The deterministic sends (menu, payment request, freebie) used to land the
+   instant he typed, which reads as a machine. Show typing and hold for a beat
+   the way the model path does. */
+async function humanPace(token, connId, chatId, text) {
+  if (!token || !chatId) return;
+  const words = String(text || "").split(/\s+/).filter(Boolean).length;
+  const hold = Math.min(7000, 1200 + words * 180 + Math.random() * 1500);
+  let typing = true;
+  (async () => {
+    while (typing) {
+      await tg.sendChatAction(token, connId, chatId, "typing").catch(() => {});
+      await sleep(4500);
+    }
+  })();
+  await sleep(hold);
+  typing = false;
+}
+
 import { pickBotAnswer, isSeriousRequest, isPurchaseContext } from "./persona.js";
 import { sign as signMedia } from "./media.js";
 
@@ -804,19 +822,9 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
     await sleep(think);
     stopTyping();
     const sent = await tg.sendMessage(token, conn.id, msg.chat.id, replyText);
-    // Price or item mentioned in her reply -> always follow with the
-    // clickable payment options (customer never has to ask twice).
-    try {
-      const lowerReply = String(replyText || "").toLowerCase();
-      const mentionsItem = await matchLiveItem(env, sb, conn, replyText);
-      const mentionsPrice = /£\s?\d|\d+\s?(ton|quid|£)/i.test(replyText);
-      if (mentionsItem || mentionsPrice) {
-        const item = mentionsItem || await lastQuotedItem(env, sb, conv);
-        if (item) await sendPaymentRequest(env, sb, conn, conv, msg, item);
-      }
-    } catch (e) {
-      console.log(JSON.stringify({ evt: "tg.reply.paybtn_failed", err: String(e).slice(0, 150) }));
-    }
+    // Payment buttons are NOT attached to every reply that mentions a price.
+    // The owner's flow is a menu with prices first, and the man asks to pay
+    // when he is ready; firing buttons at him mid-chat read as a machine.
     // Record our own reply as an outbound message row.
     await sb(env, "messages", {
       method: "POST",
@@ -941,6 +949,7 @@ async function maybeSendFreeItem(env, sb, conn, conv, msg) {
   const tgKind = item.kind === "image" ? "photo" : item.kind === "video" ? "video" : "document";
 
   try {
+    await humanPace(token, conn.id, msg.chat.id, "for you 💜");
     const sent = await tg.sendMedia(token, conn.id, msg.chat.id, tgKind, fileUrl, "for you 💜");
     await sb(env, "messages", {
       method: "POST",
@@ -1020,6 +1029,7 @@ async function maybeSendMenu(env, sb, conn, conv, msg) {
       callback_data: "buy:" + m.id,
     }]));
     if (free.length) buttons.push([{ text: "🎁 Free pic", callback_data: "free:" + free[0].id }]);
+    await humanPace(token, conn.id, msg.chat.id, menuText);
     const sent = await tg.sendMessage(token, conn.id, msg.chat.id, menuText, {
       reply_markup: { inline_keyboard: buttons },
     });
@@ -1082,9 +1092,10 @@ async function onDeleted(env, sb, d) {
    "the video please", "i'll take the full nude one", "yes", "yes pls". */
 async function looksLikeBuyIntent(text, lower) {
   if (!text) return false;
-  if (/(video|pic|pics|photo|photos|set|bundle|nude|naked|image|vid|clip|content)/.test(lower)) return true;
-  if (/^yes\b|^yep\b|^yeah\b|^pls\b|please$|take it|i('| a)?ll take|i want (it|that|this)\b|send (it|that)\b/gi.test(text)) return true;
-  return false;
+  // Only a clear decision to buy. Naming a video or asking to see something is
+  // not a purchase, and treating it as one fired prices and payment buttons at
+  // men who were only chatting.
+  return /\b(i'?ll take|i'?ll buy|i want to buy|buy it|buy that|i'?ll have|take it|pay for (it|that)|send (it|that) (to me|over))\b/i.test(text);
 }
 
 /* Match their words against her live item titles. Exact-word overlap wins;
@@ -1218,6 +1229,7 @@ async function onCallback(env, sb, cq, persona) {
       detail = `give me a sec and I'll send you the details x`;
     }
     try {
+      await humanPace(token, conn.id, chatId, detail);
       await tg.sendMessage(token, conn.id, chatId, detail);
       await sb(env, "messages", {
         method: "POST",
@@ -1309,6 +1321,7 @@ async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
     { text: "🏦 Bank transfer", callback_data: "pay:bank:" + item.id },
   ]];
   try {
+    await humanPace(token, conn.id, msg.chat.id, payText);
     const sent = await tg.sendMessage(token, conn.id, msg.chat.id, payText, {
       reply_markup: { inline_keyboard: methods },
     });
