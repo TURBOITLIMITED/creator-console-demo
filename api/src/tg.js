@@ -35,10 +35,15 @@ function replyDelaySeconds(text, conv, opts) {
   // answered by the owner gets the same, because the account is plainly online.
   const SEX = /\b(cock|dick|pussy|wet|horny|hard|wank|fuck|fucking|naked|nude|tits|arse|ass|knickers|cum|stroke|touching|touch myself|playing with|want you|inside me|ride|suck)\b/i;
   const horny = SEX.test(t) || SEX.test(String(o.priorText || "")) || !!o.sentMedia;
-  if (o.ownerOnline) return 12 + Math.floor(Math.random() * 9);      // 12 to 20 seconds
-  if (horny) return 15 + Math.floor(Math.random() * 21);             // 15 to 35 seconds
+  // Faster than a flat draw, but tied to how long the message would take to
+  // type. A four-word line can land in eight seconds; a long one cannot, or it
+  // reads as a machine again.
+  const replyWords = String(o.replyText || "").split(/\s+/).filter(Boolean).length;
+  const typing = Math.min(9000, 700 + replyWords * 320);
+  if (o.ownerOnline) return Math.max(8, Math.round((typing + 2500 + Math.random() * 3500) / 1000));
+  if (horny) return Math.max(8, Math.round((typing + 3500 + Math.random() * 5500) / 1000));
   if (nowhere) return 120 + Math.floor(Math.random() * 61);          // 2 to 3 minutes
-  return 20 + Math.floor(Math.random() * 101);                       // 20 to 120 seconds
+  return 15 + Math.floor(Math.random() * 76);                        // 15 to 90 seconds
 }
 
 /* The deterministic sends (menu, payment request, freebie) used to land the
@@ -796,7 +801,8 @@ export async function catchUpReply(env, sb, conversationId) {
   if (!text) return null;
   const replyText = ensureEmoji(text, p && p.emoji_level);
   const sealed = dek ? await seal(dek, replyText) : {};
-  const delay = 12 + Math.floor(Math.random() * 9);   // 12 to 20 seconds: the owner is online
+  const words = replyText.split(/\s+/).filter(Boolean).length;
+  const delay = Math.max(8, Math.round((700 + words * 320 + 2500 + Math.random() * 3000) / 1000));
   await env.REPLY_QUEUE.send({
     conversation_id: conv.id,
     creator_id: conn.creator_id,
@@ -987,6 +993,7 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   } catch (e) { ownerOnline = false; }
   const delay = replyDelaySeconds(text, conv, { ownerOnline,
     priorText: history.slice(-3).map(h => h.text).join(" "),
+    replyText,
     sentMedia: !!(msg.photo || msg.voice || msg.video || msg.video_note) });
   const sealed = histDek ? await seal(histDek, replyText) : {};
   try {
