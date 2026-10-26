@@ -1314,7 +1314,7 @@ const CUSTOM_ASK_GATE = /\b(can you|could you|do you have|have you got|got any|a
 /* One place that tells the owner something happened: Telegram for the phone in
    his pocket even when the app is closed, and a home-screen push for every
    device that installed the console. */
-async function notifyOwner(env, sb, conn, conv, msg, title, body) {
+export async function notifyOwner(env, sb, conn, conv, msg, title, body) {
   const url = "https://telebotcreator.turboit.uk/#inbox";
   const who = (conv && conv.customer_ref) ? "" : "";
   try {

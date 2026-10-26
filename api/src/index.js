@@ -18,7 +18,7 @@ const json = (data, status = 200, origin) =>
 import { sign, timingSafe } from "./media.js";
 import { sealSecret, openSecret, getDek, open, preview } from "./crypto.js";
 import { inboxSnapshot, inboxPage, login as fsLogin, ageMinutes, parseInbox, parseThread, sendReply } from "./fabswingers.js";
-import { handleWebhook, catchUpReply } from "./tg.js";
+import { handleWebhook, catchUpReply, notifyOwner } from "./tg.js";
 import * as tgapi from "./telegram.js";
 import { validateBotAnswer, DEFAULT_BOT_ANSWERS, EXPLICIT_BOT_ANSWER } from "./persona.js";
 
@@ -681,6 +681,50 @@ async function deliverQueuedReply(env, body) {
   console.log(JSON.stringify({ evt: "tg.reply.delivered", conversation: b.conversation_id }));
 }
 
+// ---------------------------------------------------------------------------
+// Revolut Business. The certificate we registered holds a public key, the
+// private half is a Worker secret. A client assertion JWT signed with it buys
+// an access token; the refresh token is kept in KV.
+// ---------------------------------------------------------------------------
+function pemToBuf(pem) {
+  const b64 = String(pem || "").replace(/-----[^-]+-----/g, "").replace(/\s+/g, "");
+  const bin = atob(b64);
+  const u = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  return u.buffer;
+}
+const b64u = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)))
+  .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+async function revolutAssertion(env) {
+  const issuer = new URL(env.REVOLUT_REDIRECT_URI).host;
+  const key = await crypto.subtle.importKey("pkcs8", pemToBuf(env.REVOLUT_PRIVATE_KEY),
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
+  const head = b64u(new TextEncoder().encode(JSON.stringify({ alg: "RS256", typ: "JWT" })));
+  const body = b64u(new TextEncoder().encode(JSON.stringify({
+    iss: issuer, sub: env.REVOLUT_CLIENT_ID, aud: "https://revolut.com",
+    exp: Math.floor(Date.now() / 1000) + 300,
+  })));
+  const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(head + "." + body));
+  return head + "." + body + "." + b64u(sig);
+}
+
+async function revolutToken(env, form) {
+  const r = await fetch("https://b2b.revolut.com/api/1.0/auth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(form).toString(),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.access_token) throw new Error("token " + r.status + " " + JSON.stringify(d).slice(0, 200));
+  await env.PUSH_KV.put("revolut:tokens", JSON.stringify({
+    access_token: d.access_token,
+    refresh_token: d.refresh_token,
+    expires_at: Date.now() + (Number(d.expires_in) || 2400) * 1000,
+  }));
+  return d;
+}
+
 export default {
   async fetch(request, env, ctx) {
    try {
@@ -740,6 +784,95 @@ export default {
       } catch (e) {
         return json({ error: "could not save", detail: String(e).slice(0, 120) }, 500, origin);
       }
+    }
+
+    // Revolut OAuth. /revolut/start sends the owner to the consent screen once;
+    // the callback swaps the code for a refresh token and keeps it in KV.
+    if (url.pathname === "/revolut/start" && request.method === "GET") {
+      const to = "https://business.revolut.com/app-confirm?client_id=" +
+        encodeURIComponent(env.REVOLUT_CLIENT_ID) +
+        "&redirect_uri=" + encodeURIComponent(env.REVOLUT_REDIRECT_URI) + "&response_type=code";
+      return Response.redirect(to, 302);
+    }
+    if (url.pathname === "/revolut/callback" && request.method === "GET") {
+      const code = url.searchParams.get("code");
+      if (!code) return new Response("No code returned by Revolut.", { status: 400 });
+      try {
+        const assertion = await revolutAssertion(env);
+        await revolutToken(env, {
+          grant_type: "authorization_code",
+          code,
+          client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+          client_assertion: assertion,
+        });
+        return new Response("<html><body style='font:16px system-ui;padding:40px'>Revolut connected. You can close this tab.</body></html>",
+          { headers: { "Content-Type": "text/html" } });
+      } catch (e) {
+        return new Response("Revolut did not accept the exchange: " + String(e).slice(0, 300), { status: 500 });
+      }
+    }
+
+    // Revolut webhook. Signed with the secret we stored when the webhook was
+    // created, so a forged POST cannot invent a payment. A credit into the
+    // dedicated account is matched to an open quote by amount and reported.
+    if (url.pathname === "/revolut/webhook" && request.method === "POST") {
+      const raw = await request.text();
+      const secret = await env.PUSH_KV.get("revolut:webhook_secret");
+      const secAcct = await env.PUSH_KV.get("revolut:account_id");
+      if (!secret) return json({ error: "no webhook secret" }, 500, origin);
+      const sigHeader = request.headers.get("Revolut-Signature") || "";
+      const ts = request.headers.get("Revolut-Request-Timestamp") || "";
+      if (!ts || Math.abs(Date.now() - new Date(ts).getTime()) > 5 * 60 * 1000) {
+        return json({ error: "stale" }, 400, origin);
+      }
+      const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret),
+        { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+      const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode("v1." + ts + "." + raw));
+      const want = [...new Uint8Array(mac)].map(b => b.toString(16).padStart(2, "0")).join("");
+      const got = sigHeader.replace(/^v1=/, "").trim().toLowerCase();
+      if (got.length !== want.length || !timingSafe(got, want)) {
+        return json({ error: "bad signature" }, 403, origin);
+      }
+      let evt = {};
+      try { evt = JSON.parse(raw); } catch (e) { return json({ ok: true }, 200, origin); }
+      const d = evt.data || {};
+      // Only money coming INTO the dedicated account counts. Legs for other
+      // accounts in the same business are ignored.
+      const legs = (d.legs || []).filter(l => l.account_id === secAcct && Number(l.amount) > 0);
+      if (!legs.length || (d.state && d.state !== "completed" && d.state !== "pending")) {
+        return json({ ok: true, ignored: true }, 200, origin);
+      }
+      const amount = legs[0].amount;
+      const ref = String(d.reference || legs[0].description || "").trim();
+      let matched = null;
+      try {
+        const quotes = await sb(env, "messages?raw->>via=eq.pay-details&direction=eq.out&select=conversation_id,raw,sent_at&order=sent_at.desc&limit=30").catch(() => null) || [];
+        for (const q of quotes) {
+          if (Date.now() - new Date(q.sent_at).getTime() > 72 * 3600 * 1000) continue;
+          const itemId = q.raw && q.raw.item_id;
+          if (!itemId) continue;
+          let item = (await sb(env, "telegram_menu_items?id=eq." + itemId + "&select=name,price_gbp").catch(() => null) || [])[0];
+          if (!item) item = (await sb(env, "media_items?id=eq." + itemId + "&select=title,price_ton").catch(() => null) || [])[0];
+          const price = item ? Number(item.price_gbp || item.price_ton || 0) : 0;
+          if (price && Math.abs(price - Number(amount)) < 0.01) { matched = { q, item }; break; }
+        }
+      } catch (e) {}
+      let who = ref;
+      let conn = null;
+      try {
+        conn = (await sb(env, "business_connections?select=id,creator_id,telegram_account_id&limit=1").catch(() => null) || [])[0];
+        if (matched) {
+          const conv = (await sb(env, "conversations?id=eq." + matched.q.conversation_id + "&select=customer_ref").catch(() => null) || [])[0];
+          const cust = conv && (await sb(env, "customers?tg_user_id=eq." + encodeURIComponent(conv.customer_ref) + "&select=first_name,username&limit=1").catch(() => null) || [])[0];
+          if (cust && (cust.first_name || cust.username)) who = cust.first_name || cust.username;
+        }
+      } catch (e) {}
+      const body = "£" + Number(amount).toFixed(2) + " in from " + (who || "unknown") +
+        (matched ? " for " + (matched.item.name || matched.item.title) : " (no open quote matched)") +
+        (ref ? " · ref " + ref.slice(0, 40) : "");
+      if (conn) await notifyOwner(env, sb, conn, { id: null }, {}, "Payment in", body).catch(() => null);
+      console.log(JSON.stringify({ evt: "revolut.payment", amount, matched: !!matched }));
+      return json({ ok: true }, 200, origin);
     }
 
     if (url.pathname === "/bots/hook" && request.method === "POST") {
