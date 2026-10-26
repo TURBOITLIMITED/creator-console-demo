@@ -34,7 +34,7 @@
     "OWNER_TELEGRAM_ID": "8380225719",
     // Web push: the public half of the VAPID pair, and the contact the push
     // service can use. The private half is a secret.
-    "VAPID_PUBLIC_KEY": "BGJklKo3Xbi3Y5RAxI3PjLGNzGmy0WJst_AC9YHj7F42CJ4ax2xBIajqd-YSLotQUXqzRVbrXOZzDfImjIzWTBE",
+    "VAPID_PUBLIC_KEY": "BKpRQz4po9epushnDmlRpGsXorQtd58D8bZbsrsurUV6w-4EuWpsEKBdfmi2kBoInVvLipmb6yvtSGWu3Z1dLzw",
     "VAPID_SUBJECT": "mailto:info@turboit.uk",
     // Declared on the live worker but NEVER referenced anywhere in the source.
     "DEMO": ""

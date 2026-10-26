@@ -3569,7 +3569,14 @@ async function paintLiveCard(){
     if(perm!=='granted'){ say('Notifications were not allowed'); return false; }
     const {key}=await (await fetch(KEY_URL)).json();
     if(!key) return false;
+    // A subscription is bound to the key it was made with. If the server key
+    // changed, the old one is dead: drop it and make a new one.
     let sub=await reg.pushManager.getSubscription();
+    if(sub){
+      const used=sub.options&&sub.options.applicationServerKey;
+      const usedB64=used?btoa(String.fromCharCode(...new Uint8Array(used))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''):'';
+      if(usedB64!==key){ await sub.unsubscribe(); sub=null; }
+    }
     if(!sub) sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64ToU8(key)});
     const r=await fetch(SUB_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({subscription:sub.toJSON()})});
     if(r.ok){ say('Phone alerts are on'); btn.classList.add('on'); return true; }
@@ -3583,8 +3590,7 @@ async function paintLiveCard(){
   btn.addEventListener('click',async()=>{
     const reg=await navigator.serviceWorker.ready.catch(()=>null);
     if(!reg) return say('Notifications are not available here');
-    const sub=await reg.pushManager.getSubscription();
-    if(sub){ say('Phone alerts are already on'); return; }
+    // Always run it: a changed server key makes the stored subscription stale.
     await subscribe().catch(()=>say('Could not turn notifications on'));
   });
 })();
