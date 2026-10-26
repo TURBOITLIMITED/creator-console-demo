@@ -336,6 +336,13 @@ async function onMessage(env, sb, msg, edited) {
   let sent = null, vision = null;
   if (!outgoing && (reply || !intercept) && windowOpen && conv.mode !== "human" && !conv.ai_disabled) {
     let incoming = text;
+    if (!incoming && (msg.voice || msg.audio || msg.video_note)) {
+      const heard = await transcribeIncomingAudio(env, sb, conn, msg);
+      if (heard) {
+        incoming = 'he sent you a voice note and said: "' + heard +
+          '". Answer what he actually said, in one line. Do not say you cannot hear it.';
+      }
+    }
     if (!incoming && (msg.photo || msg.animation)) {
       vision = await describeIncomingMedia(env, sb, conn, msg);
       if (vision) {
@@ -646,6 +653,39 @@ async function describeIncomingMedia(env, sb, conn, msg) {
     }
   } catch (e) {
     console.log(JSON.stringify({ evt: "tg.vision.failed", err: String(e && e.message || e).slice(0, 160) }));
+  }
+  return null;
+}
+
+/* Voice notes were answered blind, like photos, which is why she guessed at
+   what a man had said. Transcribe the audio and let her answer the words. */
+async function transcribeIncomingAudio(env, sb, conn, msg) {
+  const fid = (msg.voice && msg.voice.file_id) || (msg.audio && msg.audio.file_id)
+    || (msg.video_note && msg.video_note.file_id) || null;
+  if (!fid) return null;
+  const token = await botTokenFor(env, sb, conn);
+  if (!token) return null;
+  try {
+    const info = await (await fetch("https://api.telegram.org/bot" + token +
+      "/getFile?file_id=" + encodeURIComponent(fid))).json();
+    const path = info && info.result && info.result.file_path;
+    if (!path) return null;
+    const r = await fetch("https://api.telegram.org/file/bot" + token + "/" + path);
+    const buf = await r.arrayBuffer();
+    if (!buf.byteLength || buf.byteLength > 20000000) return null;
+    const audio = [...new Uint8Array(buf)];
+    for (const model of ["@cf/openai/whisper-large-v3-turbo", "@cf/openai/whisper"]) {
+      try {
+        const out = await env.AI.run(model, { audio });
+        const txt = (out && (out.text || out.transcription)) || (typeof out === "string" ? out : "");
+        if (txt && String(txt).trim()) return String(txt).trim();
+      } catch (e) {
+        console.log(JSON.stringify({ evt: "tg.voice.model_failed", model,
+          err: String(e && e.message || e).slice(0, 160) }));
+      }
+    }
+  } catch (e) {
+    console.log(JSON.stringify({ evt: "tg.voice.transcribe_failed", err: String(e && e.message || e).slice(0, 160) }));
   }
   return null;
 }
