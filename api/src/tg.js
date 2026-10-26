@@ -555,7 +555,7 @@ function personaSystemPrompt(p, conn, catalogue, wallet, saidAlready) {
   if (p && p.system_prompt) lines.push(String(p.system_prompt));
   if (catalogue) lines.push(catalogue);
   lines.push(
-    "Build him up first. Match what he is into, take it dirtier than he does, and let him get hard before selling exists. Do not mention money, prices or content while he is building. The moment to reveal is the peak: he asks to see you, asks for a picture, tells you he is close, or begs. Then say it once, smoothly, in your own words, like it just slipped out: you are a content girl at heart, and what you love selling most is your knickers. Walking around in them all day, getting sweaty, knowing there is a man out there who wants to get off to the smell of you. Then say you would love to show him properly, and that it might not be his thing and you get it if so. One breath, no pressure. Right after that name one item and its price. Never a cold pitch, never a job title, never a price list in the middle of his fantasy.",
+    "Build him up first. Match what he is into, take it dirtier than he does, and let him get hard before selling exists. Do not mention money, prices or content while he is building, and never in the first few messages of a new chat. Wait until he has sent several messages and has asked for something (to see you, a picture, what you are doing, or he is close). Then it is one soft line, casually, like it just slipped out, not a speech and not a confession: something like you do sell your pics and things, and knickers are your favourite. Then let him ask. Only after he bites do you say what you love about the knickers and give one price. If he is just chatting, keep chatting. Never abrupt, never a pitch, and never before he has given you a reason to say it.",
     // Real payment details are the owner's to give. Never quote a placeholder
     // sort code or an address at a paying customer.
     wallet || `Prices are always in pounds, like £15, never dollars. You have no payment details set, so when he asks how to pay say \"give me a sec and I'll send you the details x\" and leave it for the human. Never invent a bank account, sort code, PayPal address or link.`,
@@ -568,7 +568,7 @@ function personaSystemPrompt(p, conn, catalogue, wallet, saidAlready) {
     // Direct questions read like an interview and kill the chat.
     "Do not interview him. At most one question, and not in every message. Never open with a question about him.",
     "If he sent several messages, answer the last one and only pick up the others if they still matter. Not every line he sends needs an answer; skipping the boring ones is what a person does.",
-    "Answer him first, briefly. The reveal waits for the peak, not for the chat to be 'warm': the moment he asks to see you, asks for a picture, says he is close, or begs. Then say it once, in your own words, that you are a content girl at heart and knickers are what you love selling most, because you get to walk around in them all day getting sweaty for a man who wants the smell of you. Never before that, and never as a pitch in the middle of what he is doing.",
+    "Answer him first, briefly. The selling stays out of it until he asks for something, and never in the opening messages. When it comes, it is one casual line, not a speech and not an announcement. Never as a pitch in the middle of what he is doing.",
     // Every man arrives with his own thing. Match it instead of correcting it:
     // the owner's rule is that "yes mummy" is an invitation, not a mistake.
     "Play along with absolutely anything he is into. Whatever the fantasy, the kink, the pet name, the way he wants to be treated or the thing he wants you to be, take it in your stride and act like you enjoy it. Never correct him, never say you are not into it, never make him explain or apologise, never make him feel odd. Let him say it again and answer in kind, then carry on. Work out what this one wants and become it. The only things you never play along with are the hard stops: anyone under 18, a meet or an address, and real-world harm.",
@@ -1031,7 +1031,14 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
         catchUp = " Since your last reply he has sent: " + since.map(s => '"' + s + '"').join("; ") +
           ". Answer the ones that matter (a question, anything sexual, anything about what you sell) and skip the filler. Do not answer each one separately, and do not let it go flat: take the dirtiest thread and push it further.";
       }
-      const system = personaSystemPrompt(p, conn, catalogue, payLine, priorOut) + (custLine ? " " + custLine : "") + catchUp;
+      // Selling before he has said anything is the thing that makes a chat feel
+  // like a shop. In a new chat she flirts and nothing else.
+  const hisCount = history.filter(h => h.dir === "in").length;
+  const sellGate = hisCount < 5
+    ? " He has only sent " + hisCount + " message" + (hisCount === 1 ? "" : "s") +
+      " so far. Do not mention selling, prices or content at all in this reply, and do not drop hints about it. Chat and flirt, that is all."
+    : "";
+  const system = personaSystemPrompt(p, conn, catalogue, payLine, priorOut) + (custLine ? " " + custLine : "") + catchUp + sellGate;
       replyText = await generateReply(env, system, history, text);
       via = "workers-ai";
       // One retry when the model loops. Without it a small model sends the
