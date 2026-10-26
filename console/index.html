@@ -518,7 +518,15 @@ input[type=range]{accent-color:var(--accent);width:100%}
   .back-btn{display:grid!important}
 }
 @media (max-width:520px){
-  .stats{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+  /* Revenue is the one number that matters, so it runs across the top and the
+     other three sit under it as a compact row. */
+  .stats{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+  .stat.hero{grid-column:1/-1;order:-1;padding:14px 16px}
+  .stat:not(.hero){padding:11px 10px;gap:5px}
+  .stat:not(.hero) .stat-top{font-size:11px;gap:5px}
+  .stat:not(.hero) .stat-top .i{width:13px;height:13px}
+  .stat:not(.hero) .stat-foot{font-size:10.5px}
+  .stat:not(.hero) .trend{display:none}
   .stat-num{font-size:clamp(24px,7vw,32px)}
   .stat.hero .stat-num{font-size:clamp(28px,8.5vw,38px)}
   .row2,.tone-list{grid-template-columns:1fr}
