@@ -29,7 +29,11 @@ function replyDelaySeconds(text, conv, opts) {
   const nudge = /^(hey|hi|hello|you there|u there|wyd|what you doing|babe|you ok|anyone there|you about)\b/.test(t);
   const lastOut = conv && conv.last_outbound_at ? new Date(conv.last_outbound_at).getTime() : 0;
   const quiet = lastOut ? Date.now() - lastOut : 0;
-  const nowhere = nudge || (words <= 3 && quiet > 10 * 60 * 1000);
+  const quietMin = quiet / 60000;
+  // "Going nowhere" is a chat that has actually gone quiet, not a nudge inside
+  // a live, filthy conversation. It used to catch a "hey again" eight minutes
+  // after a hot exchange and hold the reply for three minutes.
+  const nowhere = (nudge || words <= 3) && quietMin > 20;
   // A man with his cock in his hand is not kept waiting. Anything sexual, or a
   // picture or voice note, gets a fast reply; a man who is already being
   // answered by the owner gets the same, because the account is plainly online.
@@ -41,9 +45,9 @@ function replyDelaySeconds(text, conv, opts) {
   const replyWords = String(o.replyText || "").split(/\s+/).filter(Boolean).length;
   const typing = Math.min(9000, 700 + replyWords * 320);
   if (o.ownerOnline) return Math.max(8, Math.round((typing + 2500 + Math.random() * 3500) / 1000));
-  if (horny) return Math.max(8, Math.round((typing + 3500 + Math.random() * 5500) / 1000));
+  if (horny) return Math.max(8, Math.round((typing + 3000 + Math.random() * 4000) / 1000));
   if (nowhere) return 120 + Math.floor(Math.random() * 61);          // 2 to 3 minutes
-  return 15 + Math.floor(Math.random() * 76);                        // 15 to 90 seconds
+  return 12 + Math.floor(Math.random() * 39);                        // 12 to 50 seconds
 }
 
 /* The deterministic sends (menu, payment request, freebie) used to land the
