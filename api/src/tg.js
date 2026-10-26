@@ -22,14 +22,23 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 /* Human timing. A reply lands 20 seconds to 2 minutes later. When the chat is
    going nowhere (a nudge, or a two-word reply after a long quiet spell) it
    takes 2 to 3 minutes, the way someone half-interested would. */
-function replyDelaySeconds(text, conv) {
+function replyDelaySeconds(text, conv, opts) {
+  const o = opts || {};
   const t = String(text || "").trim().toLowerCase();
   const words = t.split(/\s+/).filter(Boolean).length;
   const nudge = /^(hey|hi|hello|you there|u there|wyd|what you doing|babe|you ok|anyone there|you about)\b/.test(t);
   const lastOut = conv && conv.last_outbound_at ? new Date(conv.last_outbound_at).getTime() : 0;
   const quiet = lastOut ? Date.now() - lastOut : 0;
   const nowhere = nudge || (words <= 3 && quiet > 10 * 60 * 1000);
-  return nowhere ? 120 + Math.floor(Math.random() * 61) : 20 + Math.floor(Math.random() * 101);
+  // A man with his cock in his hand is not kept waiting. Anything sexual, or a
+  // picture or voice note, gets a fast reply; a man who is already being
+  // answered by the owner gets the same, because the account is plainly online.
+  const SEX = /\b(cock|dick|pussy|wet|horny|hard|wank|fuck|fucking|naked|nude|tits|arse|ass|knickers|cum|stroke|touching|touch myself|playing with|want you|inside me|ride|suck)\b/i;
+  const horny = SEX.test(t) || SEX.test(String(o.priorText || "")) || !!o.sentMedia;
+  if (o.ownerOnline) return 12 + Math.floor(Math.random() * 9);      // 12 to 20 seconds
+  if (horny) return 15 + Math.floor(Math.random() * 21);             // 15 to 35 seconds
+  if (nowhere) return 120 + Math.floor(Math.random() * 61);          // 2 to 3 minutes
+  return 20 + Math.floor(Math.random() * 101);                       // 20 to 120 seconds
 }
 
 /* The deterministic sends (menu, payment request, freebie) used to land the
@@ -772,7 +781,7 @@ export async function catchUpReply(env, sb, conversationId) {
   if (!text) return null;
   const replyText = ensureEmoji(text, p && p.emoji_level);
   const sealed = dek ? await seal(dek, replyText) : {};
-  const delay = 15 + Math.floor(Math.random() * 31);   // 15 to 45 seconds
+  const delay = 12 + Math.floor(Math.random() * 9);   // 12 to 20 seconds: the owner is online
   await env.REPLY_QUEUE.send({
     conversation_id: conv.id,
     creator_id: conn.creator_id,
@@ -951,7 +960,19 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   // A request that sleeps for two minutes gets retried by Telegram, and a
   // typing indicator cannot run that long either. The queue delivers at the
   // drawn time and records the row then.
-  const delay = replyDelaySeconds(text, conv);
+  // Is the owner in this chat right now? A human reply in the last fifteen
+  // minutes means the account is visibly online, so she answers at that speed.
+  let ownerOnline = false;
+  try {
+    const lastOut = await sb(env, "messages?conversation_id=eq." + conv.id +
+      "&direction=eq.out&select=sender,sent_at&order=sent_at.desc&limit=1").catch(() => null);
+    if (lastOut && lastOut[0] && lastOut[0].sender === "human") {
+      ownerOnline = (Date.now() - new Date(lastOut[0].sent_at).getTime()) < 15 * 60 * 1000;
+    }
+  } catch (e) { ownerOnline = false; }
+  const delay = replyDelaySeconds(text, conv, { ownerOnline,
+    priorText: history.slice(-3).map(h => h.text).join(" "),
+    sentMedia: !!(msg.photo || msg.voice || msg.video || msg.video_note) });
   const sealed = histDek ? await seal(histDek, replyText) : {};
   try {
     await env.REPLY_QUEUE.send({
