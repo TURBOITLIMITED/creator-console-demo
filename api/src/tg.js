@@ -1072,6 +1072,48 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
  * URL; the row is recorded so history and the console show it.
  * Returns the send result, or null when nothing suitable / send failed.
  */
+/* When he asks for another free one after she has already sent hers, she draws
+   the line instead of re-sending the file: the free one was free, the rest is
+   paid. Rotated so the same sentence never lands twice. */
+const FREE_LIMIT_LINES = [
+  "I've already sent you one, now it's time to pay for me 😈",
+  "you've had your free one 😏 anything else you want, you pay for xx",
+  "that was your freebie baby, the rest you pay for 😈",
+  "no more free ones cheeky, I'm worth paying for 😏",
+  "I gave you a taste, now you pay for the rest 😘",
+  "free time's over x now it's time to pay for me 😈",
+];
+
+async function sendFreeLimitLine(env, sb, conn, conv, msg, recent, token) {
+  const seen = (recent || []).map(m => String(m.body_preview || "").toLowerCase());
+  const fresh = FREE_LIMIT_LINES.filter(l => !seen.some(b => b.includes(l.slice(0, 22).toLowerCase())));
+  const pool = fresh.length ? fresh : FREE_LIMIT_LINES;
+  const line = pool[Math.floor(Math.random() * pool.length)];
+  try {
+    const sent = await tg.sendMessage(token, conn.id, msg.chat.id, line);
+    await sb(env, "messages", {
+      method: "POST",
+      headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+      body: JSON.stringify({
+        conversation_id: conv.id,
+        creator_id: conn.creator_id,
+        tg_message_id: sent && sent.message_id ? sent.message_id : null,
+        direction: "out",
+        sender: "ai",
+        kind: "text",
+        body_preview: line.slice(0, 80),
+        sent_at: new Date().toISOString(),
+        raw: { via: "free-limit" },
+      }),
+    }).catch(() => {});
+    console.log(JSON.stringify({ evt: "tg.free_limit" }));
+    return { free_limit: true };
+  } catch (e) {
+    console.log(JSON.stringify({ evt: "tg.free_limit.failed", err: String(e).slice(0, 200) }));
+    return null;
+  }
+}
+
 async function maybeSendFreeItem(env, sb, conn, conv, msg) {
   if (!conn.telegram_account_id) return null;
   // Live, price-0 items tagged to THIS girl's account.
@@ -1090,54 +1132,25 @@ async function maybeSendFreeItem(env, sb, conn, conv, msg) {
   // Don't spam the same file repeatedly: skip if we sent this item's media in
   // the last 10 messages of this conversation.
   const recent = await sb(env, "messages?conversation_id=eq." + conv.id +
-    "&direction=eq.out&select=tg_message_id,media_key&order=sent_at.desc&limit=10").catch(() => null);
+    "&direction=eq.out&select=tg_message_id,media_key,body_preview&order=sent_at.desc&limit=10").catch(() => null);
   const recentKeys = new Set((recent || []).map(m => m.media_key).filter(Boolean));
   const item = items.find(m => !recentKeys.has(m.media_key)) || null;
 
   const token = await botTokenFor(env, sb, conn);
   if (!token) return null;
 
-  // All her freebies already sent in this chat: re-send the SAME one she
-  // already had and call them cheeky, instead of pretending there's nothing.
-  if (!item) {
-    const again = items[0];
-    try {
-      const r = await fetch(env.SUPABASE_URL + "/storage/v1/object/sign/content-store/" +
-        again.media_key.split("/").map(encodeURIComponent).join("/"), {
-        method: "POST",
-        headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY,
-                   "Content-Type": "application/json" },
-        body: JSON.stringify({ expiresIn: 3600 }),
-      });
-      const d = await r.json();
-      if (!d || !d.signedURL) return null;
-      const fileUrl = env.SUPABASE_URL + "/storage/v1" + d.signedURL;
-      const tgKind = again.kind === "image" ? "photo" : again.kind === "video" ? "video" : "document";
-      const sent = await tg.sendMedia(token, conn.id, msg.chat.id, tgKind, fileUrl,
-        "look, you've already had this one for free, cheeky 😜");
-      await sb(env, "messages", {
-        method: "POST",
-        headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
-        body: JSON.stringify({
-          conversation_id: conv.id,
-          creator_id: conn.creator_id,
-          tg_message_id: sent && sent.message_id ? sent.message_id : null,
-          direction: "out",
-          sender: "ai",
-          kind: "text",
-          body_preview: "[free again] " + again.title,
-          media_key: again.media_key,
-          sent_at: new Date().toISOString(),
-          raw: { via: "free-item-again", item_id: again.id },
-        }),
-      }).catch(() => {});
-      console.log(JSON.stringify({ evt: "tg.free_item.again", item: again.id }));
-      return { free_again: again.id };
-    } catch (e) {
-      console.log(JSON.stringify({ evt: "tg.free_item.again_failed", err: String(e).slice(0, 200) }));
-      return null;
-    }
+  // One freebie per chat, full stop. Once a free item has gone out, another
+  // request gets the line rather than a file, even if her library holds more.
+  const alreadyFree = await sb(env, "messages?conversation_id=eq." + conv.id +
+    "&direction=eq.out&raw->>via=eq.free-item&select=id&limit=1").catch(() => null);
+  if (alreadyFree && alreadyFree.length) {
+    return await sendFreeLimitLine(env, sb, conn, conv, msg, recent, token);
   }
+
+  // She has already sent her freebie in this chat. Sending the same file again
+  // teaches him that asking twice works, so she draws the line instead. The
+  // wording rotates so he never gets the same sentence twice.
+  if (!item) return await sendFreeLimitLine(env, sb, conn, conv, msg, recent, token);
 
   // Signed URL the Telegram servers can fetch the file from. Console uploads
   // live in Supabase Storage (content-store), not the Worker's R2 bucket, so
