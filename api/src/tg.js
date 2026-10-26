@@ -60,6 +60,7 @@ async function humanPace(token, connId, chatId, text) {
 
 import { pickBotAnswer, isSeriousRequest, isPurchaseContext } from "./persona.js";
 import { sign as signMedia } from "./media.js";
+import { buildPushPayload } from "@block65/webcrypto-web-push";
 
 const ok = () => new Response("", { status: 200 });
 
@@ -1286,6 +1287,37 @@ async function maybeSendMenu(env, sb, conn, conv, msg) {
    in and price it himself. */
 const CUSTOM_ASK_GATE = /\b(can you|could you|do you have|have you got|got any|any chance|i want|i'd like|i would like|send me|make me|is there any|would you|do you do)\b/i;
 
+/* Every device that installed the console on its home screen gets the same
+   nudge as the Telegram owner, so whoever is watching the shop hears about an
+   off-menu request even with the app closed. Dead subscriptions are dropped. */
+async function sendPushToAll(env, title, body, url) {
+  if (!env.PUSH_KV || !env.VAPID_PRIVATE_KEY || !env.VAPID_PUBLIC_KEY) return 0;
+  let sent = 0;
+  try {
+    const list = await env.PUSH_KV.list({ prefix: "sub:" });
+    for (const k of list.keys) {
+      const row = await env.PUSH_KV.get(k.name, "json");
+      const sub = row && row.subscription;
+      if (!sub) continue;
+      try {
+        const payload = await buildPushPayload(
+          { data: JSON.stringify({ title, body, url }), options: { ttl: 3600, urgency: "high" } },
+          sub,
+          { subject: env.VAPID_SUBJECT, publicKey: env.VAPID_PUBLIC_KEY, privateKey: env.VAPID_PRIVATE_KEY },
+        );
+        const res = await fetch(sub.endpoint, payload);
+        if (res.status === 404 || res.status === 410) await env.PUSH_KV.delete(k.name);
+        if (res.ok) sent++;
+      } catch (e) {
+        console.log(JSON.stringify({ evt: "push.failed", err: String(e).slice(0, 120) }));
+      }
+    }
+  } catch (e) {
+    console.log(JSON.stringify({ evt: "push.list_failed", err: String(e).slice(0, 120) }));
+  }
+  return sent;
+}
+
 async function maybeFlagCustomAsk(env, sb, conn, conv, msg, text) {
   if (!env.OWNER_TELEGRAM_ID || !env.DEEPSEEK_API_KEY) return null;
   if (!text || /^he sent you/.test(text)) return null;
@@ -1319,6 +1351,8 @@ async function maybeFlagCustomAsk(env, sb, conn, conv, msg, text) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: env.OWNER_TELEGRAM_ID, text: line, disable_web_page_preview: true }),
     }).catch(() => {});
+    await sendPushToAll(env, "Off-menu request", who + ": " + String(text).slice(0, 120),
+      "https://telebotcreator.turboit.uk/#inbox").catch(() => 0);
     console.log(JSON.stringify({ evt: "tg.custom_ask.flagged" }));
     return true;
   } catch (e) {

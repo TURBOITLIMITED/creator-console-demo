@@ -7,6 +7,10 @@
   "routes": [
     { "pattern": "api-telebotcreator.turboit.uk/*", "zone_name": "turboit.uk" }
   ],
+  "kv_namespaces": [
+    { "binding": "PUSH_KV", "id": "fc425b3c60dc4fb7ac8074b10d53717c" }
+  ],
+
   "r2_buckets": [
     { "binding": "MEDIA", "bucket_name": "creator-media" }
   ],
@@ -28,6 +32,10 @@
     // Where "he asked for something off the menu" alerts go. This is the
     // owner's own Telegram user id, and the bot must have been started by them.
     "OWNER_TELEGRAM_ID": "8380225719",
+    // Web push: the public half of the VAPID pair, and the contact the push
+    // service can use. The private half is a secret.
+    "VAPID_PUBLIC_KEY": "BGJklKo3Xbi3Y5RAxI3PjLGNzGmy0WJst_AC9YHj7F42CJ4ax2xBIajqd-YSLotQUXqzRVbrXOZzDfImjIzWTBE",
+    "VAPID_SUBJECT": "mailto:info@turboit.uk",
     // Declared on the live worker but NEVER referenced anywhere in the source.
     "DEMO": ""
   },

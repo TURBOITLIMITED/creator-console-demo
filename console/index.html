@@ -6,6 +6,10 @@
 <link rel="icon" type="image/png" sizes="32x32" href="favicon32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="favicon16.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#05060a">
 
 <title>Creator Console v2</title>
 <meta name="claude:viewport-fit-sides" content="cover">
@@ -3542,6 +3546,45 @@ async function paintLiveCard(){
   paintHeader();
   paintLiveCard();
   route(true);
+})();
+</script>
+<script>
+/* Home-screen notifications. iOS only offers the permission from an installed
+   icon and only from a tap, so this asks once with a button and never nags. */
+(function(){
+  if(!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  const KEY_URL='https://api-telebotcreator.turboit.uk/push/key';
+  const SUB_URL='https://api-telebotcreator.turboit.uk/push/subscribe';
+  const b64ToU8=(b64)=>{const p='='.repeat((4-b64.length%4)%4);const s=(b64+p).replace(/-/g,'+').replace(/_/g,'/');const raw=atob(s);return Uint8Array.from([...raw].map(c=>c.charCodeAt(0)));};
+  async function subscribe(){
+    const reg=await navigator.serviceWorker.ready;
+    const perm=await Notification.requestPermission();
+    if(perm!=='granted') return false;
+    const {key}=await (await fetch(KEY_URL)).json();
+    if(!key) return false;
+    let sub=await reg.pushManager.getSubscription();
+    if(!sub) sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64ToU8(key)});
+    const r=await fetch(SUB_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({subscription:sub.toJSON()})});
+    return r.ok;
+  }
+  function banner(){
+    if(document.getElementById('push-banner')) return;
+    const d=document.createElement('div'); d.id='push-banner';
+    d.style.cssText='position:fixed;left:12px;right:12px;bottom:12px;z-index:9999;background:#15161d;color:#fff;border:1px solid #2c2e3a;border-radius:14px;padding:12px 14px;display:flex;gap:10px;align-items:center;box-shadow:0 10px 30px rgba(0,0,0,.45);font:14px/1.35 system-ui';
+    d.innerHTML='<span style="flex:1">Get a phone alert when a customer asks for something off the menu.</span>'+
+      '<button id="push-yes" style="background:#6d5efc;color:#fff;border:0;border-radius:10px;padding:9px 14px;font-weight:600">Turn on</button>'+
+      '<button id="push-no" style="background:none;color:#888;border:0;padding:6px;font-size:18px">×</button>';
+    document.body.appendChild(d);
+    document.getElementById('push-yes').onclick=async()=>{const ok=await subscribe().catch(()=>false);d.remove();if(!ok)alert('Notifications were not allowed. Open the app from the home screen icon and allow them in Settings.');};
+    document.getElementById('push-no').onclick=()=>d.remove();
+  }
+  navigator.serviceWorker.register('/sw.js').then(async()=>{
+    const reg=await navigator.serviceWorker.ready;
+    const sub=await reg.pushManager.getSubscription();
+    if(sub) return;
+    if(Notification.permission==='granted'){ try{ if(await subscribe()) return; }catch(e){} }
+    if(Notification.permission!=='denied') banner();
+  }).catch(()=>{});
 })();
 </script>
 </body>

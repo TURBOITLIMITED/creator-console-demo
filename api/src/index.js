@@ -716,6 +716,28 @@ export default {
     }
 
     // Bot management endpoints for console admin (before whoami check)
+    // Web push. The console fetches the VAPID public key, the browser creates a
+    // subscription, and we keep it. No auth: a subscription is just a delivery
+    // address, and nothing the caller sends is ever echoed back to them.
+    if (url.pathname === "/push/key" && request.method === "GET") {
+      return json({ key: env.VAPID_PUBLIC_KEY || "" }, 200, origin);
+    }
+    if (url.pathname === "/push/subscribe" && request.method === "POST") {
+      const body = await request.json().catch(() => null);
+      const sub = body && body.subscription;
+      if (!sub || !sub.endpoint || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) {
+        return json({ error: "bad subscription" }, 400, origin);
+      }
+      try {
+        const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(sub.endpoint));
+        const id = [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 32);
+        await env.PUSH_KV.put("sub:" + id, JSON.stringify({ subscription: sub, added_at: new Date().toISOString() }));
+        return json({ ok: true, id }, 200, origin);
+      } catch (e) {
+        return json({ error: "could not save", detail: String(e).slice(0, 120) }, 500, origin);
+      }
+    }
+
     if (url.pathname === "/bots/hook" && request.method === "POST") {
       const denied = await requireConsoleAdmin(env, request, origin);
       if (denied) return denied;

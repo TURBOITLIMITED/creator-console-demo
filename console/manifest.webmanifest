@@ -1,0 +1,15 @@
+{
+  "name": "Telebot Creator",
+  "short_name": "Telebot",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#05060a",
+  "theme_color": "#05060a",
+  "icons": [
+    { "src": "/apple-touch-icon.png", "sizes": "180x180", "type": "image/png", "purpose": "any" },
+    { "src": "/favicon64.png", "sizes": "64x64", "type": "image/png", "purpose": "any" },
+    { "src": "/favicon32.png", "sizes": "32x32", "type": "image/png", "purpose": "any" }
+  ]
+}
