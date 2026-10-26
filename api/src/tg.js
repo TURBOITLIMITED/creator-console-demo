@@ -321,6 +321,20 @@ async function onMessage(env, sb, msg, edited) {
     method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify(patch),
   });
 
+  // Not every line needs an answer. A short ack, a laugh or a single emoji after
+  // she has already replied is left alone about half the time, which is what a
+  // person does and what stops the thread reading as a reply machine. Never
+  // skipped when it is money talk.
+  if (!outgoing && !intercept && text && !isPurchaseContext(text)) {
+    const t = String(text).trim().toLowerCase();
+    const ack = /^(ok|okay|kk|cool|nice|lol|lmao|haha+|hehe+|yeah|yea|yep|yes|no|cheers|thanks|ta|x+|😊|😂|🤣|👍)[\s.!?]*$/i.test(t);
+    if (ack && Math.random() < 0.55) {
+      console.log(JSON.stringify({ evt: "tg.reply.ack_skip", conversation: conv.id }));
+      return { conversation_id: conv.id, direction: "in", sender, window_open: windowOpen,
+               intercept: null, reply: null, sent: null, skipped: "ack" };
+    }
+  }
+
   if (intercept) {
     await sb(env, "audit_log", {
       method: "POST", headers: { Prefer: "return=minimal" },
@@ -499,6 +513,7 @@ function personaSystemPrompt(p, conn, catalogue, wallet, saidAlready) {
     "Length: one line is the target, two short lines at most, under twenty words. Emoji and a cheeky word belong in the line, they are not an extra sentence. A paragraph is always wrong.",
     // Direct questions read like an interview and kill the chat.
     "Do not interview him. At most one question, and not in every message. Never open with a question about him.",
+    "If he sent several messages, answer the last one and only pick up the others if they still matter. Not every line he sends needs an answer; skipping the boring ones is what a person does.",
     "Answer him first, briefly. Once the chat is warm, let him know what you are without announcing it like a job title or using a script: in your own words, once, that you sell your photos, videos and knickers. Say it differently every time. Light, once, then carry on.",
     // Every man arrives with his own thing. Match it instead of correcting it:
     // the owner's rule is that "yes mummy" is an invitation, not a mistake.
@@ -870,6 +885,7 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
       body_nonce: sealed.body_nonce || null,
       sender: "ai",
       via,
+      generated_at: new Date().toISOString(),
     }, { delaySeconds: delay });
     stopTyping();
     console.log(JSON.stringify({ evt: "tg.reply.queued", delay }));

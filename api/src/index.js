@@ -627,6 +627,26 @@ async function pollFab(env){
 async function deliverQueuedReply(env, body) {
   const b = body || {};
   if (!b.conversation_id || !b.text || !b.business_connection_id) return;
+  // If he has sent something newer since this reply was written, drop it. The
+  // newer message has its own reply queued, so a burst gets one answer rather
+  // than one per line, the way a person actually reads the thread.
+  if (b.generated_at) {
+    const convs = await sb(env, "conversations?id=eq." + encodeURIComponent(b.conversation_id) +
+      "&select=last_inbound_at,last_outbound_at").catch(() => null);
+    const c = (convs && convs[0]) || {};
+    const gen = new Date(b.generated_at).getTime();
+    // A newer inbound: the newer message's own reply covers it.
+    if (c.last_inbound_at && new Date(c.last_inbound_at).getTime() > gen) {
+      console.log(JSON.stringify({ evt: "tg.reply.superseded", conversation: b.conversation_id }));
+      return;
+    }
+    // Somebody already answered, usually the owner from the console. Do not
+    // talk over them.
+    if (c.last_outbound_at && new Date(c.last_outbound_at).getTime() > gen) {
+      console.log(JSON.stringify({ evt: "tg.reply.answered", conversation: b.conversation_id }));
+      return;
+    }
+  }
   const conns = await sb(env, "business_connections?id=eq." +
     encodeURIComponent(b.business_connection_id) + "&select=id,telegram_account_id,is_enabled");
   const conn = conns && conns[0];
