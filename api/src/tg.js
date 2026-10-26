@@ -278,6 +278,24 @@ async function onMessage(env, sb, msg, edited) {
     delivered: true,
   }, "resolution=merge-duplicates,return=minimal");
 
+  // A brand new chat, and a man who says he has paid: the two things only a
+  // human can act on. Both fire once, on the inbound message that caused them.
+  if (!outgoing && text && !edited) {
+    try {
+      const who = (customer && (customer.first_name || customer.username)) || from.first_name || "someone";
+      const seen = await sb(env, "messages?conversation_id=eq." + conv.id +
+        "&direction=eq.in&select=id&limit=2").catch(() => null);
+      const saysPaid = /\b(i'?ve |i have |just )?(paid|sent it|sent the money|sent you the|transferred|transfer done|payment sent|money sent)\b/i.test(text);
+      if (seen && seen.length === 1) {
+        await notifyOwner(env, sb, conn, conv, msg, "New chat", who + ": " + String(text).slice(0, 120));
+      } else if (saysPaid) {
+        await notifyOwner(env, sb, conn, conv, msg, "Says he's paid", who + ": " + String(text).slice(0, 120));
+      }
+    } catch (e) {
+      console.log(JSON.stringify({ evt: "notify.failed", err: String(e).slice(0, 120) }));
+    }
+  }
+
   const patch = { last_message_at: new Date().toISOString() };
   // talking to her again wakes a thread she had left alone
   if (!outgoing) patch.state = "active";
@@ -330,6 +348,9 @@ async function onMessage(env, sb, msg, edited) {
       intercept = "abuse";
       patch.state = "dormant";
       patch.ai_disabled = true;
+      await notifyOwner(env, sb, conn, conv, msg, "Needs you",
+        ((customer && (customer.first_name || customer.username)) || from.first_name || "someone") +
+        " got nasty: " + String(text).slice(0, 120)).catch(() => null);
     } else if (DECLINE.test(text) && conv.purchase_intent_at) {
       // He has been quoted and said no. The conversation goes dead: no reply,
       // no follow-up, and the bot stays off in this chat.
@@ -1290,6 +1311,29 @@ const CUSTOM_ASK_GATE = /\b(can you|could you|do you have|have you got|got any|a
 /* Every device that installed the console on its home screen gets the same
    nudge as the Telegram owner, so whoever is watching the shop hears about an
    off-menu request even with the app closed. Dead subscriptions are dropped. */
+/* One place that tells the owner something happened: Telegram for the phone in
+   his pocket even when the app is closed, and a home-screen push for every
+   device that installed the console. */
+async function notifyOwner(env, sb, conn, conv, msg, title, body) {
+  const url = "https://telebotcreator.turboit.uk/#inbox";
+  const who = (conv && conv.customer_ref) ? "" : "";
+  try {
+    const token = await botTokenFor(env, sb, conn);
+    if (token && env.OWNER_TELEGRAM_ID) {
+      await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: env.OWNER_TELEGRAM_ID,
+          text: "🔔 " + title + "\n" + String(body || "").slice(0, 300) + "\n\n" + url,
+          disable_web_page_preview: true,
+        }),
+      }).catch(() => {});
+    }
+  } catch (e) { /* the push below is the backstop */ }
+  await sendPushToAll(env, title, body, url).catch(() => 0);
+}
+
 async function sendPushToAll(env, title, body, url) {
   if (!env.PUSH_KV || !env.VAPID_PRIVATE_KEY || !env.VAPID_PUBLIC_KEY) return 0;
   let sent = 0;
