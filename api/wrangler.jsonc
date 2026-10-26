@@ -12,6 +12,13 @@
   ],
   "ai": { "binding": "AI" },
 
+  // Replies are queued with a delay (20s to 2min, 2 to 3min when the chat is
+  // going nowhere) so they land at a human pace without holding the webhook.
+  "queues": {
+    "producers": [{ "binding": "REPLY_QUEUE", "queue": "creator-replies" }],
+    "consumers": [{ "queue": "creator-replies", "max_batch_size": 1, "max_batch_timeout": 5, "max_retries": 3 }]
+  },
+
   // Bigger model for chat: the small one ignored instructions like "answer
   // his question first" once the persona got long. ONE vars object only: a
   // second "vars" key silently wins, and that is how AI_MODEL went missing and

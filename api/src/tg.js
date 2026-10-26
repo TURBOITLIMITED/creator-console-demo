@@ -19,6 +19,19 @@ import { getDek, seal, open, preview } from "./crypto.js";
 import { isAskingIfBot, isAskingForHuman, hasAgeSignal, COPY_VERSION } from "./copy.js";
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+/* Human timing. A reply lands 20 seconds to 2 minutes later. When the chat is
+   going nowhere (a nudge, or a two-word reply after a long quiet spell) it
+   takes 2 to 3 minutes, the way someone half-interested would. */
+function replyDelaySeconds(text, conv) {
+  const t = String(text || "").trim().toLowerCase();
+  const words = t.split(/\s+/).filter(Boolean).length;
+  const nudge = /^(hey|hi|hello|you there|u there|wyd|what you doing|babe|you ok|anyone there|you about)\b/.test(t);
+  const lastOut = conv && conv.last_outbound_at ? new Date(conv.last_outbound_at).getTime() : 0;
+  const quiet = lastOut ? Date.now() - lastOut : 0;
+  const nowhere = nudge || (words <= 3 && quiet > 10 * 60 * 1000);
+  return nowhere ? 120 + Math.floor(Math.random() * 61) : 20 + Math.floor(Math.random() * 101);
+}
+
 /* The deterministic sends (menu, payment request, freebie) used to land the
    instant he typed, which reads as a machine. Show typing and hold for a beat
    the way the model path does. */
@@ -705,25 +718,10 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   const p = persona.row;
   if (p && p.enabled === false) return null;   // persona off: stay quiet
 
-  // Typing indicator first: a real person doesn't reply instantly. Show
-  // "typing..." while we work, then hold for a beat scaled to reply length.
-  const token0 = await botTokenFor(env, sb, conn);
-  if (token0) {
-    try {
-      let typing = true;
-      const typer = async () => {
-        while (typing) {
-          await tg.sendChatAction(token0, conn.id, msg.chat.id, "typing").catch(() => {});
-          await sleep(4500);
-        }
-      };
-      typer();
-      conv.__typingStop = () => { typing = false; };
-    } catch (e) {
-      console.log(JSON.stringify({ evt: "tg.typing_failed", err: String(e).slice(0, 100) }));
-    }
-  }
-  const stopTyping = () => { try { conv.__typingStop && conv.__typingStop(); } catch {} };
+  // No typing indicator here: the reply is queued for 20 seconds to 2 minutes,
+  // and a typing badge that runs that long is a tell, not a human touch. The
+  // deterministic sends keep their own short typing pause.
+  const stopTyping = () => {};
 
   // FREE CONTENT: "anything free?" -> send a live, price-0 item from this
   // account's library, once per conversation until they ask again later.
@@ -852,49 +850,30 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
     return null;
   }
 
-  // Send through the business connection as the account.
-  const token = await botTokenFor(env, sb, conn);
-  if (!token) {
-    console.log(JSON.stringify({ evt: "tg.reply.no_token", persona: null }));
-    stopTyping();
-    return null;
-  }
+  // Queue the reply with a human delay instead of holding the webhook open.
+  // A request that sleeps for two minutes gets retried by Telegram, and a
+  // typing indicator cannot run that long either. The queue delivers at the
+  // drawn time and records the row then.
+  const delay = replyDelaySeconds(text, conv);
+  const sealed = histDek ? await seal(histDek, replyText) : {};
   try {
-    // Human pacing: a short pause that scales with reply length, so the
-    // typing indicator reads as someone actually composing a message.
-    const words = replyText.split(/\s+/).length;
-    const think = Math.min(9000, 1500 + words * 220 + Math.random() * 1200);
-    await sleep(think);
+    await env.REPLY_QUEUE.send({
+      conversation_id: conv.id,
+      creator_id: conn.creator_id,
+      business_connection_id: conn.id,
+      chat_id: msg.chat.id,
+      text: replyText,
+      body_enc: sealed.body_enc || null,
+      body_nonce: sealed.body_nonce || null,
+      sender: "ai",
+      via,
+    }, { delaySeconds: delay });
     stopTyping();
-    const sent = await tg.sendMessage(token, conn.id, msg.chat.id, replyText);
-    // Payment buttons are NOT attached to every reply that mentions a price.
-    // The owner's flow is a menu with prices first, and the man asks to pay
-    // when he is ready; firing buttons at him mid-chat read as a machine.
-    // Record our own reply as an outbound message row.
-    await sb(env, "messages", {
-      method: "POST",
-      headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
-      body: JSON.stringify({
-        conversation_id: conv.id,
-        creator_id: conn.creator_id,
-        tg_message_id: sent && sent.message_id ? sent.message_id : null,
-        direction: "out",
-        sender: "ai",
-        kind: "text",
-        body_preview: preview(replyText),
-        ...(histDek ? await seal(histDek, replyText) : {}),
-        raw: { via, business_connection_id: conn.id },
-        sent_at: new Date().toISOString(),
-        delivered: true,
-      }),
-    }).catch(() => {});
-    await sb(env, "conversations?id=eq." + conv.id, {
-      method: "PATCH", headers: { Prefer: "return=minimal" },
-      body: JSON.stringify({ last_outbound_at: new Date().toISOString() }),
-    }).catch(() => {});
-    return { via, text: replyText };
+    console.log(JSON.stringify({ evt: "tg.reply.queued", delay }));
+    return { via, text: replyText, queued: delay };
   } catch (e) {
-    console.log(JSON.stringify({ evt: "tg.reply.send_failed", err: String(e).slice(0, 200) }));
+    console.log(JSON.stringify({ evt: "tg.reply.queue_failed", err: String(e).slice(0, 200) }));
+    stopTyping();
     return null;
   }
 }

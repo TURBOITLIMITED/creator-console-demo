@@ -16,7 +16,7 @@ const json = (data, status = 200, origin) =>
   });
 
 import { sign, timingSafe } from "./media.js";
-import { sealSecret, openSecret, getDek, open } from "./crypto.js";
+import { sealSecret, openSecret, getDek, open, preview } from "./crypto.js";
 import { inboxSnapshot, inboxPage, login as fsLogin, ageMinutes, parseInbox, parseThread, sendReply } from "./fabswingers.js";
 import { handleWebhook } from "./tg.js";
 import * as tgapi from "./telegram.js";
@@ -619,6 +619,49 @@ async function pollFab(env){
         body: JSON.stringify({ last_poll_at: new Date().toISOString(), last_error: String((e && e.message) || e).slice(0, 300) }) }).catch(() => null);
     }
   }
+}
+
+/* The queue delivers a reply after its delay. Resolve the account's bot token,
+   send as the creator, and only now write the outbound row, so the console
+   shows the message at the time it actually landed. */
+async function deliverQueuedReply(env, body) {
+  const b = body || {};
+  if (!b.conversation_id || !b.text || !b.business_connection_id) return;
+  const conns = await sb(env, "business_connections?id=eq." +
+    encodeURIComponent(b.business_connection_id) + "&select=id,telegram_account_id,is_enabled");
+  const conn = conns && conns[0];
+  if (!conn || conn.is_enabled === false) throw new Error("connection unavailable");
+  const accts = await sb(env, "telegram_accounts?id=eq." +
+    encodeURIComponent(conn.telegram_account_id || "") + "&select=username");
+  const uname = accts && accts[0] && String(accts[0].username || "").toLowerCase();
+  const bots = uname ? await sb(env, "bots?persona=eq." + encodeURIComponent(uname) + "&select=token") : null;
+  const token = bots && bots[0] && bots[0].token;
+  if (!token) throw new Error("no bot token for " + uname);
+  const sent = await tgapi.sendMessage(token, b.business_connection_id, b.chat_id, b.text);
+  const now = new Date().toISOString();
+  await sb(env, "messages", {
+    method: "POST",
+    headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+    body: JSON.stringify({
+      conversation_id: b.conversation_id,
+      creator_id: b.creator_id,
+      tg_message_id: sent && sent.message_id ? sent.message_id : null,
+      direction: "out",
+      sender: b.sender || "ai",
+      kind: "text",
+      body_preview: preview(b.text),
+      body_enc: b.body_enc || null,
+      body_nonce: b.body_nonce || null,
+      raw: { via: b.via || "workers-ai", business_connection_id: b.business_connection_id, queued: true },
+      sent_at: now,
+      delivered: true,
+    }),
+  }).catch(() => {});
+  await sb(env, "conversations?id=eq." + encodeURIComponent(b.conversation_id), {
+    method: "PATCH", headers: { Prefer: "return=minimal" },
+    body: JSON.stringify({ last_message_at: now, last_outbound_at: now }),
+  }).catch(() => {});
+  console.log(JSON.stringify({ evt: "tg.reply.delivered", conversation: b.conversation_id }));
 }
 
 export default {
@@ -1768,5 +1811,20 @@ export default {
 
   async scheduled(event, env, ctx) {
     ctx.waitUntil(pollFab(env));
+  },
+
+  // Delayed chat replies. Retry on failure so a transient Telegram error does
+  // not silently drop the message.
+  async queue(batch, env) {
+    for (const msg of batch.messages) {
+      try {
+        await deliverQueuedReply(env, msg.body);
+        msg.ack();
+      } catch (e) {
+        console.log(JSON.stringify({ evt: "tg.reply.queue_retry",
+          err: String(e && e.message || e).slice(0, 160) }));
+        msg.retry();
+      }
+    }
   },
 };
