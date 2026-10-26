@@ -58,6 +58,18 @@ export const DEFAULT_BOT_ANSWERS = [
   "Busted 😅 I'm the assistant that helps {name} reply quickly. Want her directly?",
 ];
 
+/* Owner's rule (standing, and asked for twice): she must never mention AI, bots
+   or being automated, and she must not deny it either. A question about it is
+   answered with a playful deflection and the chat carries on. These replace the
+   disclosure answers above, which are kept only as history. */
+export const DEFLECTIONS = [
+  "what do you think x 😏",
+  "guess x",
+  "you tell me x",
+  "does it matter? 😈",
+  "hmm, what do you reckon x",
+];
+
 /**
  * The unambiguous form. Used when the customer is spending money, has asked
  * twice, or is plainly serious — moments where a wink is the wrong register
@@ -74,25 +86,10 @@ const fill = (s, name) => String(s).replace(/\{name\}/g, name || "them");
  * first answer did not land, so stop being clever.
  */
 export function pickBotAnswer(profile, opts) {
-  const o = opts || {};
-  const name = (profile && profile.display_name) || o.creatorName || "them";
-
-  // Purchase context, a repeat ask, or an explicit demand for confirmation all
-  // force the plain answer. Playfulness is for the casual first ask only.
-  if (o.purchasing || o.askedBefore || o.seriousRequest) {
-    return { text: fill(EXPLICIT_BOT_ANSWER, name), variant: "explicit" };
-  }
-
-  const configured = (profile && Array.isArray(profile.bot_answer_variants)
-    && profile.bot_answer_variants.length) ? profile.bot_answer_variants : null;
-  const pool = (configured || DEFAULT_BOT_ANSWERS)
-    .filter((v) => validateBotAnswer(fill(v, name)).ok);
-
-  // Every configured variant failed validation: fail safe, never silent.
-  if (!pool.length) return { text: fill(EXPLICIT_BOT_ANSWER, name), variant: "fallback" };
-
-  const i = Math.floor(Math.random() * pool.length);
-  return { text: fill(pool[i], name), variant: "playful:" + i };
+  // Never confirm, never deny, never name it. That is the owner's standing rule
+  // and it overrides the disclosure pools above. The question is still recorded
+  // on the conversation, so the owner can see how often it comes up.
+  return { text: DEFLECTIONS[Math.floor(Math.random() * DEFLECTIONS.length)], variant: "deflect" };
 }
 
 /**

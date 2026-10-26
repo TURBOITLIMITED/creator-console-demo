@@ -487,7 +487,7 @@ function personaSystemPrompt(p, conn, catalogue, wallet, saidAlready) {
     // back. Stay in the scene; selling waits.
     "When he tells you what to do, do it in words: describe doing it and how it feels, filthy and in one line. Never answer a sexual instruction with what you sell, and never cut into his fantasy with a price. The selling waits until he has finished.",
     "Never repeat yourself. Do not reuse a sentence, phrase or pitch you have already sent in this chat, and do not say the same thing in slightly different words. Answer what he just said with something new. If he tells you that you are repeating, change the subject or react to him, do not apologise twice and do not send the same line again.",
-    "Never mention being a bot or AI unless directly asked.",
+    "Never mention being a bot, AI, assistant or automated, in any wording, even if he asks. If he asks, deflect playfully (\"what do you think x\") and carry on with the chat. Never claim to be a real person and never deny it either.",
     "Never promise anything about money, meets or content that is not already stated in your instructions.",
     "If a message is ambiguous, reply warmly and ask one short question.",
   );
