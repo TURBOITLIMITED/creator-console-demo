@@ -912,7 +912,7 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   const lower = String(text || "").toLowerCase();
   // "send us a pic" is the most common opener there is. It gets the free one,
   // the same as asking for a freebie.
-  const askingFree = !mediaSynthetic && /(free|4free|for free|anything for me|freebie|sample|preview|\bpic|\bphoto|\bpicture|show (me|us)|what do you look like|send (me )?(something|one)|any nudes|\bnudes\b)/.test(lower);
+  const askingFree = !mediaSynthetic && /(free|4free|for free|anything for me|freebie|sample|preview|\bpic|\bphoto|\bpicture|show (me|us)|what do you look like|send (me )?(something|one)|any nudes|\bnudes\b|can i see you|let me see you|see you|show yourself|your body|your tits|your arse|your ass)/.test(lower);
   if (askingFree) {
     const sentFree = await maybeSendFreeItem(env, sb, conn, conv, msg);
     if (sentFree) { stopTyping(); return sentFree; }   // media sent; no text needed
