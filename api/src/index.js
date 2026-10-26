@@ -635,13 +635,10 @@ async function deliverQueuedReply(env, body) {
       "&select=last_inbound_at,last_outbound_at").catch(() => null);
     const c = (convs && convs[0]) || {};
     const gen = new Date(b.generated_at).getTime();
-    // A newer inbound: the newer message's own reply covers it.
-    if (c.last_inbound_at && new Date(c.last_inbound_at).getTime() > gen) {
-      console.log(JSON.stringify({ evt: "tg.reply.superseded", conversation: b.conversation_id }));
-      return;
-    }
-    // Somebody already answered, usually the owner from the console. Do not
-    // talk over them.
+    // Only drop when something has actually been sent since this job was
+    // written, which means he is already answered. Dropping merely because a
+    // newer message exists caused silence: every job in a burst was discarded
+    // on the assumption that a later one would answer, and sometimes none did.
     if (c.last_outbound_at && new Date(c.last_outbound_at).getTime() > gen) {
       console.log(JSON.stringify({ evt: "tg.reply.answered", conversation: b.conversation_id }));
       return;
