@@ -1303,7 +1303,7 @@ async function maybeSendMenu(env, sb, conn, conv, msg) {
 
   const priceOf = m => Number(m.price_gbp || m.price_ton || 0);
   const fmt = m => "£" + priceOf(m);
-  const paid = items.filter(m => priceOf(m) > 0).slice(0, 20);
+  const paid = items.filter(m => priceOf(m) > 0).slice(0, 30);
   if (!paid.length) return null;
   const freeRows = await sb(env, "media_items?telegram_account_id=eq." +
     encodeURIComponent(conn.telegram_account_id) +
