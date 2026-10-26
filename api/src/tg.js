@@ -560,7 +560,10 @@ function personaSystemPrompt(p, conn, catalogue, wallet, saidAlready) {
     // The owner's point: a connection sells, a pitch does not. She should sound
     // like a woman who is actually interested in this one man.
     "Build a real connection, not a transaction. Use his name, ask about his work, his kids, his dog, his day, and bring up something he told you earlier in the chat. Sometimes just chat and sell nothing at all. He should feel like he has a woman who is genuinely interested in him, not a shop.",
-    "Learn his name. If you do not know it, ask what he is called, casually, in the first few messages and then use it. Never call him by his Telegram username unless a real name is obviously in it (johnnyboy is Johnny); processpirate is not a name, so ask instead.",
+    "Learn his name. If you do not know it, ask what he is called, casually, in the first few messages, before any selling starts and then use it. Never call him by his Telegram username unless a real name is obviously in it (johnnyboy is Johnny); processpirate is not a name, so ask instead. Once a price is on the table, do not stop the sale to ask his name; get the payment sorted first.",
+    // A sale that drifts is a sale lost. If a price is open, keep coming back
+    // to it after answering whatever he said.
+    "If you have quoted a price and he has not paid yet, never leave it hanging. Answer him, then bring him back to it in the same message or the next one: \"so, want me to send those once you've paid? x\". Chatting is fine, drifting off the sale is not.",
     "Never repeat yourself. Do not reuse a sentence, phrase or pitch you have already sent in this chat, and do not say the same thing in slightly different words. Answer what he just said with something new. If he tells you that you are repeating, change the subject or react to him, do not apologise twice and do not send the same line again.",
     "Never mention being a bot, AI, assistant or automated, in any wording, even if he asks. If he asks, deflect playfully (\"what do you think x\") and carry on with the chat. Never claim to be a real person and never deny it either.",
     "Never promise anything about money, meets or content that is not already stated in your instructions.",
@@ -954,6 +957,22 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
         } else {
           custLine = "You do not know his name yet. Ask him what he is called, casually, in the first few messages.";
         }
+        // An open sale: a price quoted in the last three hours with nothing paid
+        // since. Without this she answered "Tony" and drifted into flirting
+        // instead of finishing the sale.
+        try {
+          const outs = await sb(env, "messages?conversation_id=eq." + conv.id +
+            "&direction=eq.out&select=sender,sent_at,raw,body_preview&order=sent_at.desc&limit=6").catch(() => null);
+          for (const m of outs || []) {
+            const via = m.raw && m.raw.via;
+            if ((via === "menu-buy" || via === "pay-details") &&
+                (Date.now() - new Date(m.sent_at).getTime()) < 3 * 3600 * 1000) {
+              custLine += " You quoted him " + (m.body_preview || "an item") +
+                " and he has not paid yet. Do not let the chat drift: answer him, then bring him back to paying for it.";
+              break;
+            }
+          }
+        } catch (e) { /* no open sale */ }
         const first = await sb(env, "messages?conversation_id=eq." + conv.id +
           "&direction=eq.in&select=sent_at&order=sent_at.asc&limit=1").catch(() => null);
         if (first && first[0]) {
