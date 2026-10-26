@@ -1393,7 +1393,6 @@ async function renderOverview(){
   const first = (state.creator?.name || 'there').split(' ')[0];
   setView(`
     ${secHead(`${hello}, ${first}.`)}
-    ${state.demo ? `<div class="panel" style="margin-bottom:14px;border:1px solid #6a5a1f;background:#1d1a0d"><div class="panel-body" style="padding:10px 14px;display:flex;gap:10px;align-items:center"><b style="color:#e7c65a">Sample data</b><span class="muted" style="flex:1">These figures are illustrative, not real sales.</span><button class="btn sm" data-act="ov-demo">Turn off</button></div></div>` : `<div style="margin:0 0 12px"><button class="btn sm" data-act="ov-demo">${ic('chart')}Preview with sample data</button></div>`}
     <div id="ov-alerts"></div>
     ${rangeBar()}
     <div class="stats" id="ov-stats">${[0,1,2,3].map(()=>`<div class="stat">${spinner('')}</div>`).join('')}</div>
@@ -3064,11 +3063,6 @@ view.addEventListener('click', async e => {
         catch(e2){ toast('Could not copy the log', 'error', 'Select the entries and copy them by hand.'); }
         ta.remove();
       }
-      break;
-    }
-    case 'ov-demo': {
-      state.demo = !state.demo;
-      renderOverview();
       break;
     }
     case 'range': {
