@@ -25,6 +25,9 @@
   // every chat ran on the 24B fallback model.
   "vars": {
     "AI_MODEL": "@cf/meta/llama-4-scout-17b-16e-instruct",
+    // Where "he asked for something off the menu" alerts go. This is the
+    // owner's own Telegram user id, and the bot must have been started by them.
+    "OWNER_TELEGRAM_ID": "8380225719",
     // Declared on the live worker but NEVER referenced anywhere in the source.
     "DEMO": ""
   },

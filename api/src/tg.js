@@ -1057,6 +1057,9 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
       generated_at: new Date().toISOString(),
     }, { delaySeconds: delay });
     stopTyping();
+    // After the reply is queued, not before: a custom ask is flagged in the
+    // background so it never delays what the customer sees.
+    await maybeFlagCustomAsk(env, sb, conn, conv, msg, text).catch(() => null);
     console.log(JSON.stringify({ evt: "tg.reply.queued", delay }));
     return { via, text: replyText, queued: delay };
   } catch (e) {
@@ -1271,6 +1274,54 @@ async function maybeSendMenu(env, sb, conn, conv, msg) {
     return { menu: true, queued: menuDelay };
   } catch (e) {
     console.log(JSON.stringify({ evt: "tg.menu.send_failed", err: String(e).slice(0, 200) }));
+    return null;
+  }
+}
+
+/* A customer asking for something she does not sell (a tin of beans, worn
+   socks, a phone call) is the best lead in the chat and the worst thing to leave
+   to her: she will either promise it or fob him off. A cheap check spots the
+   ask, and the owner gets a Telegram nudge with the exact words so he can step
+   in and price it himself. */
+const CUSTOM_ASK_GATE = /\b(can you|could you|do you have|have you got|got any|any chance|i want|i'd like|i would like|send me|make me|is there any|would you|do you do)\b/i;
+
+async function maybeFlagCustomAsk(env, sb, conn, conv, msg, text) {
+  if (!env.OWNER_TELEGRAM_ID || !env.DEEPSEEK_API_KEY) return null;
+  if (!text || /^he sent you/.test(text)) return null;
+  if (!CUSTOM_ASK_GATE.test(text)) return null;
+  try {
+    const menu = (await sellableItems(env, sb, conn)).map(m => m.title).filter(Boolean);
+    const prompt = "Menu: " + (menu.join(", ") || "priced pictures and videos") +
+      "\nCustomer: \"" + String(text).slice(0, 400) + "\"\n" +
+      "Is he asking for something specific that is NOT on the menu (for example a tin of beans, worn socks, a phone call, a meet)? Answer YES or NO only.";
+    const r = await fetch("https://api.deepseek.com/chat/completions", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + env.DEEPSEEK_API_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "deepseek-chat",
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 4,
+        temperature: 0,
+        stream: false,
+      }),
+    });
+    const d = await r.json();
+    const verdict = String(d && d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content || "").trim();
+    if (!/^yes/i.test(verdict)) return null;
+    const token = await botTokenFor(env, sb, conn);
+    if (!token) return null;
+    const who = conv.customer_name || conv.title || (msg.from && msg.from.first_name) || "someone";
+    const line = "👀 " + who + " asked for something off the menu:\n\"" + String(text).slice(0, 300) +
+      "\"\n\nOpen the chat and price it: https://telebotcreator.turboit.uk/#inbox";
+    await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: env.OWNER_TELEGRAM_ID, text: line, disable_web_page_preview: true }),
+    }).catch(() => {});
+    console.log(JSON.stringify({ evt: "tg.custom_ask.flagged" }));
+    return true;
+  } catch (e) {
+    console.log(JSON.stringify({ evt: "tg.custom_ask.failed", err: String(e).slice(0, 160) }));
     return null;
   }
 }
