@@ -289,7 +289,15 @@ async function onMessage(env, sb, msg, edited) {
       if (seen && seen.length === 1) {
         await notifyOwner(env, sb, conn, conv, msg, "New chat", who + ": " + String(text).slice(0, 120));
       } else if (saysPaid) {
-        await notifyOwner(env, sb, conn, conv, msg, "Says he's paid", who + ": " + String(text).slice(0, 120));
+        // He says he has sent it. Half a minute later the bank is checked and
+        // she answers with what is actually there, not with what he claimed.
+        await env.REPLY_QUEUE.send({
+          check: "payment",
+          conversation_id: conv.id,
+          creator_id: conn.creator_id,
+          business_connection_id: bcId,
+          chat_id: msg.chat.id,
+        }, { delaySeconds: 30 }).catch(() => {});
       }
     } catch (e) {
       console.log(JSON.stringify({ evt: "notify.failed", err: String(e).slice(0, 120) }));

@@ -36,6 +36,9 @@
     // service can use. The private half is a secret.
     "VAPID_PUBLIC_KEY": "BKpRQz4po9epushnDmlRpGsXorQtd58D8bZbsrsurUV6w-4EuWpsEKBdfmi2kBoInVvLipmb6yvtSGWu3Z1dLzw",
     "VAPID_SUBJECT": "mailto:info@turboit.uk",
+    // Revolut Business. The redirect URI must match the certificate exactly.
+    "REVOLUT_CLIENT_ID": "pC5fzsoKo0FMFQG8GzhEu4NLhriSDEX3Kus8kLsWRX4",
+    "REVOLUT_REDIRECT_URI": "https://api-telebotcreator.turboit.uk/revolut/callback",
     // Declared on the live worker but NEVER referenced anywhere in the source.
     "DEMO": ""
   },

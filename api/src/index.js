@@ -624,6 +624,74 @@ async function pollFab(env){
 /* The queue delivers a reply after its delay. Resolve the account's bot token,
    send as the creator, and only now write the outbound row, so the console
    shows the message at the time it actually landed. */
+// "I've sent it" is checked, not believed. Half a minute after he says it, the
+// Telegram Creators account is read for a credit that matches what he was
+// quoted, and she answers either way: got it, or nothing showing yet.
+async function checkPayment(env, body) {
+  const b = body || {};
+  if (!b.conversation_id || !b.chat_id) return;
+  const quotes = await sb(env, "messages?conversation_id=eq." + encodeURIComponent(b.conversation_id) +
+    "&raw->>via=eq.pay-details&select=raw,sent_at&order=sent_at.desc&limit=1").catch(() => null);
+  const q = quotes && quotes[0];
+  let price = 0, itemName = "";
+  if (q && q.raw && q.raw.item_id) {
+    let item = (await sb(env, "telegram_menu_items?id=eq." + q.raw.item_id + "&select=name,price_gbp").catch(() => null) || [])[0];
+    if (!item) item = (await sb(env, "media_items?id=eq." + q.raw.item_id + "&select=title,price_ton").catch(() => null) || [])[0];
+    price = Number((item && (item.price_gbp || item.price_ton)) || 0);
+    itemName = (item && (item.name || item.title)) || "";
+  }
+  let hit = null;
+  try {
+    const token = await revolutAccess(env);
+    const acct = await env.PUSH_KV.get("revolut:account_id");
+    const from = new Date(Date.now() - 20 * 60 * 1000).toISOString().slice(0, 10);
+    const to = new Date(Date.now() + 24 * 3600 * 1000).toISOString().slice(0, 10);
+    const r = await fetch("https://b2b.revolut.com/api/1.0/transactions?account=" + encodeURIComponent(acct) +
+      "&from=" + from + "&to=" + to + "&count=50", { headers: { Authorization: "Bearer " + token } });
+    const list = await r.json().catch(() => []);
+    const txs = Array.isArray(list) ? list : (list && list.transactions) || [];
+    for (const t of txs) {
+      const leg = (t.legs || []).find(l => l.account_id === acct && Number(l.amount) > 0);
+      if (!leg) continue;
+      if (t.state && t.state !== "completed" && t.state !== "pending") continue;
+      if (price && Math.abs(Number(leg.amount) - price) > 0.01) continue;
+      hit = { amount: Number(leg.amount), ref: t.reference || leg.description || "" };
+      break;
+    }
+  } catch (e) {
+    console.log(JSON.stringify({ evt: "revolut.check_failed", err: String(e).slice(0, 160) }));
+  }
+  const text = hit
+    ? "got it baby, thank you 😘" + (itemName ? " " + itemName + " coming to you x" : " x")
+    : "not showing on mine yet baby, give it a min and I'll check again x";
+  try {
+    const conns = await sb(env, "business_connections?id=eq." + encodeURIComponent(b.business_connection_id || "") +
+      "&select=id,telegram_account_id");
+    const conn = conns && conns[0];
+    const accts = conn ? await sb(env, "telegram_accounts?id=eq." + encodeURIComponent(conn.telegram_account_id || "") + "&select=username") : null;
+    const uname = accts && accts[0] && String(accts[0].username || "").toLowerCase();
+    const bots = uname ? await sb(env, "bots?persona=eq." + encodeURIComponent(uname) + "&select=token") : null;
+    const token = bots && bots[0] && bots[0].token;
+    if (!token) throw new Error("no bot token");
+    const sent = await tgapi.sendMessage(token, b.business_connection_id, b.chat_id, text);
+    await sb(env, "messages", {
+      method: "POST",
+      headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+      body: JSON.stringify({
+        conversation_id: b.conversation_id, creator_id: b.creator_id,
+        tg_message_id: sent && sent.message_id ? sent.message_id : null,
+        direction: "out", sender: "ai", kind: "text",
+        body_preview: preview(text),
+        sent_at: new Date().toISOString(),
+        raw: { via: hit ? "payment-found" : "payment-not-found" },
+      }),
+    }).catch(() => {});
+    console.log(JSON.stringify({ evt: "revolut.checked", found: !!hit, amount: hit ? hit.amount : null }));
+  } catch (e) {
+    console.log(JSON.stringify({ evt: "revolut.check_reply_failed", err: String(e).slice(0, 160) }));
+  }
+}
+
 async function deliverQueuedReply(env, body) {
   const b = body || {};
   if (!b.conversation_id || !b.text || !b.business_connection_id) return;
@@ -707,6 +775,21 @@ async function revolutAssertion(env) {
   })));
   const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(head + "." + body));
   return head + "." + body + "." + b64u(sig);
+}
+
+async function revolutAccess(env) {
+  let t = {};
+  try { t = JSON.parse(await env.PUSH_KV.get("revolut:tokens") || "{}"); } catch (e) {}
+  if (t.access_token && Number(t.expires_at) > Date.now() + 60000) return t.access_token;
+  if (!t.refresh_token) throw new Error("no refresh token");
+  const assertion = await revolutAssertion(env);
+  const d = await revolutToken(env, {
+    grant_type: "refresh_token",
+    refresh_token: t.refresh_token,
+    client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+    client_assertion: assertion,
+  });
+  return d.access_token;
 }
 
 async function revolutToken(env, form) {
@@ -1997,7 +2080,8 @@ export default {
   async queue(batch, env) {
     for (const msg of batch.messages) {
       try {
-        await deliverQueuedReply(env, msg.body);
+        if (msg.body && msg.body.check === "payment") await checkPayment(env, msg.body);
+        else await deliverQueuedReply(env, msg.body);
         msg.ack();
       } catch (e) {
         console.log(JSON.stringify({ evt: "tg.reply.queue_retry",
