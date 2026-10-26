@@ -869,6 +869,19 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
     if (menu) { stopTyping(); return menu; }
   }
 
+  // He answers the payment request in words now, because there are no buttons
+  // to tap: "paypal", "bank", "ton". Send that method's details.
+  const methodHit = !mediaSynthetic && (/\bpaypal\b/i.test(lower) ? "paypal"
+    : /\bbank\b|\btransfer\b/i.test(lower) ? "bank"
+    : /\bton\b/i.test(lower) ? "ton" : null);
+  if (methodHit && !askingFree) {
+    const quoted = await lastQuotedItem(env, sb, conv);
+    if (quoted) {
+      const paid = await sendPayDetails(env, sb, conn, conv, msg.chat.id, quoted, methodHit);
+      if (paid) { stopTyping(); return paid; }
+    }
+  }
+
   // "how do I pay?" -> re-send the payment-method buttons for the last item
   // they were quoted, instead of letting the model invent details.
   const askingHowPay = !mediaSynthetic && /how (do|can) i pay|how.*(pay|payment)|payment (method|options|details)?|ways? to pay|pay options/.test(lower);
@@ -1185,7 +1198,7 @@ async function maybeSendMenu(env, sb, conn, conv, msg) {
 
   const priceOf = m => Number(m.price_gbp || m.price_ton || 0);
   const fmt = m => "£" + priceOf(m);
-  const paid = items.filter(m => priceOf(m) > 0).slice(0, 8);
+  const paid = items.filter(m => priceOf(m) > 0).slice(0, 20);
   if (!paid.length) return null;
   const freeRows = await sb(env, "media_items?telegram_account_id=eq." +
     encodeURIComponent(conn.telegram_account_id) +
@@ -1202,34 +1215,42 @@ async function maybeSendMenu(env, sb, conn, conv, msg) {
   const token = await botTokenFor(env, sb, conn);
   if (!token) return null;
   try {
-    // Clickable menu: one button per paid item, a freebie button if she has
-    // one. Taps arrive as callback_query (onCallback below).
-    const buttons = paid.map(m => ([{
-      text: (m.title + " · " + fmt(m)).slice(0, 60),
-      callback_data: "buy:" + m.id,
-    }]));
-    if (free.length) buttons.push([{ text: "🎁 Free pic", callback_data: "free:" + free[0].id }]);
-    await humanPace(token, conn.id, msg.chat.id, menuText);
-    const sent = await tg.sendMessage(token, conn.id, msg.chat.id, menuText, {
-      reply_markup: { inline_keyboard: buttons },
-    });
+    // No buttons: a menu with inline keyboards reads as a shop bot. She says
+    // she will send it, goes quiet as if she is fetching it, then it lands as
+    // plain text, like she pasted it in.
+    const holding = "let me just send you what I've got x";
+    await humanPace(token, conn.id, msg.chat.id, holding);
+    const sentH = await tg.sendMessage(token, conn.id, msg.chat.id, holding);
     await sb(env, "messages", {
       method: "POST",
       headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
       body: JSON.stringify({
         conversation_id: conv.id,
         creator_id: conn.creator_id,
-        tg_message_id: sent && sent.message_id ? sent.message_id : null,
+        tg_message_id: sentH && sentH.message_id ? sentH.message_id : null,
         direction: "out",
         sender: "ai",
         kind: "text",
-        body_preview: "[menu] " + paid.length + " paid, " + free.length + " free",
+        body_preview: holding,
         sent_at: new Date().toISOString(),
-        raw: { via: "menu", items: paid.map(m => m.id) },
+        raw: { via: "menu-hold" },
       }),
     }).catch(() => {});
-    console.log(JSON.stringify({ evt: "tg.menu.sent", paid: paid.length, free: free.length }));
-    return { menu: true };
+    const menuDelay = 25 + Math.floor(Math.random() * 16);   // 25 to 40 seconds
+    await env.REPLY_QUEUE.send({
+      conversation_id: conv.id,
+      creator_id: conn.creator_id,
+      business_connection_id: conn.id,
+      chat_id: msg.chat.id,
+      text: menuText,
+      body_enc: null,
+      body_nonce: null,
+      sender: "ai",
+      via: "menu-text",
+      generated_at: new Date().toISOString(),
+    }, { delaySeconds: menuDelay });
+    console.log(JSON.stringify({ evt: "tg.menu.sent", paid: paid.length, free: free.length, delay: menuDelay }));
+    return { menu: true, queued: menuDelay };
   } catch (e) {
     console.log(JSON.stringify({ evt: "tg.menu.send_failed", err: String(e).slice(0, 200) }));
     return null;
@@ -1382,55 +1403,7 @@ async function onCallback(env, sb, cq, persona) {
     const method = pm[1];
     try { await tg.answerCallbackQuery(token, cq.id); } catch (e) {
       console.log(JSON.stringify({ evt: "tg.callback.ack_failed", err: String(e).slice(0, 120) })); }
-    // Closing line varies every time so it never reads like a template.
-    const CLOSERS = [
-      "let me know once you've sent it babe 😈",
-      "give me a shout when it's done 😘",
-      "tell me when you've paid and it's all yours 🤩",
-      "can't wait 💕 just say when you've sent it",
-      "drop me a message once it's in 💋",
-      "I'll be waiting 😏 just tell me when it's done",
-      "once it lands it's straight over to you 💝 say the word",
-    ];
-    const closer = CLOSERS[Math.floor(Math.random() * CLOSERS.length)];
-    let detail = null;
-    const prof2 = await sb(env, "ai_profiles?creator_id=eq." +
-      encodeURIComponent(conn.creator_id) +
-      "&select=wallet_address,pay_bank_name,pay_sort_code,pay_account_no,pay_paypal").catch(() => null);
-    const pay = (prof2 && prof2[0]) || {};
-    if (method === "ton" && pay.wallet_address) {
-      detail = `my ton address is\n${pay.wallet_address}\nput your username in the comment so I know it's you x\n${closer}`;
-    } else if (method === "paypal" && pay.pay_paypal) {
-      detail = `paypal me at ${pay.pay_paypal} x\n${closer}`;
-    } else if (method === "bank" && (pay.pay_sort_code || pay.pay_account_no)) {
-      detail = `bank transfer x\nname ${pay.pay_bank_name || ""}\nsort code ${pay.pay_sort_code || ""}\naccount ${pay.pay_account_no || ""}\n${closer}`;
-    } else {
-      // Nothing set for that method: never invent it.
-      detail = `give me a sec and I'll send you the details x`;
-    }
-    try {
-      await humanPace(token, conn.id, chatId, detail);
-      await tg.sendMessage(token, conn.id, chatId, detail);
-      await sb(env, "messages", {
-        method: "POST",
-        headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
-        body: JSON.stringify({
-          conversation_id: conv.id,
-          creator_id: conn.creator_id,
-          direction: "out",
-          sender: "ai",
-          kind: "text",
-          body_preview: "[pay details] " + method + " · " + item.title,
-          sent_at: new Date().toISOString(),
-          raw: { via: "pay-details", method, item_id: item.id },
-        }),
-      }).catch(() => {});
-      console.log(JSON.stringify({ evt: "tg.pay_details.sent", method, item: item.id }));
-      return { pay_details: method };
-    } catch (e) {
-      console.log(JSON.stringify({ evt: "tg.pay_details.failed", err: String(e).slice(0, 200) }));
-      return null;
-    }
+    return await sendPayDetails(env, sb, conn, conv, chatId, item, method);
   }
 
   if (action === "free") {
@@ -1491,20 +1464,12 @@ async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
   const gbp = Number(item.price_gbp) || ton;   // GBP column wins when set
   const price = "£" + gbp;
   const name = item.name || item.title || "that";
-  const payText = `ooh good choice 😏 ${name} is ${price} babe, how d'you wanna pay?`;
-  // Payment-method buttons: tapping one sends just that method's details,
-  // in her voice. Methods without details configured are still offered so
-  // the conversation can continue either way.
-  const methods = [[
-    { text: "👉 TON", callback_data: "pay:ton:" + item.id },
-    { text: "📝 PayPal", callback_data: "pay:paypal:" + item.id },
-    { text: "🏦 Bank transfer", callback_data: "pay:bank:" + item.id },
-  ]];
+  const payText = `ooh good choice 😏 ${name} is ${price} babe. how d'you wanna pay? bank transfer, paypal or ton x`;
+  // No inline keyboard. Buttons make the account look like a shop bot; the
+  // methods are named in the text and he answers with the one he wants.
   try {
     await humanPace(token, conn.id, msg.chat.id, payText);
-    const sent = await tg.sendMessage(token, conn.id, msg.chat.id, payText, {
-      reply_markup: { inline_keyboard: methods },
-    });
+    const sent = await tg.sendMessage(token, conn.id, msg.chat.id, payText);
     await sb(env, "messages", {
       method: "POST",
       headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
@@ -1524,6 +1489,62 @@ async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
     return { buy_pressed: item.id };
   } catch (e) {
     console.log(JSON.stringify({ evt: "tg.pay_request.failed", err: String(e).slice(0, 200) }));
+    return null;
+  }
+}
+
+/* Payment details as plain text, in her voice. Used when he answers "paypal",
+   "bank" or "ton" to the payment request, and by the old button taps. */
+const PAY_CLOSERS = [
+  "let me know once you've sent it babe 😈",
+  "give me a shout when it's done 😘",
+  "tell me when you've paid and it's all yours 🤩",
+  "can't wait 💕 just say when you've sent it",
+  "drop me a message once it's in 💋",
+  "I'll be waiting 😏 just tell me when it's done",
+  "once it lands it's straight over to you 💝 say the word",
+];
+
+async function sendPayDetails(env, sb, conn, conv, chatId, item, method) {
+  const token = await botTokenFor(env, sb, conn);
+  if (!token || !chatId) return null;
+  const closer = PAY_CLOSERS[Math.floor(Math.random() * PAY_CLOSERS.length)];
+  const prof = await sb(env, "ai_profiles?creator_id=eq." +
+    encodeURIComponent(conn.creator_id) +
+    "&select=wallet_address,pay_bank_name,pay_sort_code,pay_account_no,pay_paypal").catch(() => null);
+  const pay = (prof && prof[0]) || {};
+  let detail;
+  if (method === "ton" && pay.wallet_address) {
+    detail = `my ton address is\n${pay.wallet_address}\nput your username in the comment so I know it's you x\n${closer}`;
+  } else if (method === "paypal" && pay.pay_paypal) {
+    detail = `paypal me at ${pay.pay_paypal} x\n${closer}`;
+  } else if (method === "bank" && (pay.pay_sort_code || pay.pay_account_no)) {
+    detail = `bank transfer x\nname ${pay.pay_bank_name || ""}\nsort code ${pay.pay_sort_code || ""}\naccount ${pay.pay_account_no || ""}\n${closer}`;
+  } else {
+    detail = "give me a sec and I'll send you the details x";
+  }
+  try {
+    await humanPace(token, conn.id, chatId, detail);
+    const sent = await tg.sendMessage(token, conn.id, chatId, detail);
+    await sb(env, "messages", {
+      method: "POST",
+      headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+      body: JSON.stringify({
+        conversation_id: conv.id,
+        creator_id: conn.creator_id,
+        tg_message_id: sent && sent.message_id ? sent.message_id : null,
+        direction: "out",
+        sender: "ai",
+        kind: "text",
+        body_preview: "[pay details] " + method + " · " + (item.name || item.title || ""),
+        sent_at: new Date().toISOString(),
+        raw: { via: "pay-details", method, item_id: item.id },
+      }),
+    }).catch(() => {});
+    console.log(JSON.stringify({ evt: "tg.pay_details.sent", method, item: item.id }));
+    return { pay_details: method };
+  } catch (e) {
+    console.log(JSON.stringify({ evt: "tg.pay_details.failed", err: String(e).slice(0, 200) }));
     return null;
   }
 }
