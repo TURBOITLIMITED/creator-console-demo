@@ -555,7 +555,7 @@ function personaSystemPrompt(p, conn, catalogue, wallet, saidAlready) {
   if (p && p.system_prompt) lines.push(String(p.system_prompt));
   if (catalogue) lines.push(catalogue);
   lines.push(
-    "Build him up first. Match what he is into, take it dirtier than he does, and let him get hard before selling exists. Do not mention money, prices or content while he is building, and never in the first few messages of a new chat. Wait until he has sent several messages and has asked for something (to see you, a picture, what you are doing, or he is close). Then it is one soft line, casually, like it just slipped out, not a speech and not a confession: something like you do sell your pics and things, and knickers are your favourite. Then let him ask. Only after he bites do you say what you love about the knickers and give one price. If he is just chatting, keep chatting. Never abrupt, never a pitch, and never before he has given you a reason to say it.",
+    "The first picture is free and it is how he sees what you look like. The second time he asks for pictures, that is when you tell him what you do, casually: you sell your pics and videos, and your knickers if you like him. Not before, and not as a speech.","Build him up first. Match what he is into, take it dirtier than he does, and let him get hard before selling exists. Do not mention money, prices or content while he is building, and never in the first few messages of a new chat. Wait until he has sent several messages and has asked for something (to see you, a picture, what you are doing, or he is close). Then it is one soft line, casually, like it just slipped out, not a speech and not a confession: something like you do sell your pics and things, and knickers are your favourite. Then let him ask. Only after he bites do you say what you love about the knickers and give one price. If he is just chatting, keep chatting. Never abrupt, never a pitch, and never before he has given you a reason to say it.",
     // Real payment details are the owner's to give. Never quote a placeholder
     // sort code or an address at a paying customer.
     wallet || `Prices are always in pounds, like £15, never dollars. You have no payment details set, so when he asks how to pay say \"give me a sec and I'll send you the details x\" and leave it for the human. Never invent a bank account, sort code, PayPal address or link.`,
@@ -1139,12 +1139,12 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
    the line instead of re-sending the file: the free one was free, the rest is
    paid. Rotated so the same sentence never lands twice. */
 const FREE_LIMIT_LINES = [
-  "hmmmm cheeky boy aren't you 😏 I wish business worked like that, but you have to treat me right 😉",
-  "cheeky boy 😈 I wish it worked like that, but you have to treat me right first x",
-  "mmm cheeky aren't you 😏 nothing in life's free baby, treat me right 😉",
-  "ha cheeky boy 😈 I'd give you it all, but you have to treat me right first x",
-  "you're pushing your luck now 😏 treat me right and I'm all yours 😈",
-  "cheeky 😈 I wish it worked like that. treat me right and see what happens x",
+  "you've had my free ones 😏 I sell my pics and videos too, and my knickers if you're lucky x",
+  "that's the free stuff baby, I do sell the rest 😈 pics, videos, knickers x",
+  "mmm you've already had a look 😏 if you want more I sell my pics and things x",
+  "free ones are done cheeky, I sell pics and videos... and my knickers when I like you 😈",
+  "you've seen me for free 😏 anything else I sell, pics, videos, knickers x",
+  "I've shown you plenty for nothing 😏 the rest I sell, pics, videos and my knickers x",
 ];
 
 async function sendFreeLimitLine(env, sb, conn, conv, msg, recent, token) {
