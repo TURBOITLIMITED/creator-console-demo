@@ -1403,6 +1403,8 @@ async function renderOverview(){
     </div>`);
 
   loadStats();
+  clearInterval(state.ovTimer);
+  state.ovTimer = setInterval(() => { if($('#ov-stats')) loadStats(); }, 60000);
   fsUpgradeAlerts('#ov-alerts');
 
   const demoActivity = [
@@ -1469,6 +1471,7 @@ function demoStats(range){
   };
 }
 function loadStats(){
+  if(!$('#ov-stats')) return Promise.resolve();   // navigated away mid refresh
   const range = currentRange();
   const titleEl = $('#ov-chart-title');
   if(titleEl) titleEl.textContent = `Revenue, ${range.title}`;
@@ -1481,13 +1484,24 @@ function loadStats(){
     $('#ov-stats').innerHTML =
       card('message','Conversations', fmtNum(s.conversations.now), s.conversations.now, s.conversations.prev, `${s.unread} waiting for a reply`) +
       card('layers','Content items', fmtNum(s.media.now), s.media.now, s.media.prev, `${fmtNum(s.media.total)} in the library`) +
-      card('package','Bundles', fmtNum(s.bundles.now), s.bundles.now, s.bundles.prev, `${fmtNum(s.bundles.total)} in total`) +
+      card('message','Live chats', fmtNum(liveChats), liveChats, liveChats, `${fmtNum(liveSent)} sent, last 20 min`) +
       card('coin','Revenue', fmtTon(s.revenue.now,false), s.revenue.now, s.revenue.prev, `${s.revenue.sales} sales · ${fmtTon(s.revenue.total)} all time`, true);
     $('#ov-chart').innerHTML = revenueChart(s.days, range);
     return Promise.resolve(s);
   }
-  return Data.stats(range).then(s => {
+  return Data.stats(range).then(async s => {
     setUnread(s.unread);
+    // Live activity: conversations touched in the last twenty minutes and what
+    // she has sent in that window. This is the "is it running" number.
+    let liveChats = 0, liveSent = 0;
+    try {
+      const since = new Date(Date.now() - 20 * 60000).toISOString();
+      const [c, m] = await Promise.all([
+        state.sb.from('conversations').select('id', { count:'exact', head:true }).gte('last_message_at', since),
+        state.sb.from('messages').select('id', { count:'exact', head:true }).eq('direction','out').gte('sent_at', since),
+      ]);
+      liveChats = c.count || 0; liveSent = m.count || 0;
+    } catch(e) {}
     const card = (icon, label, num, now, prev, foot, hero=false, unit='') => `
       <div class="stat ${hero?'hero':''}"><div class="stat-top">${ic(icon)}${label}</div>
       <div class="stat-row"><div class="stat-num">${num}${unit?`<small>${unit}</small>`:''}</div>${trend(now,prev)}</div>
