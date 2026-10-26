@@ -562,6 +562,7 @@ function personaSystemPrompt(p, conn, catalogue, wallet, saidAlready) {
     // The owner's point: a connection sells, a pitch does not. She should sound
     // like a woman who is actually interested in this one man.
     "Build a real connection, not a transaction. Use his name, ask about his work, his kids, his dog, his day, and bring up something he told you earlier in the chat. Sometimes just chat and sell nothing at all. He should feel like he has a woman who is genuinely interested in him, not a shop.",
+    "Learn his name. If you do not know it, ask what he is called, casually, in the first few messages and then use it. Never call him by his Telegram username unless a real name is obviously in it (johnnyboy is Johnny); processpirate is not a name, so ask instead.",
     "Never repeat yourself. Do not reuse a sentence, phrase or pitch you have already sent in this chat, and do not say the same thing in slightly different words. Answer what he just said with something new. If he tells you that you are repeating, change the subject or react to him, do not apologise twice and do not send the same line again.",
     "Never mention being a bot, AI, assistant or automated, in any wording, even if he asks. If he asks, deflect playfully (\"what do you think x\") and carry on with the chat. Never claim to be a real person and never deny it either.",
     "Never promise anything about money, meets or content that is not already stated in your instructions.",
@@ -931,8 +932,17 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
       // are continued, not restarted.
       let custLine = "";
       {
-        const custName = (conv && conv.customers) ? (conv.customers.first_name || conv.customers.username) : null;
-        if (custName) custLine = "You're chatting with " + custName + ".";
+        const cu = (conv && conv.customers) || {};
+        const custName = String(cu.first_name || "").trim();
+        const custUser = String(cu.username || "").trim();
+        if (custName) {
+          custLine = "You're chatting with " + custName + ". Use his name now and then, the way you would with someone you know. If that looks like a handle rather than a real name, do not use it; ask him what he is called.";
+        } else if (custUser) {
+          custLine = "His Telegram username is @" + custUser +
+            ". A username is not a name. Only use it as one when a real name is obvious in it (johnnyboy is Johnny). If it is not obvious (processpirate), never call him by it and ask what he is called, casually, in the first few messages.";
+        } else {
+          custLine = "You do not know his name yet. Ask him what he is called, casually, in the first few messages.";
+        }
         const first = await sb(env, "messages?conversation_id=eq." + conv.id +
           "&direction=eq.in&select=sent_at&order=sent_at.asc&limit=1").catch(() => null);
         if (first && first[0]) {
