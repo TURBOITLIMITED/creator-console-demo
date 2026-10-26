@@ -641,7 +641,7 @@ async function generateReply(env, system, history, incoming) {
         headers: { "Content-Type": "application/json", Authorization: "Bearer " + env.DEEPSEEK_API_KEY },
         body: JSON.stringify({
           model: env.DEEPSEEK_MODEL || "deepseek-v4-pro",
-          messages, max_tokens: 120, temperature: 0.9,
+          messages, max_tokens: 150, temperature: 0.9,
           thinking: { type: "disabled" },
         }),
       });
@@ -665,7 +665,7 @@ async function generateReply(env, system, history, incoming) {
     tried.add(model);
     try {
       const out = await env.AI.run(model, {
-        messages, max_tokens: 110, temperature: 0.85,
+        messages, max_tokens: 150, temperature: 0.85,
       });
       const text = typeof out === "string" ? out : (out && out.response) || "";
       const clean = String(text).trim().replace(/^["']|["']$/g, "");
@@ -840,7 +840,7 @@ export async function catchUpReply(env, sb, conversationId) {
   const system = personaSystemPrompt(p, conn, catalogue, payLine, priorOut) +
     " He sent these while you were away: " + waiting.map(m => '"' + m.text + '"').join("; ") +
     ". Answer the ones that matter (a question, anything sexual, anything about buying) and skip the filler. Do not answer each one separately. Short and human.";
-  const text = await generateReply(env, system, history, "Answer the messages he sent while you were away.");
+  const text = finishReply(await generateReply(env, system, history, "Answer the messages he sent while you were away."));
   if (!text) return null;
   const replyText = ensureEmoji(text, p && p.emoji_level);
   const sealed = dek ? await seal(dek, replyText) : {};
@@ -860,6 +860,23 @@ export async function catchUpReply(env, sb, conversationId) {
   }, { delaySeconds: delay });
   console.log(JSON.stringify({ evt: "tg.reply.catch_up", conversation: conv.id, delay }));
   return { queued: delay };
+}
+
+/* A reply that stops mid-sentence looks like a broken bot, and the cause is the
+   token cap, not the model. If the last line does not end cleanly, cut back to
+   the last finished sentence; if there is not one, drop the half word and close
+   it the way she talks. */
+function finishReply(t) {
+  let s = String(t || "").trim();
+  if (!s) return s;
+  const closed = /[.!?…][\s"')\]]*$/.test(s) ||
+    /(^|\s)(x|xx|xxx)[\s.!?]*$/i.test(s) ||
+    /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]$/u.test(s);
+  if (closed) return s;
+  const m = s.match(/^([\s\S]*[.!?])\s+[^.!?]*$/);
+  if (m && m[1].trim().split(/\s+/).length >= 4) return m[1].trim();
+  const cut = s.replace(/\s+\S*$/, "").trim();
+  return cut ? cut + " x" : s;
 }
 
 async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
@@ -1080,6 +1097,7 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
       ownerOnline = (Date.now() - new Date(lastOut[0].sent_at).getTime()) < 15 * 60 * 1000;
     }
   } catch (e) { ownerOnline = false; }
+  replyText = finishReply(replyText);
   const delay = replyDelaySeconds(text, conv, { ownerOnline,
     priorText: history.slice(-3).map(h => h.text).join(" "),
     replyText,
