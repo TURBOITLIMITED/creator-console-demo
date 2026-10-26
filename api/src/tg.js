@@ -1076,12 +1076,12 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
    the line instead of re-sending the file: the free one was free, the rest is
    paid. Rotated so the same sentence never lands twice. */
 const FREE_LIMIT_LINES = [
-  "I've already sent you one, now it's time to pay for me 😈",
-  "you've had your free one 😏 anything else you want, you pay for xx",
-  "that was your freebie baby, the rest you pay for 😈",
-  "no more free ones cheeky, I'm worth paying for 😏",
-  "I gave you a taste, now you pay for the rest 😘",
-  "free time's over x now it's time to pay for me 😈",
+  "hmmmm cheeky boy aren't you 😏 I wish business worked like that, but you have to treat me right 😉",
+  "cheeky boy 😈 I wish it worked like that, but you have to treat me right first x",
+  "mmm cheeky aren't you 😏 nothing in life's free baby, treat me right 😉",
+  "ha cheeky boy 😈 I'd give you it all, but you have to treat me right first x",
+  "you're pushing your luck now 😏 treat me right and I'm all yours 😈",
+  "cheeky 😈 I wish it worked like that. treat me right and see what happens x",
 ];
 
 async function sendFreeLimitLine(env, sb, conn, conv, msg, recent, token) {
@@ -1235,39 +1235,25 @@ async function maybeSendMenu(env, sb, conn, conv, msg) {
     encodeURIComponent(conn.telegram_account_id) +
     "&visible=eq.true&price_ton=eq.0&select=id,title,media_key&limit=5").catch(() => null);
   const free = (freeRows || []).filter(m => m.media_key);
-  const lines = ["Here's what I've got right now 💕"];
+  const lines = ["here's what you can have from me 😈"];
   for (const m of paid) {
     lines.push("• " + m.title + " - " + fmt(m) + (m.kind === "physical" ? " (posted)" : ""));
   }
-  if (free.length) lines.push("I've also got a freebie if you'd like one, just ask 😊");
-  lines.push("Want any of them?");
+  lines.push("want any of them? treat me right and they're yours x");
   const menuText = lines.join("\n");
 
   const token = await botTokenFor(env, sb, conn);
   if (!token) return null;
   try {
-    // No buttons: a menu with inline keyboards reads as a shop bot. She says
-    // she will send it, goes quiet as if she is fetching it, then it lands as
-    // plain text, like she pasted it in.
-    const holding = "let me just send you what I've got x";
-    await humanPace(token, conn.id, msg.chat.id, holding);
-    const sentH = await tg.sendMessage(token, conn.id, msg.chat.id, holding);
-    await sb(env, "messages", {
-      method: "POST",
-      headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
-      body: JSON.stringify({
-        conversation_id: conv.id,
-        creator_id: conn.creator_id,
-        tg_message_id: sentH && sentH.message_id ? sentH.message_id : null,
-        direction: "out",
-        sender: "ai",
-        kind: "text",
-        body_preview: holding,
-        sent_at: new Date().toISOString(),
-        raw: { via: "menu-hold" },
-      }),
-    }).catch(() => {});
-    const menuDelay = 25 + Math.floor(Math.random() * 16);   // 25 to 40 seconds
+    // No holding line and no buttons: the free set goes out first, all at once,
+    // so he sees her before he sees a price, then the priced list lands as plain
+    // text a few seconds later, like she typed it.
+    const alreadyFree = await sb(env, "messages?conversation_id=eq." + conv.id +
+      "&direction=eq.out&raw->>via=eq.free-item&select=id&limit=1").catch(() => null);
+    if (!(alreadyFree && alreadyFree.length)) {
+      await maybeSendFreeItem(env, sb, conn, conv, msg).catch(() => null);
+    }
+    const menuDelay = 10 + Math.floor(Math.random() * 9);   // 10 to 18 seconds
     await env.REPLY_QUEUE.send({
       conversation_id: conv.id,
       creator_id: conn.creator_id,
