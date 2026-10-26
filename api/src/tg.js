@@ -1331,10 +1331,17 @@ async function notifyOwner(env, sb, conn, conv, msg, title, body) {
       }).catch(() => {});
     }
   } catch (e) { /* the push below is the backstop */ }
-  await sendPushToAll(env, title, body, url).catch(() => 0);
+  // The icon badge counts alerts since the app was last opened, so the number
+  // on the icon means "things I have not looked at", not "messages".
+  let badge = 0;
+  try {
+    badge = (Number(await env.PUSH_KV.get("badge")) || 0) + 1;
+    await env.PUSH_KV.put("badge", String(badge));
+  } catch (e) { badge = 0; }
+  await sendPushToAll(env, title, body, url, badge).catch(() => 0);
 }
 
-async function sendPushToAll(env, title, body, url) {
+async function sendPushToAll(env, title, body, url, badge) {
   if (!env.PUSH_KV || !env.VAPID_PRIVATE_KEY || !env.VAPID_PUBLIC_KEY) return 0;
   let sent = 0;
   try {
@@ -1345,7 +1352,7 @@ async function sendPushToAll(env, title, body, url) {
       if (!sub) continue;
       try {
         const payload = await buildPushPayload(
-          { data: JSON.stringify({ title, body, url }), options: { ttl: 3600, urgency: "high" } },
+          { data: JSON.stringify({ title, body, url, badge }), options: { ttl: 3600, urgency: "high" } },
           sub,
           { subject: env.VAPID_SUBJECT, publicKey: env.VAPID_PUBLIC_KEY, privateKey: env.VAPID_PRIVATE_KEY },
         );
@@ -1385,18 +1392,8 @@ async function maybeFlagCustomAsk(env, sb, conn, conv, msg, text) {
     const d = await r.json();
     const verdict = String(d && d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content || "").trim();
     if (!/^yes/i.test(verdict)) return null;
-    const token = await botTokenFor(env, sb, conn);
-    if (!token) return null;
     const who = conv.customer_name || conv.title || (msg.from && msg.from.first_name) || "someone";
-    const line = "👀 " + who + " asked for something off the menu:\n\"" + String(text).slice(0, 300) +
-      "\"\n\nOpen the chat and price it: https://telebotcreator.turboit.uk/#inbox";
-    await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: env.OWNER_TELEGRAM_ID, text: line, disable_web_page_preview: true }),
-    }).catch(() => {});
-    await sendPushToAll(env, "Off-menu request", who + ": " + String(text).slice(0, 120),
-      "https://telebotcreator.turboit.uk/#inbox").catch(() => 0);
+    await notifyOwner(env, sb, conn, conv, msg, "Off-menu request", who + ": " + String(text).slice(0, 140));
     console.log(JSON.stringify({ evt: "tg.custom_ask.flagged" }));
     return true;
   } catch (e) {

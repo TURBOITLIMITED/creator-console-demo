@@ -722,6 +722,10 @@ export default {
     if (url.pathname === "/push/key" && request.method === "GET") {
       return json({ key: env.VAPID_PUBLIC_KEY || "" }, 200, origin);
     }
+    if (url.pathname === "/push/seen" && request.method === "POST") {
+      try { await env.PUSH_KV.put("badge", "0"); } catch (e) {}
+      return json({ ok: true }, 200, origin);
+    }
     if (url.pathname === "/push/subscribe" && request.method === "POST") {
       const body = await request.json().catch(() => null);
       const sub = body && body.subscription;

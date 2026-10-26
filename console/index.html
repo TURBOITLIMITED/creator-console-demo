@@ -3582,6 +3582,14 @@ async function paintLiveCard(){
     if(r.ok){ say('Phone alerts are on'); btn.classList.add('on'); return true; }
     say('Could not save this device'); return false;
   }
+  // Opening the app means the alerts have been looked at, so the icon badge
+  // goes back to zero.
+  const clearBadge=()=>{
+    if(navigator.clearAppBadge) navigator.clearAppBadge().catch(()=>{});
+    fetch('https://api-telebotcreator.turboit.uk/push/seen',{method:'POST'}).catch(()=>{});
+  };
+  clearBadge();
+  document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') clearBadge(); });
   navigator.serviceWorker.register('/sw.js').then(async()=>{
     const reg=await navigator.serviceWorker.ready;
     const sub=await reg.pushManager.getSubscription();

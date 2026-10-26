@@ -7,6 +7,9 @@ self.addEventListener("push", (event) => {
   let d = {};
   try { d = event.data ? event.data.json() : {}; }
   catch (e) { d = { title: "Telebot Creator", body: event.data ? event.data.text() : "" }; }
+  if (d.badge && self.navigator && self.navigator.setAppBadge) {
+    self.navigator.setAppBadge(d.badge).catch(() => {});
+  }
   event.waitUntil(self.registration.showNotification(d.title || "Telebot Creator", {
     body: d.body || "",
     icon: "/apple-touch-icon.png",
