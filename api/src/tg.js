@@ -1538,7 +1538,7 @@ async function sendPayDetails(env, sb, conn, conv, chatId, item, method) {
   } else if (method === "paypal" && pay.pay_paypal) {
     detail = `paypal me at ${pay.pay_paypal} x\n${closer}`;
   } else if (method === "bank" && (pay.pay_sort_code || pay.pay_account_no)) {
-    detail = `bank transfer x\nname ${pay.pay_bank_name || ""}\nsort code ${pay.pay_sort_code || ""}\naccount ${pay.pay_account_no || ""}\n${closer}`;
+    detail = `here's my business account x, I'm a good girl when it comes to tax 😈\nname ${pay.pay_bank_name || ""}\nsort code ${pay.pay_sort_code || ""}\naccount ${pay.pay_account_no || ""}\n${closer}`;
   } else {
     detail = "give me a sec and I'll send you the details x";
   }
