@@ -723,6 +723,72 @@ async function transcribeIncomingAudio(env, sb, conn, msg) {
   return null;
 }
 
+/* The owner answered from the console, so the account looks online. Pick up the
+   messages that were waiting before their reply and answer the ones that matter,
+   shortly after, so it reads as one person catching up on the thread. */
+export async function catchUpReply(env, sb, conversationId) {
+  const convs = await sb(env, "conversations?id=eq." + encodeURIComponent(conversationId) +
+    "&select=id,creator_id,business_connection_id,chat_id,mode,ai_disabled").catch(() => null);
+  const conv = convs && convs[0];
+  if (!conv || conv.mode === "human" || conv.ai_disabled || !conv.business_connection_id) return null;
+  const conns = await sb(env, "business_connections?id=eq." + encodeURIComponent(conv.business_connection_id) +
+    "&select=id,creator_id,telegram_account_id,is_enabled").catch(() => null);
+  const conn = conns && conns[0];
+  if (!conn || conn.is_enabled === false) return null;
+  const persona = await loadPersonaRow(env, sb, conn);
+  const p = persona.row;
+  if (p && p.enabled === false) return null;
+
+  const rows = await sb(env, "messages?conversation_id=eq." + encodeURIComponent(conversationId) +
+    "&select=direction,sender,body_preview,body_enc,body_nonce,sent_at&order=sent_at.desc&limit=20").catch(() => null);
+  let dek = null;
+  try { dek = await getDek(env, sb, conn.creator_id); } catch (e) { dek = null; }
+  const msgs = [];
+  for (const m of (rows || []).reverse()) {
+    let body = m.body_preview;
+    if (dek && m.body_enc && m.body_nonce) {
+      try { body = await open(dek, m.body_enc, m.body_nonce); } catch (e) { /* keep the preview */ }
+    }
+    if (body) msgs.push({ dir: m.direction, text: String(body), sent_at: m.sent_at });
+  }
+  const now = Date.now();
+  const waiting = msgs.filter(m => m.dir === "in" &&
+    (now - new Date(m.sent_at).getTime()) < 30 * 60 * 1000);
+  if (!waiting.length) return null;
+
+  const history = msgs.map(m => ({ dir: m.dir, text: m.text })).slice(-20);
+  const priorOut = history.filter(h => h.dir === "out").map(h => h.text).slice(-6);
+  const catalogue = await liveCatalogue(env, sb, conn);
+  let payLine = "";
+  {
+    const prof = await sb(env, "ai_profiles?creator_id=eq." + encodeURIComponent(conn.creator_id) +
+      "&select=wallet_address,pay_bank_name,pay_sort_code,pay_account_no,pay_paypal,pay_note").catch(() => null);
+    payLine = payLineFrom(prof && prof[0]);
+  }
+  const system = personaSystemPrompt(p, conn, catalogue, payLine, priorOut) +
+    " He sent these while you were away: " + waiting.map(m => '"' + m.text + '"').join("; ") +
+    ". Answer the ones that matter (a question, anything sexual, anything about buying) and skip the filler. Do not answer each one separately. Short and human.";
+  const text = await generateReply(env, system, history, "Answer the messages he sent while you were away.");
+  if (!text) return null;
+  const replyText = ensureEmoji(text, p && p.emoji_level);
+  const sealed = dek ? await seal(dek, replyText) : {};
+  const delay = 15 + Math.floor(Math.random() * 31);   // 15 to 45 seconds
+  await env.REPLY_QUEUE.send({
+    conversation_id: conv.id,
+    creator_id: conn.creator_id,
+    business_connection_id: conn.id,
+    chat_id: conv.chat_id,
+    text: replyText,
+    body_enc: sealed.body_enc || null,
+    body_nonce: sealed.body_nonce || null,
+    sender: "ai",
+    via: "workers-ai",
+    generated_at: new Date().toISOString(),
+  }, { delaySeconds: delay });
+  console.log(JSON.stringify({ evt: "tg.reply.catch_up", conversation: conv.id, delay }));
+  return { queued: delay };
+}
+
 async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   // A photo or video with no caption is still a message. It used to be dropped
   // here because there was no text to answer, which is why sending a picture

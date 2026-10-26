@@ -18,7 +18,7 @@ const json = (data, status = 200, origin) =>
 import { sign, timingSafe } from "./media.js";
 import { sealSecret, openSecret, getDek, open, preview } from "./crypto.js";
 import { inboxSnapshot, inboxPage, login as fsLogin, ageMinutes, parseInbox, parseThread, sendReply } from "./fabswingers.js";
-import { handleWebhook } from "./tg.js";
+import { handleWebhook, catchUpReply } from "./tg.js";
 import * as tgapi from "./telegram.js";
 import { validateBotAnswer, DEFAULT_BOT_ANSWERS, EXPLICIT_BOT_ANSWER } from "./persona.js";
 
@@ -685,7 +685,7 @@ async function deliverQueuedReply(env, body) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
    try {
     const url = new URL(request.url);
     const origin = request.headers.get("Origin") || "";
@@ -989,6 +989,9 @@ export default {
       await sb(env, "messages", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(row) });
       await sb(env, "conversations?id=eq." + encodeURIComponent(conv.id), { method: "PATCH",
         headers: { Prefer: "return=minimal" }, body: JSON.stringify({ last_message_at: row.sent_at, last_outbound_at: row.sent_at }) });
+      // The account now looks online, so let her pick up whatever he sent
+      // before this reply, a few seconds later, like one person answering.
+      if (ctx) ctx.waitUntil(catchUpReply(env, sb, conv.id).catch(() => {}));
       return json({ ok: true, message: row }, 200, origin);
     }
 
