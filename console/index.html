@@ -1392,7 +1392,7 @@ async function renderOverview(){
   const hr = new Date().getHours(), hello = hr<12?'Good morning':hr<18?'Good afternoon':'Good evening';
   const first = (state.creator?.name || 'there').split(' ')[0];
   setView(`
-    ${secHead(`${hello}, ${first}.`)}
+    ${secHead('Overview')}
     <div id="ov-alerts"></div>
     ${rangeBar()}
     <div class="stats" id="ov-stats">${[0,1,2,3].map(()=>`<div class="stat">${spinner('')}</div>`).join('')}</div>
