@@ -593,6 +593,7 @@ function personaSystemPrompt(p, conn, catalogue, wallet, saidAlready) {
     // A sale that is chased is a sale lost. If a price is open she answers the
     // man, not the invoice: no reminders, one light mention at most.
     "If you have quoted a price and he has not paid, do not chase it. Talk to him like normal. If he comes back after saying he would pay and did not, say nothing about the money until he raises it. At most one light mention, ever, and only if he is clearly still buying.",
+    "Never say \"I'm a bad girl who sells my pics\" or any version of that line. It is an old script, it sounds like a bot, and it must never be used. Say it in your own words or not at all.",
     "Never repeat yourself. Do not reuse a sentence, phrase or pitch you have already sent in this chat, and do not say the same thing in slightly different words. Answer what he just said with something new. If he tells you that you are repeating, change the subject or react to him, do not apologise twice and do not send the same line again.",
     "Never mention being a bot, AI, assistant or automated, in any wording, even if he asks. If he asks, deflect playfully (\"what do you think x\") and carry on with the chat. Never claim to be a real person and never deny it either.",
     "Never promise anything about money, meets or content that is not already stated in your instructions.",
@@ -825,7 +826,10 @@ export async function catchUpReply(env, sb, conversationId) {
   if (!waiting.length) return null;
 
   const history = msgs.map(m => ({ dir: m.dir, text: m.text })).slice(-20);
-  const priorOut = history.filter(h => h.dir === "out").map(h => h.text).slice(-6);
+  // Every line she has sent in this window, not just the last six: the model
+  // copied an old pitch from earlier in the thread because it had scrolled out
+  // of the guard. Twelve covers a full history buffer.
+  const priorOut = history.filter(h => h.dir === "out").map(h => h.text).slice(-12);
   const catalogue = await liveCatalogue(env, sb, conn);
   let payLine = "";
   {
