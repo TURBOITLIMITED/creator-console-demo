@@ -918,6 +918,18 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   // MENU: "what do you offer / send me the menu" -> list live items with
   // prices straight from her library, not the model's imagination.
   const askingMenu = !mediaSynthetic && /(menu|what.*(offer|have|sell|sellin|got)|price list|how much|options|what can i buy|show me what)/.test(lower);
+  // He has just been told what she does and asked to see it. That is a yes to
+  // the menu, so it goes out rather than another line about knickers.
+  const wantsMenu = !mediaSynthetic && /^(yes|yeah|yep|yeh|go on|please|pls|show me|send it|send them|what have you got|what you got|what do you sell|the list)\b/i.test(lower);
+  if (wantsMenu) {
+    const recentLimit = await sb(env, "messages?conversation_id=eq." + conv.id +
+      "&direction=eq.out&raw->>via=eq.free-limit&select=sent_at&order=sent_at.desc&limit=1").catch(() => null);
+    if (recentLimit && recentLimit[0] && Date.now() - new Date(recentLimit[0].sent_at).getTime() < 30 * 60 * 1000) {
+      const m = await maybeSendMenu(env, sb, conn, conv, msg);
+      if (m) { stopTyping(); return m; }
+    }
+  }
+
   if (askingMenu && !askingFree) {
     const menu = await maybeSendMenu(env, sb, conn, conv, msg);
     if (menu) { stopTyping(); return menu; }
@@ -1139,11 +1151,11 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
    the line instead of re-sending the file: the free one was free, the rest is
    paid. Rotated so the same sentence never lands twice. */
 const FREE_LIMIT_LINES = [
-  "I sell photos and videos yeah, but that's boring… I like knickers 😈 knowing you're sniffing over me 🥵 x",
-  "I do sell pics and videos yeah, but honestly? nothing beats my knickers, worn all day, you sniffing over me 🥵 x",
-  "photos and videos yeah, but I'm a knickers girl 😈 knowing you're getting off to the smell of me 🥵 x",
-  "I sell pics and videos too, but that's boring… knickers is where it's at, worn all day, you sniffing them 🥵 x",
-  "yeah I sell photos and videos, but my knickers are the thing 😈 all day in them, knowing you're sniffing over me 🥵 x",
+  "I sell photos and videos yeah, but that's boring… I like knickers 😈 knowing you're sniffing over me 🥵 want to see what I've got x",
+  "I do sell pics and videos yeah, but honestly? nothing beats my knickers, worn all day, you sniffing over me 🥵 want the list x",
+  "photos and videos yeah, but I'm a knickers girl 😈 knowing you're getting off to the smell of me 🥵 want to see what I've got x",
+  "I sell pics and videos too, but that's boring… knickers is where it's at, worn all day, you sniffing them 🥵 want the list x",
+  "yeah I sell photos and videos, but my knickers are the thing 😈 all day in them, knowing you're sniffing over me 🥵 want to see what I've got x",
 ];
 
 async function sendFreeLimitLine(env, sb, conn, conv, msg, recent, token) {
