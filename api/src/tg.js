@@ -496,13 +496,12 @@ function payLineFrom(prof) {
     if (f.pay_account_no) b.push("account " + f.pay_account_no);
     bits.push("bank transfer (" + b.join(", ") + ")");
   }
-  if (f.pay_paypal) bits.push("PayPal (" + f.pay_paypal + ")");
-  if (f.wallet_address) bits.push("TON, only if he asks for crypto (" + f.wallet_address + ")");
   if (f.pay_note) bits.push(f.pay_note);
   if (!bits.length) return "";
   return "Payment methods you have, and the ONLY details you may give: " + bits.join("; ") +
-    ". Everything is quoted in pounds. Offer bank transfer first unless he asks for something else. " +
-    "Never invent or alter a detail, never mention crypto unless he does, and never promise a link.";
+    ". Everything is quoted in pounds. Bank transfer is the only way you take payment: " +
+    "never offer or mention PayPal, crypto or any other method, and if he asks for one say " +
+    "bank transfer is all you do x. Never invent or alter a detail and never promise a link.";
 }
 
 function personaSystemPrompt(p, conn, catalogue, wallet, saidAlready) {
@@ -872,15 +871,16 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
     if (menu) { stopTyping(); return menu; }
   }
 
-  // He answers the payment request in words now, because there are no buttons
-  // to tap: "paypal", "bank", "ton". Send that method's details.
-  const methodHit = !mediaSynthetic && (/\bpaypal\b/i.test(lower) ? "paypal"
-    : /\bbank\b|\btransfer\b/i.test(lower) ? "bank"
-    : /\bton\b/i.test(lower) ? "ton" : null);
-  if (methodHit && !askingFree) {
+  // He answers in words now, because there are no buttons to tap. Bank is the
+  // only rail: a yes gets the bank details. If he names PayPal or crypto, the
+  // model answers "bank only x" from the persona rather than us sending a bank
+  // message he did not ask for.
+  const affirmative = !mediaSynthetic && /^(yes|yeah|yep|yeh|ye|ok|okay|go on|please|pls|send it|send them|send us it|go for it|sure|course|of course|sound|perfect)\b/i.test(lower);
+  const methodHit = !mediaSynthetic && (/\bbank\b|\btransfer\b/i.test(lower) ? "bank" : null);
+  if ((methodHit || affirmative) && !askingFree) {
     const quoted = await lastQuotedItem(env, sb, conv);
     if (quoted) {
-      const paid = await sendPayDetails(env, sb, conn, conv, msg.chat.id, quoted, methodHit);
+      const paid = await sendPayDetails(env, sb, conn, conv, msg.chat.id, quoted, methodHit || "bank");
       if (paid) { stopTyping(); return paid; }
     }
   }
@@ -1483,7 +1483,7 @@ async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
   const gbp = Number(item.price_gbp) || ton;   // GBP column wins when set
   const price = "£" + gbp;
   const name = item.name || item.title || "that";
-  const payText = `ooh good choice 😏 ${name} is ${price} babe. how d'you wanna pay? bank transfer, paypal or ton x`;
+  const payText = `ooh good choice 😏 ${name} is ${price} babe, want me to send my bank details? x`;
   // No inline keyboard. Buttons make the account look like a shop bot; the
   // methods are named in the text and he answers with the one he wants.
   try {
