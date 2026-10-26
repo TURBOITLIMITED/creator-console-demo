@@ -751,7 +751,7 @@ document.addEventListener('gesturechange', e => e.preventDefault(), { passive:fa
   <aside class="side" id="side" aria-label="Main navigation">
     <div class="brand">
       <div class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7l5 5-5 5"/><path d="M13 17h6"/></svg></div>
-      <div class="brand-text"><b>Creator Console</b><small>TELEGRAM · TON</small></div>
+      <div class="brand-text"><b>Creator Console</b><small>TELEGRAM · £</small></div>
     </div>
     <nav class="nav" id="nav">
       <a href="#overview" data-sec="overview" title="Overview"><svg class="i"><use href="#i-grid"/></svg><span class="nav-label">Overview</span></a>
@@ -835,7 +835,7 @@ const ic = (n, cls='') => `<svg class="i ${cls}" aria-hidden="true"><use href="#
 const D = 864e5;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const fmtNum = n => Number(n||0).toLocaleString('en-GB');
-const fmtTon = (n, unit=true) => Number(n||0).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2}) + (unit ? ' TON' : '');
+const fmtTon = (n) => '£' + Number(n||0).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2});
 const fmtDate = iso => iso ? new Date(iso).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) : '—';
 const fmtTime = iso => new Date(iso).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
 function ago(iso){ if(!iso) return '—'; const s=(Date.now()-new Date(iso))/1000;
@@ -872,7 +872,6 @@ const ownerTarget = () => (state.isAdmin && state.aiCreator) ? state.aiCreator :
 const configured = () => !/YOUR-/.test(SUPABASE_URL + SUPABASE_ANON_KEY);
 const store = { get(k){ try{ return localStorage.getItem(k) }catch{ return null } }, set(k,v){ try{ localStorage.setItem(k,v) }catch{} } };
 const nameOf = c => c ? (c.first_name || c.username || 'Customer') : 'Customer';
-const TON_RE = /^(EQ|UQ|kQ|0Q)[A-Za-z0-9_-]{46}$/;
 
 /* ---------- audit log ----------
    Failures in this browser are kept here, not in the dev console: caught
@@ -1383,7 +1382,7 @@ async function renderOverview(){
     <div class="stats" id="ov-stats">${[0,1,2,3].map(()=>`<div class="stat">${spinner('')}</div>`).join('')}</div>
     <div class="ov-grid">
       <div style="display:flex;flex-direction:column;gap:20px;min-width:0">
-        <section class="panel chart"><div class="panel-head"><h2 id="ov-chart-title">Revenue</h2><span class="muted end mono">TON</span></div><div id="ov-chart">${spinner()}</div></section>
+        <section class="panel chart"><div class="panel-head"><h2 id="ov-chart-title">Revenue</h2><span class="muted end mono">GBP</span></div><div id="ov-chart">${spinner()}</div></section>
         <section class="panel"><div class="panel-head"><h2>Top bundles</h2><a class="end btn ghost sm" href="#bundles">View all${ic('arrow')}</a></div><div id="ov-top">${spinner()}</div></section>
       </div>
       <section class="panel"><div class="panel-head"><h2>Recent activity</h2><span class="end muted">Live feed</span></div><div id="ov-feed">${spinner()}</div></section>
@@ -1404,7 +1403,7 @@ async function renderOverview(){
       .filter(b=>b.n).sort((a,b)=>b.rev-a.rev).slice(0,5);
     const max = ranked[0]?.rev || 1;
     $('#ov-top').innerHTML = ranked.length ? `<ul class="top-list">${ranked.map((b,i)=>`
-      <li><span class="rank">${String(i+1).padStart(2,'0')}</span><span class="nm">${esc(b.name)}</span><span class="price">${fmtTon(b.rev,false)}<small>TON · ${b.n} sold</small></span>
+      <li><span class="rank">${String(i+1).padStart(2,'0')}</span><span class="nm">${esc(b.name)}</span><span class="price">${fmtTon(b.rev,false)}<small>· ${b.n} sold</small></span>
       <span></span><div class="meter"><i style="width:${(b.rev/max*100).toFixed(1)}%"></i></div></li>`).join('')}</ul>`
       : empty('package','No bundle sales yet','Your best sellers will be ranked here.');
   }).catch(e => $('#ov-top').innerHTML = errorState(e,'overview'));
@@ -1428,7 +1427,7 @@ function loadStats(){
       card('layers','Content items', fmtNum(s.media.now), s.media.now, s.media.prev, `${fmtNum(s.media.total)} in the library`) +
       card('package','Bundles', fmtNum(s.bundles.now), s.bundles.now, s.bundles.prev, `${fmtNum(s.bundles.total)} in total`) +
       card('coin','Revenue', fmtTon(s.revenue.now,false), s.revenue.now, s.revenue.prev,
-        `${s.revenue.sales} sale${s.revenue.sales===1?'':'s'} · ${fmtTon(s.revenue.total)} all time`, true, 'TON');
+        `${s.revenue.sales} sale${s.revenue.sales===1?'':'s'} · ${fmtTon(s.revenue.total)} all time`, true, '');
     const anySales = s.revenue.total > 0 || s.revenue.sales > 0;
     $('#ov-chart').innerHTML = anySales
       ? revenueChart(s.days, range)
@@ -1457,8 +1456,8 @@ function revenueChart(days, range = currentRange()){
     if(i%step===0 || last) g += `<text class="lbl" x="${(x+bw*.32).toFixed(1)}" y="${H-10}" text-anchor="middle">${last?'Today':d.date.getDate()}</text>`;
     if(last && d.total) g += `<text class="val" x="${(x+bw*.32).toFixed(1)}" y="${(pt+ih-h-7).toFixed(1)}" text-anchor="middle">${fmtTon(d.total,false)}</text>`;
   });
-  return `<div class="chart-sum"><div><b>${fmtTon(total,false)}</b><span>TON ${range.phrase}</span></div><div><b>${sales}</b><span>sales</span></div><div><b>${fmtTon(sales?total/sales:0,false)}</b><span>avg. order, TON</span></div><div><b>${best.total?best.date.toLocaleDateString('en-GB',{day:'numeric',month:'short'}):'—'}</b><span>best day</span></div></div>
-    <div style="padding:6px 8px 4px"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Bar chart of daily revenue in TON for ${esc(range.title)}">${g}</svg></div>`;
+  return `<div class="chart-sum"><div><b>${fmtTon(total,false)}</b><span>${range.phrase}</span></div><div><b>${sales}</b><span>sales</span></div><div><b>${fmtTon(sales?total/sales:0,false)}</b><span>avg. order</span></div><div><b>${best.total?best.date.toLocaleDateString('en-GB',{day:'numeric',month:'short'}):'—'}</b><span>best day</span></div></div>
+    <div style="padding:6px 8px 4px"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Bar chart of daily revenue in pounds for ${esc(range.title)}">${g}</svg></div>`;
 }
 
 /* ---------- Accounts ---------- */
@@ -2623,7 +2622,7 @@ async function openGirlLibrary(accountId, creatorId){
       <div class="table-wrap">${hers.length || herBuns.length ? `<table><tbody>
       ${hers.map(m => `<tr>
         <td><div class="cell-main"><div class="thumb ${m.kind} lib-thumb" data-key="${esc(m.media_key||'')}" data-kind="${esc(m.kind)}">${m.media_key ? '' : ic(typeIcon(m.kind))}</div><div><b>${esc(m.title)}</b><small>${esc(m.kind)}</small></div></div></td>
-          <td class="num" data-l="Price"><span class="price">${fmtTon(m.price_ton,false)}<small>TON</small></span></td>
+          <td class="num" data-l="Price"><span class="price">${fmtTon(m.price_ton)}</span></td>
           <td data-l="Status">${pill(m.visible,'Live','Hidden','draft')}</td>
           <td><div class="row-actions">
             <button class="act" data-act="lib-toggle" data-id="${m.id}" data-on="${m.visible?1:0}">${ic('power')}${m.visible?'Remove from live':'Add to live'}</button>
@@ -2632,7 +2631,7 @@ async function openGirlLibrary(accountId, creatorId){
           </div></td></tr>`).join('')}
         ${herBuns.map(b => `<tr>
           <td><div class="cell-main"><div class="thumb bundle">${ic('package')}</div><div><b>${esc(b.name)}</b><small>Bundle · ${(b.bundle_items||[]).length} items</small></div></div></td>
-          <td class="num" data-l="Price"><span class="price">${fmtTon(b.price_ton,false)}<small>TON</small></span></td>
+          <td class="num" data-l="Price"><span class="price">${fmtTon(b.price_ton)}</span></td>
           <td data-l="Status">${pill(b.active)}</td>
           <td><div class="row-actions">
             <button class="act" data-act="bun-toggle" data-id="${b.id}" data-on="${b.active?1:0}">${ic('power')}${b.active?'Deactivate':'Activate'}</button>
@@ -2663,7 +2662,7 @@ function libForm(item=null){
     <div class="field"><span class="flabel">Type</span><div class="seg" role="radiogroup">
       ${['video','image','document'].map(v=>`<input type="radio" name="kind" id="md-type-${v}" value="${v}" ${t===v?'checked':''}><label for="md-type-${v}">${ic(typeIcon(v))}${v[0].toUpperCase()+v.slice(1)}</label>`).join('')}
     </div></div>
-    <div class="field"><label for="md-price">Price</label><div class="input-affix"><input class="input mono" id="md-price" name="price_ton" type="number" min="0" step="0.1" value="${item?.price_ton ?? ''}" placeholder="9.5"><span>TON</span></div></div>
+    <div class="field"><label for="md-price">Price</label><div class="input-affix"><input class="input mono" id="md-price" name="price_ton" type="number" min="0" step="0.1" value="${item?.price_ton ?? ''}" placeholder="9.5"><span>£</span></div></div>
     <div class="field"><label for="md-file">File</label><input class="input" id="md-file" name="file" type="file" accept="video/*,image/*,audio/*,.zip,.pdf"><span class="hint">${item?'Leave empty to keep the current file.':'Stored in content-store; the bot delivers it after payment.'}</span></div>
     <div class="field"><label for="md-desc">Description</label><textarea class="input" id="md-desc" name="description" maxlength="280" style="min-height:64px" placeholder="What fans get.">${esc(item?.description||'')}</textarea></div>
     <label class="switch" for="md-visible"><input type="checkbox" id="md-visible" name="visible" ${item?.visible ?? true ?'checked':''}><span class="track"></span><span>Visible<small>Visible to fans and the AI</small></span></label>
@@ -2747,7 +2746,7 @@ function galUploadForm(){
       ${['video','image','document'].map(v=>`<input type="radio" name="kind" id="md-type-${v}" value="${v}" ${v==='image'?'checked':''}><label for="md-type-${v}">${ic(typeIcon(v))}${v[0].toUpperCase()+v.slice(1)}</label>`).join('')}
     </div></div>
     <div class="field"><label for="md-girl">Which girl</label><select class="input" id="md-girl" name="girl"></select></div>
-    <div class="field"><label for="md-price">Price</label><div class="input-affix"><input class="input mono" id="md-price" name="price_ton" type="number" min="0" step="0.1" value="" placeholder="9.5"><span>TON</span></div></div>
+    <div class="field"><label for="md-price">Price</label><div class="input-affix"><input class="input mono" id="md-price" name="price_ton" type="number" min="0" step="0.1" value="" placeholder="9.5"><span>£</span></div></div>
     <div class="field"><label for="md-file">File</label><input class="input" id="md-file" name="file" type="file" accept="video/*,image/*,audio/*,.zip,.pdf" required></div>
     <div class="field"><label for="md-desc">Description</label><textarea class="input" id="md-desc" name="description" maxlength="280" style="min-height:64px" placeholder="What fans get."></textarea></div>
     <label class="switch" for="md-visible"><input type="checkbox" id="md-visible" name="visible"><span class="track"></span><span>Add to live now<small>Untick to keep it in the gallery only</small></span></label>
@@ -2765,7 +2764,7 @@ async function fillGalGirlOptions(){
 /* ---------- Bundles ---------- */
 async function renderBundles(){
   setView(`
-    ${secHead('Group library items into one priced offer. Fans pay in TON and receive every item in the bundle.', `<button class="btn primary" data-act="bun-new">${ic('plus')}New bundle</button>`)}
+    ${secHead('Group library items into one priced offer. Fans pay in pounds and receive every item in the bundle.', `<button class="btn primary" data-act="bun-new">${ic('plus')}New bundle</button>`)}
     ${ownerPicker()}
     <div class="split">
       <section class="panel"><div class="panel-head"><h2>All bundles</h2><span class="end muted" id="bun-count"></span></div>
@@ -2791,7 +2790,7 @@ async function fillBundleForm(b=null, girlId=null){
   <form class="form panel-body" data-form="bundle" data-id="${b?.id||''}" data-girl="${esc(girl)}" autocomplete="off">
     <div class="field"><label for="bu-name">Name</label><input class="input" id="bu-name" name="name" required maxlength="80" value="${esc(b?.name||'')}" placeholder="Lisbon Light complete set"></div>
     <div class="field"><label for="bu-desc">Description</label><textarea class="input" id="bu-desc" name="description" maxlength="280" style="min-height:76px" placeholder="What fans get, in one or two lines.">${esc(b?.description||'')}</textarea></div>
-    <div class="field"><label for="bu-price">Price</label><div class="input-affix"><input class="input mono" id="bu-price" name="price_ton" type="number" min="0" step="0.5" required value="${b?.price_ton ?? ''}" placeholder="32"><span>TON</span></div>
+    <div class="field"><label for="bu-price">Price</label><div class="input-affix"><input class="input mono" id="bu-price" name="price_ton" type="number" min="0" step="0.5" required value="${b?.price_ton ?? ''}" placeholder="32"><span>£</span></div>
       <span class="hint" id="bu-sum"></span></div>
     <div class="field"><span class="flabel">Items <span class="muted" id="bu-n">(${chosen.size} selected)</span></span>
       ${media.length ? `<div class="checklist" id="bu-items">${media.map(m=>`<label><input type="checkbox" name="items" value="${m.id}" ${chosen.has(m.id)?'checked':''} data-price="${m.price_ton}">${ic(typeIcon(m.kind))}<span class="t">${esc(m.title)}</span><span class="p">${fmtTon(m.price_ton,false)}</span></label>`).join('')}</div>`
@@ -2820,16 +2819,16 @@ async function loadBundles(){
       ${rows.map(b => { const sales=(b.bundle_purchases||[]); const rev=sales.reduce((s,p)=>s+Number(p.price_paid_ton||0),0); return `<tr>
         <td><div class="cell-main"><div class="thumb video">${ic('package')}</div><div><b>${esc(b.name)}</b><small style="font-family:var(--f-ui)">${esc((b.description||'').slice(0,48))}${(b.description||'').length>48?'…':''}</small></div></div></td>
         <td class="num mono">${(b.bundle_items||[]).length}</td>
-        <td class="num"><span class="price">${fmtTon(b.price_ton,false)}<small>TON</small></span></td>
+        <td class="num"><span class="price">${fmtTon(b.price_ton)}</span></td>
         <td class="num mono">${sales.length}</td>
-        <td class="num"><span class="price">${fmtTon(rev,false)}<small>TON</small></span></td>
+        <td class="num"><span class="price">${fmtTon(rev)}</span></td>
         <td>${pill(b.active)}</td>
         <td><div class="row-actions">
           <button class="act" data-act="bun-toggle" data-id="${b.id}" data-on="${b.active?1:0}">${ic('power')}${b.active?'Deactivate':'Activate'}</button>
           <button class="act" data-act="bun-edit" data-id="${b.id}" title="Edit">${ic('edit')}</button>
           <button class="act danger" data-act="bun-del" data-id="${b.id}" title="Delete">${ic('trash')}</button>
         </div></td></tr>`; }).join('')}</tbody></table>`
-      : empty('package','No bundles yet','Pick a few library items, set a TON price and start selling in DMs. Use New bundle above.');
+      : empty('package','No bundles yet','Pick a few library items, set a price and start selling in DMs. Use New bundle above.');
     $('#bun-pager').innerHTML = pager('bundles', page, count);
   }catch(e){ el.innerHTML = errorState(e,'bundles'); }
 }
@@ -2913,14 +2912,14 @@ function updateAIPreview(){
     professional:`Thank you for your message. The colour work in the Lisbon series uses a custom preset, available in the shop.`,
     concise:`Thanks! It's my Lisbon preset.`
   };
-  const sell = up ? `<div class="bubble out">The <b>Lisbon Light</b> bundle has the preset plus 40 raw files — 32 TON.<time><span class="ai">AI</span>now</time></div>` : '';
+  const sell = up ? `<div class="bubble out">The <b>Lisbon Light</b> bundle has the preset plus 40 raw files — £32.<time><span class="ai">AI</span>now</time></div>` : '';
   box.innerHTML = `<span class="day-sep">Today</span>
     <div class="bubble in">How do you get those blues in your Lisbon photos?<time>${fmtTime(new Date().toISOString())}</time></div>
     ${on ? `<div class="bubble out">${esc(replies[tone]||replies.warm)}<time><span class="ai">AI · ${esc(name)}</span>now</time></div>${sell}`
          : `<div class="day-sep">Assistant is off — you'll reply manually</div>`}`;
 }
 
-/* ---------- TON Wallet ---------- */
+/* ---------- Payments ---------- */
 async function renderWallet(){
   const ai = await Data.getAI().catch(() => null);
   const c = { ...(state.creator || {}), ton_wallet: ai?.wallet_address || '' };
@@ -2928,20 +2927,16 @@ async function renderWallet(){
     bank: ai?.pay_bank_name || '', sort: ai?.pay_sort_code || '', acct: ai?.pay_account_no || '',
     pp: ai?.pay_paypal || '', note: ai?.pay_note || '',
   };
-  const ready = [pay.bank || pay.sort || pay.acct, pay.pp, c.ton_wallet].filter(Boolean).length;
+  const ready = [pay.bank || pay.sort || pay.acct].filter(Boolean).length;
   setView(`
     ${secHead('How customers pay. She only offers the methods that are filled in here, and she quotes everything in pounds.')}
     <div class="wallet-grid" style="grid-template-columns:minmax(0,1fr)">
       <div style="display:flex;flex-direction:column;gap:20px;min-width:0">
         <section class="panel"><div class="panel-head"><h2>Payment details</h2><span class="end">${ready?`<span class="pill ok">${ready} method${ready===1?'':'s'} set</span>`:'<span class="pill warn">None set</span>'}</span></div>
           <form class="form panel-body" data-form="wallet" autocomplete="off">
-            <div class="panel-head" style="padding:0;border:0;margin:0 0 8px"><h2 style="font-size:13px">PayPal</h2></div>
-            <div class="field"><label for="w-pp">PayPal address</label>
-              <input class="input" id="w-pp" name="pay_paypal" value="${esc(pay.pp)}" placeholder="paypal.me/yourname or your PayPal email"></div>
-
             <div class="panel-head" style="padding:0;border:0;margin:14px 0 8px"><h2 style="font-size:13px">Bank transfer</h2></div>
             <div class="field"><label for="w-bank">Account name</label>
-              <input class="input" id="w-bank" name="pay_bank_name" value="${esc(pay.bank)}" placeholder="M Jones"></div>
+              <input class="input" id="w-bank" name="pay_bank_name" value="${esc(pay.bank)}" placeholder="Your business name"></div>
             <div class="row2">
               <div class="field"><label for="w-sort">Sort code</label>
                 <input class="input mono" id="w-sort" name="pay_sort_code" inputmode="numeric" value="${esc(pay.sort)}" placeholder="12-34-56"></div>
@@ -2949,10 +2944,6 @@ async function renderWallet(){
                 <input class="input mono" id="w-acct" name="pay_account_no" inputmode="numeric" value="${esc(pay.acct)}" placeholder="12345678"></div>
             </div>
 
-            <div class="panel-head" style="padding:0;border:0;margin:14px 0 8px"><h2 style="font-size:13px">TON</h2></div>
-            <div class="field"><label for="w-addr">TON address</label>
-              <input class="input mono" id="w-addr" name="ton_wallet" spellcheck="false" placeholder="UQ… or EQ… (48 characters)" value="${esc(c.ton_wallet)}">
-              <span class="hint">Optional. She only mentions it if the customer asks for crypto. Leave anything blank and she will not offer that method.</span></div>
             <div class="form-actions"><button class="btn primary" type="submit">${ic('check')}Save payment details</button></div>
           </form></section>
         <section class="panel"><div class="panel-head"><h2>Recent sales</h2><span class="end muted" id="w-count"></span></div>
@@ -2970,7 +2961,7 @@ async function renderWallet(){
     const recent = sales.slice(0,10);
     $('#w-sales').innerHTML = recent.length ? `<table><thead><tr><th>Bundle</th><th class="num">Amount</th><th>When</th></tr></thead><tbody>
       ${recent.map(p=>`<tr><td><b style="font-weight:550">${esc(p.content_bundles?.name||'Bundle')}</b></td>
-        <td class="num"><span class="price">${fmtTon(p.price_paid_ton,false)}<small>TON</small></span></td><td class="muted">${ago(p.purchased_at)}</td></tr>`).join('')}</tbody></table>`
+        <td class="num"><span class="price">${fmtTon(p.price_paid_ton)}</span></td><td class="muted">${ago(p.purchased_at)}</td></tr>`).join('')}</tbody></table>`
       : empty('coin','No sales yet','Your share of each bundle sale will be listed here.');
   }catch(e){ $('#w-sales').innerHTML = errorState(e,'wallet'); $('#w-earn').innerHTML=''; }
 }
@@ -3243,7 +3234,6 @@ view.addEventListener('input', e => {
     if(e.target.id==='ai-prompt') $('#ai-chars').textContent = e.target.value.length;
     updateAIPreview();
   }
-  if(e.target.id==='w-addr'){ const v=e.target.value.trim(); e.target.classList.toggle('invalid', v.length>4 && !TON_RE.test(v)); }
   if(e.target.classList.contains('invalid') && e.target.id!=='w-addr') e.target.classList.remove('invalid');
 });
 view.addEventListener('change', e => {
@@ -3358,18 +3348,16 @@ view.addEventListener('submit', async e => {
     if(await withBusy(btn, () => Data.saveAI(data, ownerTarget()), 'Personality saved')) renderAI();
   }
   if(kind === 'wallet'){
-    const ton = (f.ton_wallet?.value || '').trim();
     const sort = (f.pay_sort_code?.value || '').replace(/\s/g, '');
     const acct = (f.pay_account_no?.value || '').replace(/\s/g, '');
-    if(ton && !TON_RE.test(ton)){ f.ton_wallet.classList.add('invalid'); toast("That isn't a valid TON address", 'error', 'Expect 48 characters starting with UQ or EQ, or leave it blank.'); return; }
     if(sort && !/^\d{6}$/.test(sort)){ f.pay_sort_code.classList.add('invalid'); toast('Sort code should be six digits', 'error'); return; }
     if(acct && !/^\d{8}$/.test(acct)){ f.pay_account_no.classList.add('invalid'); toast('Account number should be eight digits', 'error'); return; }
     const patch = {
-      wallet_address: ton || null,
+      wallet_address: null,
       pay_bank_name: (f.pay_bank_name?.value || '').trim() || null,
       pay_sort_code: sort || null,
       pay_account_no: acct || null,
-      pay_paypal: (f.pay_paypal?.value || '').trim() || null,
+      pay_paypal: null,
     };
     if(await withBusy(btn, async () => { await Data.saveAI(patch); }, 'Payment details saved')) renderWallet();
   }
