@@ -25,15 +25,6 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 function replyDelaySeconds(text, conv, opts) {
   const o = opts || {};
   const t = String(text || "").trim().toLowerCase();
-  const words = t.split(/\s+/).filter(Boolean).length;
-  const nudge = /^(hey|hi|hello|you there|u there|wyd|what you doing|babe|you ok|anyone there|you about)\b/.test(t);
-  const lastOut = conv && conv.last_outbound_at ? new Date(conv.last_outbound_at).getTime() : 0;
-  const quiet = lastOut ? Date.now() - lastOut : 0;
-  const quietMin = quiet / 60000;
-  // "Going nowhere" is a chat that has actually gone quiet, not a nudge inside
-  // a live, filthy conversation. It used to catch a "hey again" eight minutes
-  // after a hot exchange and hold the reply for three minutes.
-  const nowhere = (nudge || words <= 3) && quietMin > 20;
   // A man with his cock in his hand is not kept waiting. Anything sexual, or a
   // picture or voice note, gets a fast reply; a man who is already being
   // answered by the owner gets the same, because the account is plainly online.
@@ -46,7 +37,6 @@ function replyDelaySeconds(text, conv, opts) {
   const typing = Math.min(9000, 700 + replyWords * 320);
   if (o.ownerOnline) return Math.max(8, Math.round((typing + 2500 + Math.random() * 3500) / 1000));
   if (horny) return Math.max(8, Math.round((typing + 3000 + Math.random() * 4000) / 1000));
-  if (nowhere) return 120 + Math.floor(Math.random() * 61);          // 2 to 3 minutes
   return 12 + Math.floor(Math.random() * 39);                        // 12 to 50 seconds
 }
 
@@ -300,6 +290,8 @@ async function onMessage(env, sb, msg, edited) {
   // A no after a price is the end of the sale, and the end of the chat. She
   // takes it gracefully once and does not chase.
   const DECLINE = /\b(not (for|my) (thing|bag)|not into (paying|that)|no thanks?|can'?t afford|don'?t pay|not paying|rather not|no ta)\b/i;
+  // Nasty is not banter. Insults and accusations get silence, not a reply.
+  const ABUSE = /\b(you'?re|you are|ur)\s+(a\s+|an\s+)?(stupid|thick|ugly|fat|disgusting|pathetic|boring|fake|a liar|a scam)\b|\b(stupid (bitch|cow|whore)|fucking (bitch|cow)|silly (bitch|cow)|scam|scammer|liar)\b/i;
 
   // Deterministic screens, all of which run BEFORE any model would.
   let intercept = null, reply = null;
@@ -331,6 +323,12 @@ async function onMessage(env, sb, msg, edited) {
       patch.mode = "human";
       patch.escalated_at = new Date().toISOString();
       intercept = "human_requested";
+    } else if (ABUSE.test(text)) {
+      // Nasty gets silence, not a reply and not a comeback. The chat goes quiet
+      // and the bot stays off in it.
+      intercept = "abuse";
+      patch.state = "dormant";
+      patch.ai_disabled = true;
     } else if (DECLINE.test(text) && conv.purchase_intent_at) {
       // He has been quoted and said no. The conversation goes dead: no reply,
       // no follow-up, and the bot stays off in this chat.
