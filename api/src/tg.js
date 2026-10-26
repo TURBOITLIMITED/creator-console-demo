@@ -1133,8 +1133,6 @@ async function maybeSendFreeItem(env, sb, conn, conv, msg) {
   // the last 10 messages of this conversation.
   const recent = await sb(env, "messages?conversation_id=eq." + conv.id +
     "&direction=eq.out&select=tg_message_id,media_key,body_preview&order=sent_at.desc&limit=10").catch(() => null);
-  const recentKeys = new Set((recent || []).map(m => m.media_key).filter(Boolean));
-  const item = items.find(m => !recentKeys.has(m.media_key)) || null;
 
   const token = await botTokenFor(env, sb, conn);
   if (!token) return null;
@@ -1147,57 +1145,58 @@ async function maybeSendFreeItem(env, sb, conn, conv, msg) {
     return await sendFreeLimitLine(env, sb, conn, conv, msg, recent, token);
   }
 
-  // She has already sent her freebie in this chat. Sending the same file again
-  // teaches him that asking twice works, so she draws the line instead. The
-  // wording rotates so he never gets the same sentence twice.
-  if (!item) return await sendFreeLimitLine(env, sb, conn, conv, msg, recent, token);
-
-  // Signed URL the Telegram servers can fetch the file from. Console uploads
-  // live in Supabase Storage (content-store), not the Worker's R2 bucket, so
-  // /m/ would 404 here; mint a Supabase signed URL instead.
-  let fileUrl = null;
-  try {
-    const r = await fetch(env.SUPABASE_URL + "/storage/v1/object/sign/content-store/" +
-      item.media_key.split("/").map(encodeURIComponent).join("/"), {
-      method: "POST",
-      headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY,
-                 "Content-Type": "application/json" },
-      body: JSON.stringify({ expiresIn: 3600 }),
-    });
-    const d = await r.json();
-    if (d && d.signedURL) fileUrl = env.SUPABASE_URL + "/storage/v1" + d.signedURL;
-  } catch (e) {
-    console.log(JSON.stringify({ evt: "tg.free_item.sign_failed", err: String(e).slice(0, 150) }));
+  // First free request: send the lot, back to back, so he gets the whole free
+  // set in one go instead of one now and a drip later. After that the line.
+  const batch = items.slice(0, 5);
+  const sentIds = [];
+  for (let i = 0; i < batch.length; i++) {
+    const it = batch[i];
+    // Signed URL the Telegram servers can fetch the file from. Console uploads
+    // live in Supabase Storage (content-store), not the Worker's R2 bucket.
+    let fileUrl = null;
+    try {
+      const r = await fetch(env.SUPABASE_URL + "/storage/v1/object/sign/content-store/" +
+        it.media_key.split("/").map(encodeURIComponent).join("/"), {
+        method: "POST",
+        headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY,
+                   "Content-Type": "application/json" },
+        body: JSON.stringify({ expiresIn: 3600 }),
+      });
+      const d = await r.json();
+      if (d && d.signedURL) fileUrl = env.SUPABASE_URL + "/storage/v1" + d.signedURL;
+    } catch (e) {
+      console.log(JSON.stringify({ evt: "tg.free_item.sign_failed", err: String(e).slice(0, 150) }));
+    }
+    if (!fileUrl) continue;
+    const tgKind = it.kind === "image" ? "photo" : it.kind === "video" ? "video" : "document";
+    try {
+      if (i === 0) await humanPace(token, conn.id, msg.chat.id, "for you 💜");
+      const sent = await tg.sendMedia(token, conn.id, msg.chat.id, tgKind, fileUrl,
+        i === 0 ? "for you 💜" : "");
+      await sb(env, "messages", {
+        method: "POST",
+        headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+        body: JSON.stringify({
+          conversation_id: conv.id,
+          creator_id: conn.creator_id,
+          tg_message_id: sent && sent.message_id ? sent.message_id : null,
+          direction: "out",
+          sender: "ai",
+          kind: "text",
+          body_preview: "[free] " + (it.title || ""),
+          media_key: it.media_key,
+          sent_at: new Date().toISOString(),
+          raw: { via: "free-item", item_id: it.id },
+        }),
+      }).catch(() => {});
+      sentIds.push(it.id);
+    } catch (e) {
+      console.log(JSON.stringify({ evt: "tg.free_item.send_failed", item: it.id, err: String(e).slice(0, 200) }));
+    }
   }
-  if (!fileUrl) return null;
-  // Telegram media methods take a kind: image->photo, video->video, else document.
-  const tgKind = item.kind === "image" ? "photo" : item.kind === "video" ? "video" : "document";
-
-  try {
-    await humanPace(token, conn.id, msg.chat.id, "for you 💜");
-    const sent = await tg.sendMedia(token, conn.id, msg.chat.id, tgKind, fileUrl, "for you 💜");
-    await sb(env, "messages", {
-      method: "POST",
-      headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
-      body: JSON.stringify({
-        conversation_id: conv.id,
-        creator_id: conn.creator_id,
-        tg_message_id: sent && sent.message_id ? sent.message_id : null,
-        direction: "out",
-        sender: "ai",
-        kind: "text",
-        body_preview: "[free] " + item.title,
-        media_key: item.media_key,
-        sent_at: new Date().toISOString(),
-        raw: { via: "free-item", item_id: item.id },
-      }),
-    }).catch(() => {});
-    console.log(JSON.stringify({ evt: "tg.free_item.sent", item: item.id, kind: tgKind }));
-    return { free_item: item.id };
-  } catch (e) {
-    console.log(JSON.stringify({ evt: "tg.free_item.send_failed", err: String(e).slice(0, 200) }));
-    return null;                                  // fall back to a text reply
-  }
+  if (!sentIds.length) return null;                // fall back to a text reply
+  console.log(JSON.stringify({ evt: "tg.free_item.sent", items: sentIds.length }));
+  return { free_items: sentIds };
 }
 
 /* The owner's menu is the shop, and it is what the model is told to sell from:
