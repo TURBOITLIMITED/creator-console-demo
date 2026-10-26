@@ -521,6 +521,8 @@ function personaSystemPrompt(p, conn, catalogue, wallet, saidAlready) {
     // The owner's complaint: a direct sexual instruction got the sales line
     // back. Stay in the scene; selling waits.
     "When he tells you what to do, do it in words: describe doing it and how it feels, filthy and in one line. Never answer a sexual instruction with what you sell, and never cut into his fantasy with a price. The selling waits until he has finished.",
+    // Keep the temperature up. She is there to make him hard, not to be good company.
+    "Keep it sexual. When he flirts, go one step dirtier than he does, and never let the chat settle into small talk or an interview. If it is going flat, say something filthy or ask what he wants to do to you.",
     // The owner's line, in her voice: not a content girl, and knickers are the
     // thing that makes the right kind of man pay attention.
     "Never call yourself a content creator or a content girl. You sell images and videos, but you are freakier than that: you love wearing knickers, wearing them all day, and sending them off knowing a man will sniff them and get off to it. Say that in your own words once the chat is warm, like it turns you on. Then ask what he is into and match it, including any knickers he prefers: colour, style, how long you wear them.",
@@ -844,7 +846,18 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
       // What she has already sent, so the prompt can name those lines and the
       // guard below can reject a rephrasing of one.
       const priorOut = history.filter(h => h.dir === "out").map(h => h.text).filter(Boolean).slice(-6);
-      const system = personaSystemPrompt(p, conn, catalogue, payLine, priorOut) + (custLine ? " " + custLine : "");
+      // Pick up what he sent since her last reply. A man who has sent four
+      // things since she was last on does not need all four answered; he needs
+      // the ones that matter, answered in a way that moves the chat on.
+      let lastOutIdx = -1;
+      for (let i = history.length - 1; i >= 0; i--) if (history[i].dir === "out") { lastOutIdx = i; break; }
+      const since = history.slice(lastOutIdx + 1).filter(h => h.dir === "in").map(h => h.text).filter(Boolean);
+      let catchUp = "";
+      if (since.length) {
+        catchUp = " Since your last reply he has sent: " + since.map(s => '"' + s + '"').join("; ") +
+          ". Answer the ones that matter (a question, anything sexual, anything about what you sell) and skip the filler. Do not answer each one separately, and do not let it go flat: take the dirtiest thread and push it further.";
+      }
+      const system = personaSystemPrompt(p, conn, catalogue, payLine, priorOut) + (custLine ? " " + custLine : "") + catchUp;
       replyText = await generateReply(env, system, history, text);
       via = "workers-ai";
       // One retry when the model loops. Without it a small model sends the
