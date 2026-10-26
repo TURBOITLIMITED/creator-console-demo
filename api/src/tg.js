@@ -1239,6 +1239,7 @@ async function maybeSendMenu(env, sb, conn, conv, msg) {
   for (const m of paid) {
     lines.push("• " + m.title + " - " + fmt(m) + (m.kind === "physical" ? " (posted)" : ""));
   }
+  lines.push("and I'm dirty and my imagination's crazy, so if there's something you want that's not on there, tell me and we'll make it happen 😈");
   lines.push("want any of them? treat me right and they're yours x");
   const menuText = lines.join("\n");
 
