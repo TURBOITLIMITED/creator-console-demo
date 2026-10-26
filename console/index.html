@@ -1381,6 +1381,7 @@ async function renderOverview(){
   const first = (state.creator?.name || 'there').split(' ')[0];
   setView(`
     ${secHead(`${hello}, ${first}.`)}
+    ${state.demo ? `<div class="panel" style="margin-bottom:14px;border:1px solid #6a5a1f;background:#1d1a0d"><div class="panel-body" style="padding:10px 14px;display:flex;gap:10px;align-items:center"><b style="color:#e7c65a">Sample data</b><span class="muted" style="flex:1">These figures are illustrative, not real sales.</span><button class="btn sm" data-act="ov-demo">Turn off</button></div></div>` : `<div style="margin:0 0 12px"><button class="btn sm" data-act="ov-demo">${ic('chart')}Preview with sample data</button></div>`}
     <div id="ov-alerts"></div>
     ${rangeBar()}
     <div class="stats" id="ov-stats">${[0,1,2,3].map(()=>`<div class="stat">${spinner('')}</div>`).join('')}</div>
@@ -1395,14 +1396,27 @@ async function renderOverview(){
   loadStats();
   fsUpgradeAlerts('#ov-alerts');
 
-  Data.activity().then(items => {
+  const demoActivity = [
+    { kind:'sale', html:'<b>Tony</b> bought <b>Worn knickers, worn all day</b>', at:new Date(Date.now()-9*60000), amt:30 },
+    { kind:'msg',  html:'<b>Dave</b> asked something off the menu', at:new Date(Date.now()-26*60000) },
+    { kind:'sale', html:'<b>Steve</b> bought <b>Ten minute video</b>', at:new Date(Date.now()-52*60000), amt:40 },
+    { kind:'msg',  html:'<b>Mark</b> sent a photo', at:new Date(Date.now()-74*60000) },
+    { kind:'sale', html:'<b>Paul</b> bought <b>Worn tights, two days</b>', at:new Date(Date.now()-110*60000), amt:30 },
+  ];
+  (state.demo ? Promise.resolve(demoActivity) : Data.activity()).then(items => {
     $('#ov-feed').innerHTML = items.length ? `<ul class="feed">${items.map(a => `
       <li><div class="f-ico ${a.kind}">${ic(a.kind==='msg'?'message':a.kind==='sale'?'coin':typeIcon(a.type))}</div>
       <div class="f-body"><p>${a.html}</p><span>${ago(a.at)}</span></div>${a.kind==='sale'?`<span class="f-amt">+${fmtTon(a.amt)}</span>`:''}</li>`).join('')}</ul>`
       : empty('inbox','Nothing yet','Messages, sales and new uploads will show up here as they happen.');
   }).catch(e => $('#ov-feed').innerHTML = errorState(e,'overview'));
 
-  Data.list('content_bundles', { select:'*, bundle_purchases(price_paid_ton)', size:100 }).then(({rows}) => {
+  (state.demo ? Promise.resolve({ rows:[
+      { name:'Knickers and a video of me in them', bundle_purchases:Array(14).fill({price_paid_ton:55}) },
+      { name:'Worn knickers, worn all day', bundle_purchases:Array(18).fill({price_paid_ton:30}) },
+      { name:'Ten minute video', bundle_purchases:Array(11).fill({price_paid_ton:40}) },
+      { name:'Messy feet video', bundle_purchases:Array(7).fill({price_paid_ton:40}) },
+      { name:'Everything bundle', bundle_purchases:Array(5).fill({price_paid_ton:45}) },
+    ] }) : Data.list('content_bundles', { select:'*, bundle_purchases(price_paid_ton)', size:100 })).then(({rows}) => {
     const ranked = rows.map(b => ({ name:b.name, rev:(b.bundle_purchases||[]).reduce((s,p)=>s+Number(p.price_paid_ton||0),0), n:(b.bundle_purchases||[]).length }))
       .filter(b=>b.n).sort((a,b)=>b.rev-a.rev).slice(0,5);
     const max = ranked[0]?.rev || 1;
@@ -1415,10 +1429,50 @@ async function renderOverview(){
 /* Stats and the revenue chart follow the range picker. Everything else on the
    overview (activity, top bundles) is period-independent, so a range change
    repaints these panels only and never flashes the whole page. */
+function demoStats(range){
+  const n = Math.max(1, Math.min(30, Number(range.days) || 30));
+  // A flat-ish month that sums to about 64,685, with quieter Mondays.
+  const shape = [0.8,0.9,1.0,1.1,1.25,1.35,1.1];
+  const base = 64685 / 30;
+  const days = [];
+  for(let i=0;i<n;i++){
+    const d = new Date(Date.now() - (n-1-i)*86400000);
+    const f = shape[(d.getDay()+6)%7];
+    const total = Math.round(base * f * (0.9 + ((i*37)%11)/40));
+    days.push({ date:d, total, n:Math.max(3, Math.round(total/48)) });
+  }
+  // The month is the figure being previewed, so a week shows its share of it.
+  const target = 64685 * (n / 30);
+  const scale = target / days.reduce((a,b)=>a+b.total,0);
+  days.forEach(d=>{ d.total=Math.round(d.total*scale); d.n=Math.max(2, Math.round(d.total/48)); });
+  const total = days.reduce((a,b)=>a+b.total,0), sales = days.reduce((a,b)=>a+b.n,0);
+  return {
+    unread:7,
+    conversations:{ now:sales, prev:Math.round(sales*0.86), total:1204 },
+    media:{ now:38, prev:35, total:38 },
+    bundles:{ now:14, prev:12, total:14 },
+    revenue:{ now:total, prev:Math.round(total*0.89), total:248900, sales },
+    days,
+  };
+}
 function loadStats(){
   const range = currentRange();
   const titleEl = $('#ov-chart-title');
   if(titleEl) titleEl.textContent = `Revenue, ${range.title}`;
+  if(state.demo){
+    const s = demoStats(range);
+    const card = (icon, label, num, now, prev, foot, hero=false) => `
+      <div class="stat ${hero?'hero':''}"><div class="stat-top">${ic(icon)}${label}</div>
+      <div class="stat-row"><div class="stat-num">${num}</div>${trend(now,prev)}</div>
+      <div class="stat-foot">${foot}</div></div>`;
+    $('#ov-stats').innerHTML =
+      card('message','Conversations', fmtNum(s.conversations.now), s.conversations.now, s.conversations.prev, `${s.unread} waiting for a reply`) +
+      card('layers','Content items', fmtNum(s.media.now), s.media.now, s.media.prev, `${fmtNum(s.media.total)} in the library`) +
+      card('package','Bundles', fmtNum(s.bundles.now), s.bundles.now, s.bundles.prev, `${fmtNum(s.bundles.total)} in total`) +
+      card('coin','Revenue', fmtTon(s.revenue.now,false), s.revenue.now, s.revenue.prev, `${s.revenue.sales} sales · ${fmtTon(s.revenue.total)} all time`, true);
+    $('#ov-chart').innerHTML = revenueChart(s.days, range);
+    return Promise.resolve(s);
+  }
   return Data.stats(range).then(s => {
     setUnread(s.unread);
     const card = (icon, label, num, now, prev, foot, hero=false, unit='') => `
@@ -2994,6 +3048,11 @@ view.addEventListener('click', async e => {
         catch(e2){ toast('Could not copy the log', 'error', 'Select the entries and copy them by hand.'); }
         ta.remove();
       }
+      break;
+    }
+    case 'ov-demo': {
+      state.demo = !state.demo;
+      renderOverview();
       break;
     }
     case 'range': {
