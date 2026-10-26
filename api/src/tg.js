@@ -357,7 +357,7 @@ async function onMessage(env, sb, msg, edited) {
           return { conversation_id: conv.id, direction: "in", sender, window_open: windowOpen,
                    intercept: "vision_age", reply: null, sent: null, vision };
         }
-        incoming = "he sent you a photo: " + vision +
+        incoming = "he sent you an image: " + vision +
           ". React to it in one line, like you just opened it. Never describe it back to him.";
       }
     }
@@ -624,7 +624,7 @@ function repeatsSomething(candidate, previous) {
    nothing else, so a joke picture and a real one got the same reply. Ask a
    vision model what actually arrived, in one short line, and give that line to
    the chat model as what he sent. */
-const VISION_PROMPT = "Describe this image in one short line for a private adult chat. Say what it shows and how explicit it is. If it shows a penis, say whether it looks real, small, fake or a toy. Never moralise. Max 20 words.";
+const VISION_PROMPT = "Describe this image in one short line for a private adult chat. Say what it shows and how explicit it is. If it is a joke, a meme, food, a drawing or a toy rather than a real body part, say so plainly. If it shows a penis, say whether it looks real, small, fake or a toy. Never moralise. Max 25 words.";
 
 async function describeIncomingMedia(env, sb, conn, msg) {
   const fid = (msg.photo && msg.photo.length ? msg.photo[msg.photo.length - 1].file_id : null)
@@ -727,10 +727,15 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
 
   // FREE CONTENT: "anything free?" -> send a live, price-0 item from this
   // account's library, once per conversation until they ask again later.
+  // A picture or a voice note is answered from the description or transcript.
+  // That text is synthetic, so it must never be read as a request for a freebie,
+  // a menu or a purchase: the word "photo" inside a description once fired the
+  // free item instead of answering the picture.
+  const mediaSynthetic = /^he sent you (an image|a voice note)/.test(text || "");
   const lower = String(text || "").toLowerCase();
   // "send us a pic" is the most common opener there is. It gets the free one,
   // the same as asking for a freebie.
-  const askingFree = /(free|4free|for free|anything for me|freebie|sample|preview|\bpic|\bphoto|\bpicture|show (me|us)|what do you look like|send (me )?(something|one)|any nudes|\bnudes\b)/.test(lower);
+  const askingFree = !mediaSynthetic && /(free|4free|for free|anything for me|freebie|sample|preview|\bpic|\bphoto|\bpicture|show (me|us)|what do you look like|send (me )?(something|one)|any nudes|\bnudes\b)/.test(lower);
   if (askingFree) {
     const sentFree = await maybeSendFreeItem(env, sb, conn, conv, msg);
     if (sentFree) { stopTyping(); return sentFree; }   // media sent; no text needed
@@ -738,7 +743,7 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
 
   // MENU: "what do you offer / send me the menu" -> list live items with
   // prices straight from her library, not the model's imagination.
-  const askingMenu = /(menu|what.*(offer|have|sell|sellin|got)|price list|how much|options|what can i buy|show me what)/.test(lower);
+  const askingMenu = !mediaSynthetic && /(menu|what.*(offer|have|sell|sellin|got)|price list|how much|options|what can i buy|show me what)/.test(lower);
   if (askingMenu && !askingFree) {
     const menu = await maybeSendMenu(env, sb, conn, conv, msg);
     if (menu) { stopTyping(); return menu; }
@@ -746,7 +751,7 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
 
   // "how do I pay?" -> re-send the payment-method buttons for the last item
   // they were quoted, instead of letting the model invent details.
-  const askingHowPay = /how (do|can) i pay|how.*(pay|payment)|payment (method|options|details)?|ways? to pay|pay options/.test(lower);
+  const askingHowPay = !mediaSynthetic && /how (do|can) i pay|how.*(pay|payment)|payment (method|options|details)?|ways? to pay|pay options/.test(lower);
   if (askingHowPay && !askingFree && !askingMenu) {
     const lastReq = await sb(env, "messages?conversation_id=eq." + conv.id +
       "&direction=eq.out&select=body_preview,raw&order=sent_at.desc&limit=10").catch(() => null);
@@ -763,7 +768,7 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   // BUY INTENT: they picked or named a specific item ("the video please",
   // "i'll take the half naked one", "yes pls" right after a menu). Match it
   // against her live titles and jump straight to the payment request.
-  if (!askingFree && !askingMenu && await looksLikeBuyIntent(text, lower)) {
+  if (!mediaSynthetic && !askingFree && !askingMenu && await looksLikeBuyIntent(text, lower)) {
     const picked = await matchLiveItem(env, sb, conn, text);
     if (picked) {
       const payReq = await sendPaymentRequest(env, sb, conn, conv, msg, picked);
