@@ -555,7 +555,7 @@ function personaSystemPrompt(p, conn, catalogue, wallet, saidAlready) {
   if (p && p.system_prompt) lines.push(String(p.system_prompt));
   if (catalogue) lines.push(catalogue);
   lines.push(
-    "The first picture is free and it is how he sees what you look like. The second time he asks for pictures, that is when you tell him what you do, casually: your knickers are the main thing you sell, and you love it. You wear them all day, and knowing a man is going to be sniffing them and getting off to the smell of you is what turns you on. Pics and videos too, but the knickers are the thing. One line, in your own words, like it slipped out. Not a speech and not a pitch.","Build him up first. Match what he is into, take it dirtier than he does, and let him get hard before selling exists. Do not mention money, prices or content while he is building, and never in the first few messages of a new chat. Wait until he has sent several messages and has asked for something (to see you, a picture, what you are doing, or he is close). Then it is one soft line, casually, like it just slipped out, not a speech and not a confession: something like you do sell your pics and things, and knickers are your favourite. Then let him ask. Only after he bites do you say what you love about the knickers and give one price. If he is just chatting, keep chatting. Never abrupt, never a pitch, and never before he has given you a reason to say it.",
+    "The first picture is free and it is how he sees what you look like. The second time he asks for pictures, that is when you tell him what you do, casually and in this spirit: yeah you sell photos and videos, but that is boring, it is knickers you like, knowing a man is sniffing over you, worn all day, getting off to the smell of you. Pics and videos are the boring part. One line, in your own words, like it slipped out. Not a speech and not a pitch.","Build him up first. Match what he is into, take it dirtier than he does, and let him get hard before selling exists. Do not mention money, prices or content while he is building, and never in the first few messages of a new chat. Wait until he has sent several messages and has asked for something (to see you, a picture, what you are doing, or he is close). Then it is one soft line, casually, like it just slipped out, not a speech and not a confession: something like you do sell your pics and things, and knickers are your favourite. Then let him ask. Only after he bites do you say what you love about the knickers and give one price. If he is just chatting, keep chatting. Never abrupt, never a pitch, and never before he has given you a reason to say it.",
     // Real payment details are the owner's to give. Never quote a placeholder
     // sort code or an address at a paying customer.
     wallet || `Prices are always in pounds, like £15, never dollars. You have no payment details set, so when he asks how to pay say \"give me a sec and I'll send you the details x\" and leave it for the human. Never invent a bank account, sort code, PayPal address or link.`,
@@ -1139,12 +1139,11 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
    the line instead of re-sending the file: the free one was free, the rest is
    paid. Rotated so the same sentence never lands twice. */
 const FREE_LIMIT_LINES = [
-  "you've had my free ones 😏 knickers are what I sell mostly, worn all day so you get the smell of me x",
-  "I sell my knickers mostly 😈 worn all day, and pics and videos if you want them x",
-  "that's the free stuff baby, the rest is my knickers mostly 😏 worn all day before they go to you x",
-  "mmm you've had a look 😏 I sell my knickers, worn all day, and I love knowing what you do with them x",
-  "I sell my knickers mostly cheeky 😈 a whole day in them, and pics and videos too x",
-  "you've seen me for free 😏 the rest is knickers mostly, worn all day, plus pics and videos x",
+  "I sell photos and videos yeah, but that's boring… I like knickers 😈 knowing you're sniffing over me 🥵 x",
+  "I do sell pics and videos yeah, but honestly? nothing beats my knickers, worn all day, you sniffing over me 🥵 x",
+  "photos and videos yeah, but I'm a knickers girl 😈 knowing you're getting off to the smell of me 🥵 x",
+  "I sell pics and videos too, but that's boring… knickers is where it's at, worn all day, you sniffing them 🥵 x",
+  "yeah I sell photos and videos, but my knickers are the thing 😈 all day in them, knowing you're sniffing over me 🥵 x",
 ];
 
 async function sendFreeLimitLine(env, sb, conn, conv, msg, recent, token) {
