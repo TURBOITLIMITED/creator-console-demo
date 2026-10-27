@@ -2384,20 +2384,30 @@ async function fsLinkPicker() {
   slot.innerHTML = spinner('Loading accounts...');
   try {
     const [{ data: fas }, { rows: accounts }] = await Promise.all([
-      state.sb.from('fabswingers_accounts').select('telegram_account_id'),
-      Data.list('telegram_accounts', { select: 'id, username, first_name, creator_id', size: 50, scopeOwner: true }),
+      state.sb.from('fabswingers_accounts').select('telegram_account_id,username'),
+      Data.list('telegram_accounts', { select: 'id, username, first_name, creator_id, created_at', size: 50, scopeOwner: true }),
     ]);
-    const taken = new Set((fas || []).map(f => f.telegram_account_id));
-    const free = (accounts || []).filter(a => !taken.has(a.id));
+    // Every bot is listed, newest first, including ones that already have a
+    // login. Hiding those made a newly added bot look like it was missing.
+    const linkedTo = new Map((fas || []).map(f => [f.telegram_account_id, f.username]));
+    const all = (accounts || []).slice().sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+    const free = all.filter(a => !linkedTo.has(a.id));
+    const opts = all.map(a => {
+      const site = linkedTo.get(a.id);
+      const label = '@' + (a.username || a.first_name || a.id) + (site ? ' · linked to ' + site : ' · ready to link');
+      return `<option value="${esc(a.id)}"${site ? ' disabled' : ''}${!site && a.id === (free[0] && free[0].id) ? ' selected' : ''}>${esc(label)}</option>`;
+    }).join('');
     slot.innerHTML = `<div class="panel" style="margin-top:16px">
       <div class="panel-head"><h2>Add a FabSwingers login</h2>
         <span class="end"><button class="act" data-act="fs-cancel" title="Close">${ic('x')}</button></span></div>
-      <div class="panel-body">${free.length
+      <div class="panel-body">${all.length
         ? `<div class="field"><label for="fs-pick">Bot account</label>
-             <select class="input" id="fs-pick">${free.map(a => `<option value="${esc(a.id)}">@${esc(a.username || a.first_name || a.id)}</option>`).join('')}</select>
-             <span class="hint">Each bot account gets one FabSwingers login; accounts already linked are not listed.</span></div>
-           <div class="form-actions" style="margin-top:12px"><button class="btn primary" data-act="fs-pick-go">Continue ${ic('arrow')}</button></div>`
-        : `<p class="muted">Every bot account already has a FabSwingers login. <a href="#accounts">Connect another account</a> first.</p>`}</div></div>`;
+             <select class="input" id="fs-pick"${free.length ? '' : ' disabled'}>${opts}</select>
+             <span class="hint">One FabSwingers login per bot account. A bot already linked is shown with its site login and cannot be picked again.</span></div>
+           <div class="form-actions" style="margin-top:12px">${free.length
+             ? `<button class="btn primary" data-act="fs-pick-go">Continue ${ic('arrow')}</button>`
+             : `<span class="muted">Every bot account already has a FabSwingers login.</span>`}</div>`
+        : `<p class="muted">No bot accounts yet. <a href="#accounts">Connect one</a> first.</p>`}</div></div>`;
   } catch (e) { slot.innerHTML = errorState(e, 'fabswingers'); }
 }
 
