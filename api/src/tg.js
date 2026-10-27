@@ -804,7 +804,20 @@ function repeatsSomething(candidate, previous) {
    either: the customer upsert rewrites first_name on every message, so a
    learned name lives in flags.learned_name instead.
    ------------------------------------------------------------------------- */
-const NAME_QUESTION = /\b(what(?:'s| is) your name|what shall i call you|what should i call you|what to call you|what are you called|who are you)\b/i;
+const NAME_QUESTION = /\b(what(?:'s| is) your name|what (?:shall|should|can|do) i call you|what to call you|what are you called|who are you)\b/i;
+
+/* The model is told never to ask for a name it already has, and it still does
+   now and then. This removes the question from the sentence rather than
+   trusting the retry, so a man called Tyler is never asked what he is called
+   when Telegram already told us. */
+function stripNameQuestion(text) {
+  return String(text || "")
+    .replace(/\b(?:so\s+)?(?:what(?:'s| is) your name|what (?:shall|should|can|do) i call you|what to call you|what are you called|who are you)\s*\?*/gi, "")
+    .replace(/\s+([,.!?])/g, "$1")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/^[\s,.;:!?-]+|[\s,;:]+$/g, "")
+    .trim();
+}
 
 // Words that are never somebody's name, however the sentence is shaped.
 const NAME_JUNK = new Set(("me you him her them they it this that the a an and or " +
@@ -1168,6 +1181,9 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
 
   // Generate. A forced intercept answer skips the model.
   let replyText = null, via = null;
+  // His name as Telegram knows it, for the post-generation guard: a name the
+  // profile already gives must never be asked for.
+  let guardName = "";
   try {
     if (forcedReply) {
       replyText = forcedReply.text;
@@ -1193,6 +1209,7 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
         const custUser = String((cu && cu.username) || "").trim();
         const knownName = nameForChat(cu);
         const userHint = knownName || nameFromUsername(custUser);
+        guardName = userHint || "";
         const askedBefore = history.some(h => h.dir === "out" && NAME_QUESTION.test(h.text));
         if (knownName) {
           custLine = "You're chatting with " + knownName + ", that is his name and he has told you. Use it now and then, the way you would with someone you know. Never ask him his name, not now and not later.";
@@ -1257,6 +1274,20 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   const system = personaSystemPrompt(p, conn, catalogue, payLine, priorOut) + (custLine ? " " + custLine : "") + catchUp + sellGate;
       replyText = await generateReply(env, system, history, text);
       via = "workers-ai";
+      // A name the profile or the username already gives must never be asked
+      // for. The prompt says so, but a small model still asks, so this is the
+      // hard backstop: one rewrite, then the question is cut out.
+      if (replyText && guardName && NAME_QUESTION.test(replyText)) {
+        console.log(JSON.stringify({ evt: "tg.reply.name_question", name: guardName, text: replyText.slice(0, 80) }));
+        const fixed = await generateReply(env, system +
+          " His name is " + guardName + " and you already know it. Never ask what he is called. " +
+          "Rewrite the reply without any name question.", history, text).catch(() => null);
+        if (fixed && !NAME_QUESTION.test(fixed)) replyText = fixed;
+        else {
+          replyText = stripNameQuestion(replyText) || ("hey " + guardName + " x");
+          console.log(JSON.stringify({ evt: "tg.reply.name_question_stripped", text: replyText.slice(0, 80) }));
+        }
+      }
       // One retry when the model loops. Without it a small model sends the
       // same sentence twice in a row, which is what the owner hears as
       // "she is very repetitive". If the retry loops too, nothing is sent: a
@@ -2051,4 +2082,4 @@ export async function handleWebhook(request, env, sb, persona) {
 
 // Exported for the reply-quality regression tests.
 export { generateReply, repeatsSomething, personaSystemPrompt, ensureEmoji, sellableItems,
-         nameFromText, nameForChat, nameFromUsername, usableName, NAME_QUESTION };
+         nameFromText, nameForChat, nameFromUsername, usableName, NAME_QUESTION, stripNameQuestion };

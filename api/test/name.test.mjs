@@ -4,7 +4,7 @@
 // actually said.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { nameFromText, nameForChat, nameFromUsername, usableName, NAME_QUESTION } from "../src/tg.js";
+import { nameFromText, nameForChat, nameFromUsername, usableName, NAME_QUESTION, stripNameQuestion } from "../src/tg.js";
 
 test("the name he actually gave is learned", () => {
   assert.equal(nameFromText("Mark for now. You're Michaela?", false), "Mark");
@@ -47,4 +47,13 @@ test("the name question is recognised in every wording she uses", () => {
   assert.match("hey you, what shall i call you? 😏", NAME_QUESTION);
   assert.match("you still not told me what to call you 👀", NAME_QUESTION);
   assert.doesNotMatch("you're a bad boy x", NAME_QUESTION);
+});
+
+test("a known name is never asked for: the question is cut out", () => {
+  // The live Tyler case: Telegram gave the profile first name Tyler and the
+  // model still opened with the question.
+  assert.match("hey you x what do i call you? 😏", NAME_QUESTION);
+  assert.equal(stripNameQuestion("hey you x what do i call you? 😏"), "hey you x 😏");
+  assert.equal(stripNameQuestion("what's your name?"), "");
+  assert.equal(stripNameQuestion("you're a bad boy x"), "you're a bad boy x");
 });
