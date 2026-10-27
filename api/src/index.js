@@ -655,15 +655,32 @@ async function checkPayment(env, body) {
       if (!leg) continue;
       if (t.state && t.state !== "completed" && t.state !== "pending") continue;
       if (price && Math.abs(Number(leg.amount) - price) > 0.01) continue;
+      // When he has told her the name it was sent under, that has to match too.
+      if (b.expected_ref) {
+        const ref = String(t.reference || leg.description || "").toLowerCase();
+        if (!ref.includes(String(b.expected_ref).toLowerCase())) continue;
+      }
       hit = { amount: Number(leg.amount), ref: t.reference || leg.description || "" };
       break;
     }
   } catch (e) {
     console.log(JSON.stringify({ evt: "revolut.check_failed", err: String(e).slice(0, 160) }));
   }
+  // If it is not there yet, ask for the name it was sent under so a human can
+  // find it. Only once: after that she just says it has not shown.
+  let askedName = false;
+  if (!hit) {
+    try {
+      const prev = await sb(env, "messages?conversation_id=eq." + encodeURIComponent(b.conversation_id) +
+        "&direction=eq.out&raw->>via=eq.payment-ask-name&select=id&limit=1").catch(() => null);
+      askedName = !!(prev && prev.length);
+    } catch (e) {}
+  }
   const text = hit
     ? "got it baby, thank you 😘" + (itemName ? " " + itemName + " coming to you x" : " x")
-    : "not showing on mine yet baby, give it a min and I'll check again x";
+    : askedName
+      ? "still not showing on mine baby, give it a minute and I'll look again x"
+      : "not showing on mine yet baby, what name did you send it under? x";
   try {
     const conns = await sb(env, "business_connections?id=eq." + encodeURIComponent(b.business_connection_id || "") +
       "&select=id,telegram_account_id");
@@ -683,7 +700,7 @@ async function checkPayment(env, body) {
         direction: "out", sender: "ai", kind: "text",
         body_preview: preview(text),
         sent_at: new Date().toISOString(),
-        raw: { via: hit ? "payment-found" : "payment-not-found" },
+        raw: { via: hit ? "payment-found" : (askedName ? "payment-not-found" : "payment-ask-name") },
       }),
     }).catch(() => {});
     console.log(JSON.stringify({ evt: "revolut.checked", found: !!hit, amount: hit ? hit.amount : null }));
@@ -956,6 +973,55 @@ export default {
       if (conn) await notifyOwner(env, sb, conn, { id: null }, {}, "Payment in", body).catch(() => null);
       console.log(JSON.stringify({ evt: "revolut.payment", amount, matched: !!matched }));
       return json({ ok: true }, 200, origin);
+    }
+
+    // Which model is actually answering. Guarded by the operator secret, one
+    // call each, so a "it got worse" report can be answered with a fact.
+    if (url.pathname === "/debug/model" && request.method === "POST") {
+      if (!env.DEBUG_TOKEN || request.headers.get("x-debug") !== env.DEBUG_TOKEN) return json({ error: "no" }, 401, origin);
+      const out = { configured: env.AI_MODEL || null, deepseek_key: env.DEEPSEEK_API_KEY ? "set" : "missing" };
+      if (env.DEEPSEEK_API_KEY) {
+        try {
+          const r = await fetch("https://api.deepseek.com/chat/completions", {
+            method: "POST",
+            headers: { Authorization: "Bearer " + env.DEEPSEEK_API_KEY, "Content-Type": "application/json" },
+            body: JSON.stringify({ model: "deepseek-chat", messages: [{ role: "user", content: "say ok" }], max_tokens: 5 }),
+          });
+          out.deepseek_status = r.status;
+          out.deepseek_body = (await r.text()).slice(0, 120);
+        } catch (e) { out.deepseek_error = String(e).slice(0, 100); }
+      }
+      return json(out, 200, origin);
+    }
+
+    // Sets the webhook for a stored bot using the server's own secret, so a new
+    // account can go live without anyone handling the secret by hand.
+    if (url.pathname === "/debug/hook" && request.method === "POST") {
+      if (!env.DEBUG_TOKEN || request.headers.get("x-debug") !== env.DEBUG_TOKEN) return json({ error: "no" }, 401, origin);
+      const b = await request.json().catch(() => ({}));
+      const persona = String(b.persona || "").trim().toLowerCase();
+      const rows = await sb(env, "bots?select=token&persona=eq." + encodeURIComponent(persona));
+      if (!rows || !rows.length) return json({ error: "no bot" }, 404, origin);
+      const hookUrl = "https://api-telebotcreator.turboit.uk/tg/" + encodeURIComponent(persona);
+      const set = await tgapi.setWebhook(rows[0].token, hookUrl, env.TELEGRAM_WEBHOOK_SECRET);
+      const info = await tgapi.getWebhookInfo(rows[0].token);
+      return json({ ok: !!set, url: hookUrl, info }, 200, origin);
+    }
+
+    // Answers the chats that are sitting unanswered. Same path a live message
+    // takes, so the pacing and the persona are identical.
+    if (url.pathname === "/debug/catchup" && request.method === "POST") {
+      if (!env.DEBUG_TOKEN || request.headers.get("x-debug") !== env.DEBUG_TOKEN) return json({ error: "no" }, 401, origin);
+      const rows = await sb(env, "conversations?select=id,last_inbound_at,last_outbound_at,ai_disabled,mode&order=last_message_at.desc&limit=25").catch(() => null) || [];
+      const todo = rows.filter(c => c.last_inbound_at &&
+        (!c.last_outbound_at || new Date(c.last_inbound_at) > new Date(c.last_outbound_at)) &&
+        !c.ai_disabled && c.mode !== "human").slice(0, 5);
+      const out = [];
+      for (const c of todo) {
+        try { out.push({ id: c.id, result: await catchUpReply(env, sb, c.id) }); }
+        catch (e) { out.push({ id: c.id, error: String(e).slice(0, 120) }); }
+      }
+      return json({ waiting: rows.filter(c => c.last_inbound_at && (!c.last_outbound_at || new Date(c.last_inbound_at) > new Date(c.last_outbound_at))).length, answered: out }, 200, origin);
     }
 
     if (url.pathname === "/bots/hook" && request.method === "POST") {

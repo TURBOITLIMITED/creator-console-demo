@@ -292,8 +292,25 @@ async function onMessage(env, sb, msg, edited) {
       if (seen && seen.length === 1) {
         await notifyOwner(env, sb, conn, conv, msg, "New chat", who + ": " + String(text).slice(0, 120));
       } else if (saysPaid) {
-        // He says he has sent it. Half a minute later the bank is checked and
-        // she answers with what is actually there, not with what he claimed.
+        // He says he has sent it. She says she is checking straight away, then
+        // half a minute later the bank is read and she answers with the truth.
+        try {
+          const tk = await botTokenFor(env, sb, conn);
+          if (tk) {
+            await tg.sendMessage(tk, conn.id, msg.chat.id, "ok checking now x");
+            await sb(env, "messages", {
+              method: "POST",
+              headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+              body: JSON.stringify({
+                conversation_id: conv.id, creator_id: conn.creator_id,
+                direction: "out", sender: "ai", kind: "text",
+                body_preview: "ok checking now x",
+                sent_at: new Date().toISOString(),
+                raw: { via: "payment-checking" },
+              }),
+            }).catch(() => {});
+          }
+        } catch (e) { /* the check below still runs */ }
         await env.REPLY_QUEUE.send({
           check: "payment",
           conversation_id: conv.id,
@@ -301,6 +318,26 @@ async function onMessage(env, sb, msg, edited) {
           business_connection_id: bcId,
           chat_id: msg.chat.id,
         }, { delaySeconds: 30 }).catch(() => {});
+      } else {
+        // She asked which name it was sent under. A short reply is that name, so
+        // the account is checked again with it as the reference.
+        try {
+          const asked = await sb(env, "messages?conversation_id=eq." + conv.id +
+            "&direction=eq.out&raw->>via=eq.payment-ask-name&select=sent_at&order=sent_at.desc&limit=1").catch(() => null);
+          if (asked && asked[0] && Date.now() - new Date(asked[0].sent_at).getTime() < 30 * 60 * 1000) {
+            const words = String(text).trim().split(/\s+/).filter(Boolean);
+            if (words.length <= 4 && !/\?/.test(text)) {
+              await env.REPLY_QUEUE.send({
+                check: "payment",
+                conversation_id: conv.id,
+                creator_id: conn.creator_id,
+                business_connection_id: bcId,
+                chat_id: msg.chat.id,
+                expected_ref: String(text).trim(),
+              }, { delaySeconds: 8 }).catch(() => {});
+            }
+          }
+        } catch (e) {}
       }
     } catch (e) {
       console.log(JSON.stringify({ evt: "notify.failed", err: String(e).slice(0, 120) }));
