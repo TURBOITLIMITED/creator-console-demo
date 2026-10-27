@@ -980,8 +980,10 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   // BUY INTENT: they picked or named a specific item ("the video please",
   // "i'll take the half naked one", "yes pls" right after a menu). Match it
   // against her live titles and jump straight to the payment request.
-  if (!mediaSynthetic && !askingFree && !askingMenu && await looksLikeBuyIntent(text, lower)) {
-    const picked = await matchLiveItem(env, sb, conn, text);
+  const shortNamed = !mediaSynthetic && !askingFree && !askingMenu &&
+    bare.split(/\s+/).filter(Boolean).length <= 4 && await strongItemMatch(env, sb, conn, text);
+  if (!mediaSynthetic && !askingFree && !askingMenu && (shortNamed || await looksLikeBuyIntent(text, lower))) {
+    const picked = shortNamed || await matchLiveItem(env, sb, conn, text);
     if (picked) {
       const payReq = await sendPaymentRequest(env, sb, conn, conv, msg, picked);
       if (payReq) { stopTyping(); return payReq; }
@@ -1496,6 +1498,25 @@ async function onDeleted(env, sb, d) {
 // Direct message to the BOT itself (someone opened @Michelle0161bot and typed).
 /* Does this message look like the customer choosing an item? Catches
    "the video please", "i'll take the full nude one", "yes", "yes pls". */
+/* A short message that names an item is a buy signal in a shop, even without a
+   verb. "worn leggings" as a reply to the menu means quote it, not talk about
+   it. Requiring two matching words keeps "knickers" from quoting at random. */
+async function strongItemMatch(env, sb, conn, text) {
+  const items = (await sellableItems(env, sb, conn))
+    .filter(m => m.title && Number(m.price_gbp || m.price_ton || 0) > 0);
+  const clean = (v) => String(v || "").replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, " ").toLowerCase();
+  const lower = clean(text);
+  let best = null, bestScore = 0;
+  for (const it of items) {
+    const t = clean(it.title).replace(/[^a-z0-9]+/g, " ").trim();
+    if (!t) continue;
+    let score = t.split(" ").filter(w => w.length > 3 && lower.includes(w)).length;
+    if (lower.includes(t)) score = 99;
+    if (score > bestScore) { bestScore = score; best = it; }
+  }
+  return bestScore >= 2 ? best : null;
+}
+
 async function looksLikeBuyIntent(text, lower) {
   if (!text) return false;
   // Only a clear decision to buy. Naming a video or asking to see something is
