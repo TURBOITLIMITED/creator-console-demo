@@ -1024,6 +1024,19 @@ export default {
       return json({ waiting: rows.filter(c => c.last_inbound_at && (!c.last_outbound_at || new Date(c.last_inbound_at) > new Date(c.last_outbound_at))).length, answered: out }, 200, origin);
     }
 
+    // Runs the payment check now for one conversation, so a stuck "checking"
+    // can be resolved without waiting for the queue.
+    if (url.pathname === "/debug/checkpayment" && request.method === "POST") {
+      if (!env.DEBUG_TOKEN || request.headers.get("x-debug") !== env.DEBUG_TOKEN) return json({ error: "no" }, 401, origin);
+      const b = await request.json().catch(() => ({}));
+      try {
+        await checkPayment(env, { check: "payment", ...b });
+        return json({ ok: true }, 200, origin);
+      } catch (e) {
+        return json({ error: String(e).slice(0, 300) }, 500, origin);
+      }
+    }
+
     if (url.pathname === "/bots/hook" && request.method === "POST") {
       const denied = await requireConsoleAdmin(env, request, origin);
       if (denied) return denied;

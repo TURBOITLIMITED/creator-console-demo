@@ -288,7 +288,11 @@ async function onMessage(env, sb, msg, edited) {
       const who = (customer && (customer.first_name || customer.username)) || from.first_name || "someone";
       const seen = await sb(env, "messages?conversation_id=eq." + conv.id +
         "&direction=eq.in&select=id&limit=2").catch(() => null);
-      const saysPaid = /\b(i'?ve |i have |just )?(paid|sent it|sent the money|sent you the|transferred|transfer done|payment sent|money sent)\b/i.test(text);
+      // "done ive sent £25 babes" is a payment claim and has to be caught. A
+      // message about sending a photo is not.
+      const paidWord = /\b(paid|payed|sent|transferred|transfer|payment)\b/i.test(text);
+      const notMoney = /\b(pic|pics|photo|photos|video|clip|message|msg|text|email)\b/i.test(text);
+      const saysPaid = paidWord && !notMoney && String(text).trim().split(/\s+/).filter(Boolean).length <= 10;
       if (seen && seen.length === 1) {
         await notifyOwner(env, sb, conn, conv, msg, "New chat", who + ": " + String(text).slice(0, 120));
       } else if (saysPaid) {
