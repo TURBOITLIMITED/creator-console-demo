@@ -679,8 +679,11 @@ async function checkPayment(env, body) {
   }
   // Paid is not the end of the sale, it is the start of the detail. She confirms,
   // then asks exactly what he wants from it while he is still excited.
+  const knickers = /knicker|thong|panties/i.test(itemName);
   const follow = itemKind === "physical"
-    ? " now tell me exactly what you want... full or thong, what colour, and how many days do you want me wearing them? x"
+    ? (knickers
+        ? " now tell me exactly what you want... full or thong, what colour, and how many days do you want me wearing them? x"
+        : " now tell me exactly what you want... colour or style, and how many days do you want me wearing them? x")
     : itemKind === "service"
       ? " tell me what you want from it and when you're free x"
       : " tell me exactly how you want it x";
