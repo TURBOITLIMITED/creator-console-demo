@@ -1119,14 +1119,19 @@ const Data = {
     if(error) throw error; return data;
   },
   async update(table, id, patch){
-    let q = state.sb.from(table).update(patch).eq('id', id);
-    if(table !== 'creators') q = q.eq('creator_id', uid());
-    const { data, error } = await q.select().single();
-    if(error) throw error; return data;
+    // RLS already limits this to rows the signed-in user may write. Filtering
+    // again on creator_id made an admin whose id is not the creator's update
+    // nothing and report success, because zero rows is not an error.
+    const { data, error } = await state.sb.from(table).update(patch).eq('id', id).select();
+    if(error) throw error;
+    if(!data || !data.length) throw new Error('Nothing was saved. That row belongs to another creator, or it is gone.');
+    return data[0];
   },
   async remove(table, id){
-    const { error } = await state.sb.from(table).delete().eq('id', id).eq('creator_id', uid());
-    if(error) throw error; return;
+    const { data, error } = await state.sb.from(table).delete().eq('id', id).select();
+    if(error) throw error;
+    if(!data || !data.length) throw new Error('Nothing was deleted. That row belongs to another creator, or it is gone.');
+    return;
   },
 
   async stats(range = currentRange()){
@@ -3059,6 +3064,7 @@ async function loadGallery(){
   el.innerHTML = spinner('Loading gallery…');
   try{
     const { rows: media } = await Data.list('media_items', { select:'*', size:300, scopeOwner:true, order:'uploaded_at' });
+    libCache = media || [];               // gallery edits resolve against this list
     const { rows: accounts } = await Data.list('telegram_accounts', { select:'id, username, first_name, creator_id', size:50, scopeOwner:true });
     const byCreator = new Map(accounts.map(a => [a.creator_id, a.first_name || a.username || 'Creator']));
     el.innerHTML = media.length ? `<div class="gal-grid">` + media.map(m => {
@@ -3536,11 +3542,14 @@ document.addEventListener('click', async e => {
       host.innerHTML = libForm(); host.scrollIntoView({behavior:'smooth',block:'start'}); $('#md-title').focus(); break; }
     case 'gal-upload': { const w = $('#gal-form-wrap'); w.innerHTML = galUploadForm(); fillGalGirlOptions(); w.scrollIntoView({behavior:'smooth',block:'start'}); $('#md-title').focus(); break; }
     case 'gal-live': if(await withBusy(a, () => Data.update('media_items', id, { visible: a.dataset.on!=='1' }), a.dataset.on==='1'?'Removed from live':'Added to live')) loadGallery(); break;
-    case 'gal-edit': { state.libGirl = libCache.find(m=>m.id===id)?.creator_id || state.libGirl;
-      const w = $('#gal-form-wrap'); w.innerHTML = libForm(libCache.find(m=>m.id===id)); w.scrollIntoView({behavior:'smooth',block:'start'}); $('#md-title').focus(); break; }
+    case 'gal-edit': {
+      const m = libCache.find(x => x.id === id);
+      if(!m){ toast('Could not find that item', 'error', 'Reload the gallery and try again.'); break; }
+      state.libGirl = m.creator_id || state.libGirl;
+      const w = $('#gal-form-wrap'); w.innerHTML = libForm(m); w.scrollIntoView({behavior:'smooth',block:'start'}); $('#md-title').focus(); break; }
     case 'gal-del': if(armed(a) && await withBusy(a, () => Data.remove('media_items', id), 'Deleted from gallery')){ loadGallery(); $('#gal-form-wrap').innerHTML=''; } break;
     case 'lib-price': { state.libPriceFilter = ['all','free','paid'].includes(a.dataset.f) ? a.dataset.f : 'all'; if(state.libOpen) openGirlLibrary(state.libOpen.accountId, state.libOpen.creatorId); break; }
-    case 'lib-edit': $('#lib-form-wrap').innerHTML = libForm(libCache.find(m=>m.id===id)); $('#md-title').focus(); break;
+    case 'lib-edit': { const m = libCache.find(x => x.id === id); if(!m){ toast('Could not find that item', 'error', 'Reload her library and try again.'); break; } $('#lib-form-wrap').innerHTML = libForm(m); $('#md-title').focus(); break; }
     case 'lib-toggle': if(await withBusy(a, () => Data.update('media_items', id, { visible: a.dataset.on!=='1' }), a.dataset.on==='1'?'Removed from live':'Item is live')){
       if(state.libOpen) openGirlLibrary(state.libOpen.accountId, state.libOpen.creatorId); else loadLibrary(); } break;
     case 'lib-del': if(armed(a) && await withBusy(a, () => Data.remove('media_items', id), 'Item deleted')){ const w=$('#lib-form-wrap'); if(w) w.innerHTML=''; if(state.libOpen) openGirlLibrary(state.libOpen.accountId, state.libOpen.creatorId); else loadLibrary(); } break;
@@ -3656,7 +3665,7 @@ document.addEventListener('submit', async e => {
       const payload = id ? fields : { ...fields, creator_id:t, telegram_account_id:acct };
       return id ? Data.update('media_items', id, fields) : state.sb.from('media_items').insert(payload).select().single().then(({data:d, error}) => { if(error) throw error; return d; });
     };
-    const inGallery = !!f.girl;
+    const inGallery = !!f.girl || !!f.closest('#gal-form-wrap');
     if(await withBusy(btn, run, id ? 'Changes saved' : 'Uploaded')){
       if(inGallery){ $('#gal-form-wrap').innerHTML = ''; loadGallery(); }
       else {
