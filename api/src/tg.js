@@ -597,9 +597,10 @@ function payLineFrom(prof) {
   if (f.pay_note) bits.push(f.pay_note);
   if (!bits.length) return "";
   return "Payment methods you have, and the ONLY details you may give: " + bits.join("; ") +
-    ". Everything is quoted in pounds. Bank transfer is the only way you take payment: " +
-    "never offer or mention PayPal, crypto or any other method, and if he asks for one say " +
-    "bank transfer is all you do x. Never invent or alter a detail and never promise a link.";
+    ", plus Telegram Stars for photos and videos (never for anything posted, a meet or a service). " +
+    "Everything is quoted in pounds. Bank transfer is your main way; Stars is the other, paid in the chat. " +
+    "Never offer or mention PayPal, crypto or any other method, and if he asks for one say bank transfer or stars is all you do x. " +
+    "Never invent or alter a detail and never promise a link.";
 }
 
 function personaSystemPrompt(p, conn, catalogue, wallet, saidAlready) {
@@ -1116,14 +1117,25 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   // agreed in the way men actually type is left without the bank details.
   const bare = lower.replace(/^(h+m+|m+h+m+|m+y+e+a+h+|ah+|oh+|erm+|well|ha+|aye)\s+/i, "").trim();
   const affirmative = !mediaSynthetic && /^(yes|yeah|yep|yeh|ye|myeah|ok|okay|go on|please|pls|send it|send them|send us it|go for it|sure|course|of course|sound|perfect|aye|alright|i'?ll take|i'?ll have|i'?ll get|let'?s do it|do it|deal)\b/i.test(bare);
-  const methodHit = !mediaSynthetic && (/\bbank\b|\btransfer\b/i.test(lower) ? "bank" : null);
+  const starsHit = !mediaSynthetic && /\bstars?\b|⭐/.test(lower) &&
+    (/\b(pay|paying|payment|with|use|send|via|ok|yes|yeah|please|can|do)\b/.test(lower) ||
+     bare.split(/\s+/).filter(Boolean).length <= 4);
+  const methodHit = !mediaSynthetic
+    ? (starsHit ? "stars" : (/\bbank\b|\btransfer\b/i.test(lower) ? "bank" : null))
+    : null;
   // "I want to pay for them" is the clearest signal there is, and it must not
   // depend on a quote being recorded by a particular path.
   const wantsToPay = !mediaSynthetic && /\b(pay|paying|payment|send (you )?the (money|cash)|how do i pay|where do i send)\b/i.test(lower);
   if ((methodHit || affirmative || wantsToPay) && !askingFree) {
     const quoted = await lastQuotedItem(env, sb, conv);
+    // Stars first: a digital item is unlocked in this chat, not by bank details.
+    if (quoted && methodHit === "stars" && starsEligible(quoted)) {
+      const starsSent = await sendStarsItem(env, sb, conn, conv, msg.chat.id, quoted);
+      if (starsSent) { stopTyping(); return starsSent; }
+    }
     if (quoted || wantsToPay) {
-      const paid = await sendPayDetails(env, sb, conn, conv, msg.chat.id, quoted, methodHit || "bank");
+      const bankMethod = methodHit === "stars" ? "bank" : (methodHit || "bank");
+      const paid = await sendPayDetails(env, sb, conn, conv, msg.chat.id, quoted, bankMethod);
       if (paid) { stopTyping(); return paid; }
     }
   }
@@ -1774,7 +1786,7 @@ async function matchLiveItem(env, sb, conn, text) {
 async function onCallback(env, sb, cq, persona) {
   const data = String(cq.data || "");
   const m = data.match(/^(buy|free):([0-9a-f-]{36})$/i);
-  const pm = data.match(/^pay:(ton|paypal|bank):([0-9a-f-]{36})$/i);
+  const pm = data.match(/^pay:(ton|paypal|bank|stars):([0-9a-f-]{36})$/i);
   if (!m && !pm) {
     console.log(JSON.stringify({ evt: "tg.callback.unknown", data: data.slice(0, 40) }));
     return { skipped: "unknown callback" };
@@ -1841,7 +1853,11 @@ async function onCallback(env, sb, cq, persona) {
     const method = pm[1];
     try { await tg.answerCallbackQuery(token, cq.id); } catch (e) {
       console.log(JSON.stringify({ evt: "tg.callback.ack_failed", err: String(e).slice(0, 120) })); }
-    return await sendPayDetails(env, sb, conn, conv, chatId, item, method);
+    if (method === "stars" && starsEligible(item)) {
+      const starSent = await sendStarsItem(env, sb, conn, conv, chatId, item);
+      if (starSent) return starSent;
+    }
+    return await sendPayDetails(env, sb, conn, conv, chatId, item, method === "stars" ? "bank" : method);
   }
 
   if (action === "free") {
@@ -1888,6 +1904,97 @@ async function lastQuotedItem(env, sb, conv) {
   return await itemById(env, sb, m.raw.item_id, m.raw.item_source);
 }
 
+/* Telegram Stars. A digital item with a file behind it can be unlocked in the
+   chat for Stars; a posted item or a service can never be, so it is bank only.
+   Star price is derived from the GBP price unless the item carries its own. */
+const STAR_GBP_DEFAULT = 0.01;   // ~£0.01 net per Star; override with STAR_GBP_RATE
+
+function starsEligible(item) {
+  if (!item) return false;
+  const kind = String(item.kind || "").toLowerCase();
+  if (kind === "physical" || kind === "service") return false;
+  return !!item.media_key;
+}
+
+function starsFor(item, env) {
+  if (!item) return 0;
+  const explicit = Number(item.price_stars) || 0;
+  if (explicit > 0) return Math.min(25000, Math.max(1, Math.round(explicit)));
+  const gbp = Number(item.price_gbp) || Number(item.price_ton) || 0;
+  if (!gbp) return 0;
+  const rate = Number(env.STAR_GBP_RATE) > 0 ? Number(env.STAR_GBP_RATE) : STAR_GBP_DEFAULT;
+  return Math.min(25000, Math.max(1, Math.round(gbp / rate)));
+}
+
+const STARS_THANKS = [
+  "enjoy that one 😏",
+  "all yours now x",
+  "there you go babe 😈",
+  "paid and sent, just like that 💋",
+  "have fun with it 😜",
+];
+
+/* Post the item as paid media, in this chat, as the account. The customer taps
+   once and Stars do the rest; nobody leaves the conversation for a bot. */
+async function sendStarsItem(env, sb, conn, conv, chatId, item) {
+  const token = await botTokenFor(env, sb, conn);
+  if (!token || !chatId) return null;
+  const stars = starsFor(item, env);
+  if (!stars) return null;
+  const meta = (item && item.metadata) || {};
+  const kind = String(item.media_type || item.kind || "image").toLowerCase();
+  const type = /video/.test(kind) ? "video" : "photo";
+  const caption = item.name || item.title || "";
+  const payload = ("v1|" + conv.id + "|" + item.id).slice(0, 128);
+  let sent = null;
+  try {
+    if (meta.tg_file_id) {
+      sent = await tg.sendPaidMedia(token, conn.id, chatId, [{ type, media: meta.tg_file_id }], stars, payload, caption);
+    } else {
+      const obj = await env.MEDIA.get(item.media_key);
+      if (!obj) throw new Error("media missing in R2: " + item.media_key);
+      const data = await obj.arrayBuffer();
+      const contentType = (obj.httpMetadata && obj.httpMetadata.contentType) ||
+        (type === "video" ? "video/mp4" : "image/jpeg");
+      const filename = (String(item.media_key).split("/").pop() || "item") ;
+      sent = await tg.sendPaidMediaUpload(token, conn.id, chatId,
+        { type, filename, contentType, data }, stars, payload, caption);
+      const fileId = tg.paidMediaFileId(sent);
+      if (fileId) {
+        await sb(env, "media_items?id=eq." + encodeURIComponent(item.id), {
+          method: "PATCH", headers: { Prefer: "return=minimal" },
+          body: JSON.stringify({ metadata: { ...meta, tg_file_id: fileId } }),
+        }).catch(() => null);
+      }
+    }
+  } catch (e) {
+    console.log(JSON.stringify({ evt: "tg.stars.send_failed", item: item.id, err: String(e && e.message || e).slice(0, 200) }));
+    return null;
+  }
+
+  await sb(env, "messages", {
+    method: "POST",
+    headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+    body: JSON.stringify({
+      conversation_id: conv.id,
+      creator_id: conn.creator_id,
+      tg_message_id: sent && sent.message_id ? sent.message_id : null,
+      direction: "out",
+      sender: "ai",
+      kind: "paid_media",
+      body_preview: "[stars] " + caption + " · " + stars + " ⭐",
+      sent_at: new Date().toISOString(),
+      raw: { via: "stars-paid-media", item_id: item.id, item_source: item.source || "media", stars },
+    }),
+  }).catch(() => {});
+  await sb(env, "conversations?id=eq." + conv.id, {
+    method: "PATCH", headers: { Prefer: "return=minimal" },
+    body: JSON.stringify({ purchase_intent_at: new Date().toISOString() }),
+  }).catch(() => {});
+  console.log(JSON.stringify({ evt: "tg.stars.media_sent", item: item.id, stars }));
+  return { stars_media: item.id, stars };
+}
+
 /* Payment request for a specific item (shared by buy button and text). */
 async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
   const token = await botTokenFor(env, sb, conn);
@@ -1902,7 +2009,11 @@ async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
   const gbp = Number(item.price_gbp) || ton;   // GBP column wins when set
   const price = "£" + gbp;
   const name = item.name || item.title || "that";
-  const payText = `ooh good choice 😏 ${name} is ${price} babe, want me to send my bank details? x`;
+  const starPrice = starsEligible(item) ? starsFor(item, env) : 0;
+  const howPay = starPrice
+    ? `bank transfer or ${starPrice} ⭐ stars, paid right here? x`
+    : `want me to send my bank details? x`;
+  const payText = `ooh good choice 😏 ${name} is ${price} babe, ${howPay}`;
   // No inline keyboard. Buttons make the account look like a shop bot; the
   // methods are named in the text and he answers with the one he wants.
   try {
@@ -2012,6 +2123,72 @@ async function onDirectMessage(env, sb, msg, persona) {
 
 // ---------------------------------------------------------------------------
 
+/* A customer paid for Stars paid-media. The payload carries the conversation
+   and item because the update itself carries no chat id. The media is already
+   unlocked by Telegram; this records the sale, thanks him and tells the owner. */
+export async function onPaidMediaPurchase(env, sb, ppm) {
+  const payload = String((ppm && ppm.paid_media_payload) || "");
+  const m = payload.match(/^v1\|([0-9a-f-]{36})\|([0-9a-f-]{36})$/i);
+  if (!m) {
+    console.log(JSON.stringify({ evt: "tg.stars.purchase_unknown_payload", payload: payload.slice(0, 60) }));
+    return { skipped: "unknown payload" };
+  }
+  const convId = m[1], itemId = m[2];
+  const convs = await sb(env, "conversations?id=eq." + encodeURIComponent(convId) +
+    "&select=id,creator_id,business_connection_id,chat_id,customer_ref").catch(() => null);
+  const conv = convs && convs[0];
+  if (!conv) return { skipped: "conversation not found" };
+  const conns = await sb(env, "business_connections?id=eq." + encodeURIComponent(conv.business_connection_id) +
+    "&select=id,creator_id,telegram_account_id,tg_user_id,user_chat_id,is_enabled,rights").catch(() => null);
+  const conn = conns && conns[0];
+  if (!conn) return { skipped: "connection not found" };
+
+  const item = await itemById(env, sb, itemId);
+  const stars = starsFor(item, env);
+  const gbp = Number(item && item.price_gbp) || 0;
+  const buyer = (ppm && ppm.from) || {};
+
+  await sb(env, "payments", {
+    method: "POST",
+    headers: { Prefer: "return=minimal" },
+    body: JSON.stringify({
+      creator_id: conn.creator_id,
+      conversation_id: conv.id,
+      processor_ref: "stars:" + (buyer.id || "?") + ":" + stars,
+      amount_pence: Math.round(gbp * 100) || null,
+      fee_pence: null,
+      status: "paid",
+    }),
+  }).catch((e) => console.log(JSON.stringify({ evt: "tg.stars.payment_write_failed", err: String(e).slice(0, 160) })));
+
+  await sb(env, "messages", {
+    method: "POST",
+    headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+    body: JSON.stringify({
+      conversation_id: conv.id,
+      creator_id: conn.creator_id,
+      direction: "in",
+      sender: "customer",
+      kind: "payment",
+      body_preview: "[stars paid] " + (item ? (item.name || item.title || "") : itemId) + " · " + stars + " ⭐",
+      sent_at: new Date().toISOString(),
+      raw: { via: "stars-purchase", item_id: itemId, stars, buyer: buyer.id || null },
+    }),
+  }).catch(() => {});
+
+  const token = await botTokenFor(env, sb, conn);
+  if (token && conv.chat_id) {
+    const line = STARS_THANKS[Math.floor(Math.random() * STARS_THANKS.length)];
+    try { await tg.sendMessage(token, conn.id, conv.chat_id, line); }
+    catch (e) { console.log(JSON.stringify({ evt: "tg.stars.thanks_failed", err: String(e && e.message || e).slice(0, 120) })); }
+  }
+  await notifyOwner(env, sb, conn, conv, null, "Stars sale",
+    (item ? (item.name || item.title || "") : itemId) + " · " + stars + " ⭐"
+    + (gbp ? " (listed £" + gbp + ")" : "")).catch(() => null);
+  console.log(JSON.stringify({ evt: "tg.stars.paid", item: itemId, stars, conv: conv.id }));
+  return { stars_paid: stars, item: itemId };
+}
+
 export async function handleWebhook(request, env, sb, persona) {
   // 1. Authenticate Telegram before reading the body.
   const secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token") || "";
@@ -2065,6 +2242,7 @@ export async function handleWebhook(request, env, sb, persona) {
     else if (kind === "edited_business_message") result = await onMessage(env, sb, update.edited_business_message, true);
     else if (kind === "deleted_business_messages") result = await onDeleted(env, sb, update.deleted_business_messages);
     else if (kind === "message")              result = await onDirectMessage(env, sb, update.message, persona);
+    else if (kind === "purchased_paid_media") result = await onPaidMediaPurchase(env, sb, update.purchased_paid_media);
     else if (kind === "callback_query")         result = await onCallback(env, sb, update.callback_query, persona);
     else result = { skipped: "unhandled kind: " + kind };
   } catch (e) {

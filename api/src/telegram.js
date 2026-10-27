@@ -212,6 +212,59 @@ export function sendMedia(token, businessConnectionId, chatId, kind, fileUrl, ca
   });
 }
 
+/**
+ * Paid media: the customer unlocks it with Telegram Stars, in place, in this
+ * chat. Unlike sendInvoice, sendPaidMedia DOES take business_connection_id, so
+ * it can be posted as the account instead of from the bot's own chat.
+ * Star proceeds are credited to the bot's balance, not the connected account.
+ */
+export function sendPaidMedia(token, businessConnectionId, chatId, media, starCount, payload, caption) {
+  return call(token, "sendPaidMedia", {
+    business_connection_id: businessConnectionId,
+    chat_id: chatId,
+    star_count: starCount,
+    media,
+    protect_content: true,
+    ...(payload ? { payload } : {}),
+    ...(caption ? { caption } : {}),
+  });
+}
+
+/** Multipart variant, used the first time a file is sent: Telegram fetches
+ *  nothing from us, we upload the bytes and keep the file_id it returns. */
+export async function sendPaidMediaUpload(token, businessConnectionId, chatId, file, starCount, payload, caption) {
+  const fd = new FormData();
+  fd.append("business_connection_id", businessConnectionId);
+  fd.append("chat_id", String(chatId));
+  fd.append("star_count", String(starCount));
+  fd.append("protect_content", "true");
+  if (payload) fd.append("payload", payload);
+  if (caption) fd.append("caption", caption);
+  fd.append("media", JSON.stringify([{ type: file.type, media: "attach://file" }]));
+  fd.append("file", new Blob([file.data], { type: file.contentType }), file.filename);
+  const r = await fetch(API + token + "/sendPaidMedia", { method: "POST", body: fd });
+  const body = await r.json().catch(() => ({ ok: false, description: "non-json response" }));
+  if (!body.ok) {
+    const err = new Error(`telegram sendPaidMedia: ${body.description || r.status}`);
+    err.telegram = body;
+    throw err;
+  }
+  return body.result;
+}
+
+/** The file_id of the media inside a sent paid-media message, for reuse. */
+export function paidMediaFileId(msg) {
+  const p = (msg && msg.paid_media) || {};
+  if (p.video && p.video.file_id) return p.video.file_id;
+  if (Array.isArray(p.photo) && p.photo.length) return p.photo[p.photo.length - 1].file_id;
+  const first = Array.isArray(p) ? p[0] : null;
+  if (first) {
+    if (first.video && first.video.file_id) return first.video.file_id;
+    if (Array.isArray(first.photo) && first.photo.length) return first.photo[first.photo.length - 1].file_id;
+  }
+  return null;
+}
+
 /** The 24h reply window. can_reply is scoped to private chats with an INCOMING
  *  message in the last 24 hours; an outgoing message does not reopen it. */
 export const WINDOW_MS = 24 * 60 * 60 * 1000;

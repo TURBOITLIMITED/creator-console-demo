@@ -862,9 +862,12 @@ document.addEventListener('gesturechange', e => e.preventDefault(), { passive:fa
             <option value="physical">Posted item (knickers, etc.)</option>
             <option value="service">Service (sexting, custom, call)</option>
           </select></div>
-        <div class="field"><label for="tm-file">File <span class="muted">(optional)</span></label>
-          <input class="input" id="tm-file" name="file" type="file"></div>
+        <div class="field"><label for="tm-stars">Stars price</label>
+          <input class="input" id="tm-stars" name="stars" inputmode="numeric" placeholder="500"></div>
       </div>
+      <span class="hint" style="margin-top:-6px;display:block">How many Stars unlock this in the chat. Empty means it is worked out from the £ price. Photos and videos only; posted items and services stay bank transfer.</span>
+      <div class="field"><label for="tm-file">File <span class="muted">(optional)</span></label>
+        <input class="input" id="tm-file" name="file" type="file"></div>
       <div class="field"><label for="tm-desc">One line she can say about it</label>
         <input class="input" id="tm-desc" name="description" placeholder="me, completely naked, 12 photos"></div>
     </div>
@@ -2557,7 +2560,7 @@ async function tgLoadMenu(accountId){
   const el = $('#tg-menu'); if(!el) return;
   try{
     const { data } = await state.sb.from('telegram_menu_items')
-      .select('id,name,kind,price_gbp,description,media_key,active')
+      .select('id,name,kind,price_gbp,price_stars,description,media_key,active')
       .eq('telegram_account_id', accountId).order('position').order('created_at');
     const items = data || [];
     state.tgMenu = items;
@@ -2566,7 +2569,7 @@ async function tgLoadMenu(accountId){
     const kindLabel = k => k === 'physical' ? 'Posted' : k === 'video' ? 'Video' : k === 'service' ? 'Service' : 'Photo';
     el.innerHTML = `<ul class="audit-list">${items.map(m => `<li>
       <span class="a-kind" style="background:${m.active?'var(--ok-soft)':'var(--sunk)'};color:${m.active?'var(--ok)':'var(--ink-3)'}">${esc(kindLabel(m.kind))}</span>
-      <div class="a-body"><p><b>${esc(m.name)}</b> <small>£${Number(m.price_gbp||0).toFixed(2)}</small></p>
+      <div class="a-body"><p><b>${esc(m.name)}</b> <small>£${Number(m.price_gbp||0).toFixed(2)}${m.price_stars ? ' · ' + Number(m.price_stars) + ' ⭐' : ''}</small></p>
         ${m.description ? `<p style="color:var(--ink-2)">${esc(m.description)}</p>` : ''}
         <div class="row-actions" style="margin-top:6px">
           <button class="act" data-act="tg-menu-edit" data-id="${esc(m.id)}">${ic('edit')}Edit</button>
@@ -2591,6 +2594,7 @@ function openMenuDialog(item){
     f.dataset.edit = item.id;
     f.querySelector('#tm-name').value = item.name || '';
     f.querySelector('#tm-price').value = item.price_gbp != null ? item.price_gbp : '';
+    if (f.querySelector('#tm-stars')) f.querySelector('#tm-stars').value = item.price_stars != null ? item.price_stars : '';
     f.querySelector('#tm-kind').value = item.kind || 'image';
     f.querySelector('#tm-desc').value = item.description || '';
   }
@@ -2606,6 +2610,9 @@ async function tgSaveMenuItem(f, btn){
   const price = Number(String(f.price.value || '').replace(/[^0-9.]/g, '')) || 0;
   const kind = f.kind.value;
   const description = f.description.value.trim() || null;
+  const starsRaw = Number(String((f.stars && f.stars.value) || '').replace(/[^0-9]/g, '')) || 0;
+  const stars = (kind === 'physical' || kind === 'service') ? null
+    : (starsRaw > 0 ? Math.min(25000, Math.round(starsRaw)) : null);
   if(!name){ f.name.classList.add('invalid'); toast('Give it a name', 'error'); return; }
   if(!(price > 0)){ f.price.classList.add('invalid'); toast('Set a price', 'error', 'Everything on the menu is priced in pounds.'); return; }
   const acct = (state.tgAccounts || []).find(a => a.id === accountId);
@@ -2621,14 +2628,14 @@ async function tgSaveMenuItem(f, btn){
     }
     if(editId){
       // Editing keeps the existing file unless a new one was chosen.
-      const row = { name, kind, price_gbp: price, description };
+      const row = { name, kind, price_gbp: price, description, price_stars: stars };
       if (media_key) row.media_key = media_key;
       const { error } = await state.sb.from('telegram_menu_items').update(row).eq('id', editId);
       if(error) throw error;
     } else {
       const { error } = await state.sb.from('telegram_menu_items').insert({
         telegram_account_id: accountId, creator_id: acct?.creator_id || ownerTarget(),
-        name, kind, price_gbp: price, description, media_key,
+        name, kind, price_gbp: price, description, media_key, price_stars: stars,
       });
       if(error) throw error;
     }
@@ -2764,7 +2771,7 @@ async function openGirlLibrary(accountId, creatorId){
       <div class="table-wrap">${hers.length || herBuns.length ? `<table><tbody>
       ${hers.map(m => `<tr>
         <td><div class="cell-main"><div class="thumb ${m.kind} lib-thumb" data-key="${esc(m.media_key||'')}" data-kind="${esc(m.kind)}">${m.media_key ? '' : ic(typeIcon(m.kind))}</div><div><b>${esc(m.title)}</b><small>${esc(m.kind)}</small></div></div></td>
-          <td class="num" data-l="Price"><span class="price">${fmtTon(m.price_ton)}</span></td>
+          <td class="num" data-l="Price"><span class="price">${fmtTon(m.price_ton)}${m.price_stars ? ' · ' + Number(m.price_stars) + ' ⭐' : ''}</span></td>
           <td data-l="Status">${pill(m.visible,'Live','Hidden','draft')}</td>
           <td><div class="row-actions">
             <button class="act" data-act="lib-toggle" data-id="${m.id}" data-on="${m.visible?1:0}">${ic('power')}${m.visible?'Remove from live':'Add to live'}</button>
@@ -2805,6 +2812,7 @@ function libForm(item=null){
       ${['video','image','document'].map(v=>`<input type="radio" name="kind" id="md-type-${v}" value="${v}" ${t===v?'checked':''}><label for="md-type-${v}">${ic(typeIcon(v))}${v[0].toUpperCase()+v.slice(1)}</label>`).join('')}
     </div></div>
     <div class="field"><label for="md-price">Price</label><div class="input-affix"><input class="input mono" id="md-price" name="price_ton" type="number" min="0" step="0.1" value="${item?.price_ton ?? ''}" placeholder="9.5"><span>£</span></div></div>
+    <div class="field"><label for="md-stars">Stars price</label><div class="input-affix"><input class="input mono" id="md-stars" name="price_stars" type="number" min="1" max="25000" step="1" value="${item?.price_stars ?? ''}" placeholder="500"><span>⭐</span></div><span class="hint">Optional. Unlocks in the chat for this many Stars. Empty means derived from the £ price. Posted items and services are never sold for Stars.</span></div>
     <div class="field"><label for="md-file">File</label><input class="input" id="md-file" name="file" type="file" accept="video/*,image/*,audio/*,.zip,.pdf"><span class="hint">${item?'Leave empty to keep the current file.':'Stored in content-store; the bot delivers it after payment.'}</span></div>
     <div class="field"><label for="md-desc">Description</label><textarea class="input" id="md-desc" name="description" maxlength="280" style="min-height:64px" placeholder="What fans get.">${esc(item?.description||'')}</textarea></div>
     <label class="switch" for="md-visible"><input type="checkbox" id="md-visible" name="visible" ${item?.visible ?? true ?'checked':''}><span class="track"></span><span>Visible<small>Visible to fans and the AI</small></span></label>
@@ -3424,7 +3432,7 @@ document.addEventListener('submit', async e => {
   }
   if(kind === 'tg-menu'){ return tgSaveMenuItem(f, btn); }
   if(kind === 'media'){
-    const data = { title:f.title.value.trim(), kind:f.kind.value, price_ton:f.price_ton.value?Number(f.price_ton.value):null, description:f.description.value.trim()||null, visible:f.visible.checked };
+    const data = { title:f.title.value.trim(), kind:f.kind.value, price_ton:f.price_ton.value?Number(f.price_ton.value):null, price_stars:f.price_stars && f.price_stars.value ? Math.round(Number(f.price_stars.value)) : null, description:f.description.value.trim()||null, visible:f.visible.checked };
     if(!data.title){ f.title.classList.add('invalid'); return; }
     const file = f.file?.files?.[0];
     const run = async () => {
