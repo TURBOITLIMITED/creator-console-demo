@@ -312,11 +312,7 @@ async function onMessage(env, sb, msg, edited) {
       const who = (customer && (customer.first_name || customer.username)) || from.first_name || "someone";
       const seen = await sb(env, "messages?conversation_id=eq." + conv.id +
         "&direction=eq.in&select=id&limit=2").catch(() => null);
-      // "done ive sent £25 babes" is a payment claim and has to be caught. A
-      // message about sending a photo is not.
-      const paidWord = /\b(paid|payed|sent|transferred|transfer|payment)\b/i.test(text);
-      const notMoney = /\b(pic|pics|photo|photos|video|clip|message|msg|text|email)\b/i.test(text);
-      const saysPaid = paidWord && !notMoney && String(text).trim().split(/\s+/).filter(Boolean).length <= 10;
+      const saysPaid = isPaymentClaim(text);
       if (seen && seen.length === 1) {
         await notifyOwner(env, sb, conn, conv, msg, "New chat", who + ": " + String(text).slice(0, 120));
       } else if (saysPaid) {
@@ -354,7 +350,8 @@ async function onMessage(env, sb, msg, edited) {
             "&direction=eq.out&raw->>via=eq.payment-ask-name&select=sent_at&order=sent_at.desc&limit=1").catch(() => null);
           if (asked && asked[0] && Date.now() - new Date(asked[0].sent_at).getTime() < 30 * 60 * 1000) {
             const words = String(text).trim().split(/\s+/).filter(Boolean);
-            if (words.length <= 4 && !/\?/.test(text)) {
+            const notAName = /\b(haven'?t|hasn'?t|didn'?t|don'?t|won'?t|can'?t|not|no|never|nothing|yet|wait|sending|will|gonna)\b|£|\d/i.test(text);
+            if (words.length <= 4 && !/\?/.test(text) && !notAName) {
               await env.REPLY_QUEUE.send({
                 check: "payment",
                 conversation_id: conv.id,
@@ -2120,6 +2117,21 @@ async function sendPayDetails(env, sb, conn, conv, chatId, item, method) {
   }
 }
 
+/* A payment claim we should act on. A question is not a claim, a promise is
+   not a claim, a negation is not a claim, and sending a photo is not money. */
+function isPaymentClaim(text) {
+  const raw = String(text || "").trim();
+  const lower = raw.toLowerCase();
+  const paidWord = /\b(paid|payed|sent|transferred|transfer|payment)\b/i.test(raw);
+  const notMoney = /\b(pic|pics|photo|photos|video|clip|message|msg|text|email)\b/i.test(raw);
+  const negated = /\b(not|never|no|haven'?t|hasn'?t|hadn'?t|didn'?t|don'?t|doesn'?t|won'?t|can'?t|couldn'?t|isn'?t|aren'?t|wasn'?t|weren'?t)\b[^.!?]{0,24}\b(paid|payed|sent|send|transferred|transfer)\b/.test(lower)
+    || /\b(not yet|nothing yet|haven'?t yet)\b/.test(lower);
+  const future = /\b(will|gonna|going to|want to|wanna|can i|could i|should i|how do i|how can i|where do i)\b[^.!?]{0,18}\b(pay|send|transfer)\b/.test(lower);
+  const question = /^(what|which|who|why|how|did|have|has|do|does)\b/.test(lower);
+  return paidWord && !notMoney && !negated && !future && !question &&
+    raw.split(/\s+/).filter(Boolean).length <= 10;
+}
+
 async function onDirectMessage(env, sb, msg, persona) {
   const uname = String(persona || "").toLowerCase();
   const acc = await sb(env, "telegram_accounts?username=ilike." + encodeURIComponent(uname) +
@@ -2282,4 +2294,5 @@ export async function handleWebhook(request, env, sb, persona) {
 
 // Exported for the reply-quality regression tests.
 export { generateReply, repeatsSomething, personaSystemPrompt, ensureEmoji, sellableItems,
-         nameFromText, nameForChat, nameFromUsername, usableName, NAME_QUESTION, stripNameQuestion };
+         nameFromText, nameForChat, nameFromUsername, usableName, NAME_QUESTION, stripNameQuestion,
+         isPaymentClaim };
