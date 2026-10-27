@@ -281,6 +281,30 @@ async function onMessage(env, sb, msg, edited) {
     delivered: true,
   }, "resolution=merge-duplicates,return=minimal");
 
+  // Learn the name he gives. It has to live in flags: the customers upsert
+  // above rewrites first_name from the Telegram profile on every message, so a
+  // name stored there would be wiped by his next line.
+  if (!outgoing && text && customer && customer.id && !(customer.flags && customer.flags.learned_name)) {
+    try {
+      const words = String(text).trim().split(/\s+/).filter(Boolean);
+      if (words.length <= 8) {
+        const outs = await sb(env, "messages?conversation_id=eq." + conv.id +
+          "&direction=eq.out&select=body_preview&order=sent_at.desc&limit=3").catch(() => null);
+        const asked = (outs || []).some(m => NAME_QUESTION.test(m.body_preview || ""));
+        const nm = nameFromText(text, asked);
+        if (nm) {
+          const flags = Object.assign({}, customer.flags || {}, { learned_name: nm, name_source: "chat" });
+          await sb(env, "customers?id=eq." + customer.id, {
+            method: "PATCH", headers: { Prefer: "return=minimal" },
+            body: JSON.stringify({ flags }),
+          }).catch(() => {});
+          customer.flags = flags;
+          console.log(JSON.stringify({ evt: "tg.customer.name_learned", name: nm }));
+        }
+      }
+    } catch (e) { /* a missed name is not worth losing the message over */ }
+  }
+
   // A brand new chat, and a man who says he has paid: the two things only a
   // human can act on. Both fire once, on the inbound message that caused them.
   if (!outgoing && text && !edited) {
@@ -770,6 +794,64 @@ function repeatsSomething(candidate, previous) {
   return false;
 }
 
+/* ---------------------------------------------------------------------------
+   His name.
+
+   Two things were wrong and together they made her ask the same question over
+   and over. `conv.customers` was never loaded, so every reply was told "you do
+   not know his name yet"; and nothing ever learned the name when he gave it
+   ("Mark for now", "Mark Miss"). The Telegram profile field cannot hold it
+   either: the customer upsert rewrites first_name on every message, so a
+   learned name lives in flags.learned_name instead.
+   ------------------------------------------------------------------------- */
+const NAME_QUESTION = /\b(what(?:'s| is) your name|what shall i call you|what should i call you|what to call you|what are you called|who are you)\b/i;
+
+// Words that are never somebody's name, however the sentence is shaped.
+const NAME_JUNK = new Set(("me you him her them they it this that the a an and or " +
+  "yes no ok okay sure please thanks thank hi hey hello miss sir mummy daddy babe love " +
+  "good bad boy girl man woman anything whatever maybe none nothing someone somebody " +
+  "on in at not so just going gonna here there ready sorry fine hard wet horny yours " +
+  "back still very really also but for with from about all any being doing feeling " +
+  "name whats what who").split(" "));
+
+function usableName(raw) {
+  const first = String(raw || "").trim();
+  if (!first || /[\d_@]/.test(first)) return null;              // handle, not a name
+  const n = first.replace(/[^\p{L}'’-]/gu, "");
+  if (n.length < 2 || n.length > 20) return null;
+  if (NAME_JUNK.has(n.toLowerCase())) return null;
+  return n[0].toUpperCase() + n.slice(1);
+}
+
+/* The name in his message, or null. `asked` means her last outbound message
+   asked what he is called, which is what makes a bare "mark" an answer. */
+function nameFromText(text, asked) {
+  const raw = String(text || "").trim().replace(/\s+/g, " ");
+  if (!raw || raw.length > 70) return null;
+  const t = raw.replace(/[.!?,]+$/, "").trim();
+  let m;
+  if ((m = t.match(/\b(?:my name(?:'s| is)|call me)\s+([\p{L}][\p{L}'’-]{1,19})\b/iu))) return usableName(m[1]);
+  if ((m = t.match(/^(?:i'?m|i am|it'?s|this is)\s+([\p{L}][\p{L}'’-]{1,19})\b/iu))) return usableName(m[1]);
+  // "Mark for now", "Mark Miss", "Mark here"
+  if ((m = t.match(/^([\p{L}][\p{L}'’-]{1,19})\s*,?\s+(?:here|for now|miss|sir|mate)\b/iu))) return usableName(m[1]);
+  if (!asked) return null;
+  if ((m = t.match(/^([\p{L}][\p{L}'’-]{1,19})$/u))) return usableName(m[1]);
+  return null;
+}
+
+/* What to call him: a learned name beats the profile, and a profile that is a
+   handle ("Me", "Kinkster74") is no name at all. */
+function nameForChat(cu) {
+  const c = cu || {};
+  const learned = usableName(c.flags && c.flags.learned_name);
+  if (learned) return learned;
+  const first = String(c.first_name || "").trim();
+  const user = String(c.username || "").trim().toLowerCase();
+  if (!first) return null;
+  if (user && first.toLowerCase() === user) return null;
+  return usableName(first);
+}
+
 /* Inbound pictures used to be answered blind: the engine had a file id and
    nothing else, so a joke picture and a real one got the same reply. Ask a
    vision model what actually arrived, in one short line, and give that line to
@@ -1066,16 +1148,30 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
       // are continued, not restarted.
       let custLine = "";
       {
-        const cu = (conv && conv.customers) || {};
-        const custName = String(cu.first_name || "").trim();
-        const custUser = String(cu.username || "").trim();
+        // conv.customers is not populated by the conversation query, which is
+        // why every reply used to be told "you do not know his name yet" and
+        // asked again even seconds after he had told her. Read the customer.
+        let cu = (conv && conv.customers) || null;
+        if (!cu && conv) {
+          const q = conv.customer_id
+            ? "customers?id=eq." + encodeURIComponent(conv.customer_id)
+            : "customers?creator_id=eq." + encodeURIComponent(conn.creator_id) +
+              "&tg_user_id=eq." + encodeURIComponent(conv.customer_ref || "");
+          const rows = await sb(env, q + "&select=first_name,username,flags&limit=1").catch(() => null);
+          cu = (rows && rows[0]) || {};
+        }
+        const custName = nameForChat(cu);
+        const custUser = String((cu && cu.username) || "").trim();
+        const askedBefore = history.some(h => h.dir === "out" && NAME_QUESTION.test(h.text));
         if (custName) {
-          custLine = "You're chatting with " + custName + ". Use his name now and then, the way you would with someone you know. If that looks like a handle rather than a real name, do not use it; ask him what he is called.";
+          custLine = "You're chatting with " + custName + ", that is his name and he has told you. Use it now and then, the way you would with someone you know. Never ask him his name, not now and not later.";
+        } else if (askedBefore) {
+          custLine = "You have already asked him what he is called. Do not ask again, in this message or any later one. Carry on without a name and do not bring it up.";
         } else if (custUser) {
           custLine = "His Telegram username is @" + custUser +
-            ". A username is not a name. Only use it as one when a real name is obvious in it (johnnyboy is Johnny). If it is not obvious (processpirate), never call him by it and ask what he is called, casually, in the first few messages.";
+            ". A username is not a name. Only use it as one when a real name is obvious in it (johnnyboy is Johnny). If it is not obvious (processpirate), never call him by it and ask what he is called, casually, once, in the first few messages, never mid-scene.";
         } else {
-          custLine = "You do not know his name yet. Ask him what he is called, casually, in the first few messages.";
+          custLine = "You do not know his name yet. You may ask what he is called, casually, once, in the first few messages and never in the middle of a scene. If you have asked before, do not ask again.";
         }
         // An open sale: a price quoted in the last three hours with nothing paid
         // since. Without this she answered "Tony" and drifted into flirting
@@ -1132,14 +1228,26 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
       via = "workers-ai";
       // One retry when the model loops. Without it a small model sends the
       // same sentence twice in a row, which is what the owner hears as
-      // "she is very repetitive".
+      // "she is very repetitive". If the retry loops too, nothing is sent: a
+      // repeat means she has just answered him, and the same line twice is
+      // worse than a beat of silence.
       if (replyText && repeatsSomething(replyText, priorOut)) {
         console.log(JSON.stringify({ evt: "tg.reply.repeat_retry", text: replyText.slice(0, 80) }));
-        const retry = await generateReply(env, system +
-          " You were about to repeat yourself. Do NOT send this line or anything like it: \"" + replyText + "\".", history, text);
-        if (retry) {
-          if (repeatsSomething(retry, priorOut)) console.log(JSON.stringify({ evt: "tg.reply.repeat_again" }));
-          replyText = retry;
+        let fresh = null;
+        for (let attempt = 0; attempt < 2 && !fresh; attempt++) {
+          const retry = await generateReply(env, system +
+            " You were about to repeat yourself. Do NOT send this line or anything like it: \"" + replyText +
+            "\". Say something completely new about what he just said.", history, text);
+          if (!retry) break;
+          if (!repeatsSomething(retry, priorOut)) fresh = retry;
+          else console.log(JSON.stringify({ evt: "tg.reply.repeat_again", text: retry.slice(0, 80) }));
+        }
+        if (fresh) replyText = fresh;
+        else {
+          console.log(JSON.stringify({ evt: "tg.reply.repeat_suppressed",
+            conversation: conv.id, text: replyText.slice(0, 80) }));
+          stopTyping();
+          return null;
         }
       }
       if (replyText) replyText = ensureEmoji(replyText, p && p.emoji_level);
@@ -1911,4 +2019,5 @@ export async function handleWebhook(request, env, sb, persona) {
 }
 
 // Exported for the reply-quality regression tests.
-export { generateReply, repeatsSomething, personaSystemPrompt, ensureEmoji, sellableItems };
+export { generateReply, repeatsSomething, personaSystemPrompt, ensureEmoji, sellableItems,
+         nameFromText, nameForChat, usableName, NAME_QUESTION };

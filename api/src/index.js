@@ -740,6 +740,20 @@ async function deliverQueuedReply(env, body) {
       return;
     }
   }
+  // Last line of defence against the same line landing twice. Two replies can
+  // be generated before either is delivered, so neither saw the other in its
+  // history; the repeat guard cannot catch that, this can.
+  {
+    const last = await sb(env, "messages?conversation_id=eq." + encodeURIComponent(b.conversation_id) +
+      "&direction=eq.out&select=body_preview,sent_at&order=sent_at.desc&limit=1").catch(() => null);
+    const prev = last && last[0];
+    if (prev && prev.body_preview && prev.sent_at &&
+        prev.body_preview === preview(b.text) &&
+        Date.now() - new Date(prev.sent_at).getTime() < 10 * 60 * 1000) {
+      console.log(JSON.stringify({ evt: "tg.reply.duplicate_suppressed", conversation: b.conversation_id }));
+      return;
+    }
+  }
   const conns = await sb(env, "business_connections?id=eq." +
     encodeURIComponent(b.business_connection_id) + "&select=id,telegram_account_id,is_enabled");
   const conn = conns && conns[0];
