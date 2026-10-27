@@ -2908,13 +2908,14 @@ async function libUploadFiles(fileList, accountId, creatorId, statusEl, fromDeta
   const files = [...(fileList || [])].filter(f => f && f.size > 0);
   if(!files.length) return;
   if(!creatorId){ toast('No creator for that drop', 'error', 'Open a creator first.'); return; }
-  let ok = 0, failed = 0, newRow = null;
+  let ok = 0, failed = 0, newRow = null, firstErr = '';
   for(let i = 0; i < files.length; i++){
     const f = files[i];
     if(statusEl) statusEl.textContent = `Uploading ${i + 1} of ${files.length}: ${f.name}`;
+    let path = null;
     try{
       const safe = f.name.replace(/[^\w.\-]/g, '_');
-      const path = `${creatorId}/${Date.now()}-${i}-${safe}`;
+      path = `${creatorId}/${Date.now()}-${i}-${safe}`;
       const { error: upErr } = await state.sb.storage.from('content-store')
         .upload(path, f, { contentType: f.type || 'application/octet-stream' });
       if(upErr) throw upErr;
@@ -2933,13 +2934,16 @@ async function libUploadFiles(fileList, accountId, creatorId, statusEl, fromDeta
       ok++;
     }catch(e){
       failed++;
+      if(!firstErr) firstErr = String((e && (e.message || e.error_description || e.details)) || e || '').slice(0, 140);
+      // Do not leave the file behind when its row never landed.
+      if(path) await state.sb.storage.from('content-store').remove([path]).catch(() => {});
       console.error('library upload failed', f.name, e);
     }
   }
   if(statusEl) statusEl.textContent = '';
   toast(`${ok} file${ok === 1 ? '' : 's'} uploaded${failed ? ', ' + failed + ' failed' : ''}`,
     failed ? 'error' : 'success',
-    failed ? 'Check the type and try again.' : 'Saved as drafts. Add the details, then put them live.');
+    failed ? (firstErr || 'Check the type and try again.') : 'Saved as drafts. Add the details, then put them live.');
   if(fromDetail && state.libOpen){
     await openGirlLibrary(state.libOpen.accountId, state.libOpen.creatorId);
     if(ok === 1 && newRow){
