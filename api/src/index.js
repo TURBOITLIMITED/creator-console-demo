@@ -18,7 +18,7 @@ const json = (data, status = 200, origin) =>
 import { sign, timingSafe } from "./media.js";
 import { sealSecret, openSecret, getDek, open, preview } from "./crypto.js";
 import { inboxSnapshot, inboxPage, login as fsLogin, ageMinutes, parseInbox, parseThread, sendReply } from "./fabswingers.js";
-import { handleWebhook, catchUpReply, notifyOwner } from "./tg.js";
+import { handleWebhook, onPaidMediaPurchase, catchUpReply, notifyOwner } from "./tg.js";
 import * as tgapi from "./telegram.js";
 import { validateBotAnswer, DEFAULT_BOT_ANSWERS, EXPLICIT_BOT_ANSWER } from "./persona.js";
 
@@ -842,9 +842,17 @@ async function revolutToken(env, form) {
   });
   const d = await r.json().catch(() => ({}));
   if (!r.ok || !d.access_token) throw new Error("token " + r.status + " " + JSON.stringify(d).slice(0, 200));
+  // Revolut returns the refresh token only on the authorization_code exchange.
+  // A refresh response carries just a new access token, so writing d.refresh_token
+  // straight into KV erased the only long-lived credential and killed the feed
+  // the first time the 40 minute token expired. Keep the stored one unless
+  // Revolut actually hands back a new one.
+  let prev = {};
+  try { prev = JSON.parse(await env.PUSH_KV.get("revolut:tokens") || "{}"); } catch (e) {}
+  const refresh = d.refresh_token || prev.refresh_token || null;
   await env.PUSH_KV.put("revolut:tokens", JSON.stringify({
     access_token: d.access_token,
-    refresh_token: d.refresh_token,
+    refresh_token: refresh,
     expires_at: Date.now() + (Number(d.expires_in) || 2400) * 1000,
   }));
   return d;
