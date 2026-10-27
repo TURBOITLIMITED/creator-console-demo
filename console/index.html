@@ -2904,16 +2904,39 @@ function libTitleForFile(name){
   const base = String(name || '').replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
   return (base || 'Untitled').slice(0, 120);
 }
+/* Telegram takes JPEG for photos. A PNG, WebP or HEIC is redrawn onto a white
+   canvas and re-encoded before it is uploaded, so the bot never has to send a
+   format the app will not show. If the browser cannot decode it (HEIC outside
+   Safari, for instance) the original goes up and the normaliser job converts it
+   from the server. */
+async function jpegFromImageFile(file){
+  if(!file || !String(file.type || '').startsWith('image/') || file.type === 'image/jpeg') return file;
+  try{
+    const bmp = await createImageBitmap(file);
+    const max = 2560;
+    const scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
+    const w = Math.max(1, Math.round(bmp.width * scale));
+    const h = Math.max(1, Math.round(bmp.height * scale));
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(bmp, 0, 0, w, h);
+    const blob = await new Promise(res => c.toBlob(res, 'image/jpeg', 0.88));
+    if(!blob) return file;
+    return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
+  }catch(e){ return file; }
+}
 async function libUploadFiles(fileList, accountId, creatorId, statusEl, fromDetail){
   const files = [...(fileList || [])].filter(f => f && f.size > 0);
   if(!files.length) return;
   if(!creatorId){ toast('No creator for that drop', 'error', 'Open a creator first.'); return; }
   let ok = 0, failed = 0, newRow = null, firstErr = '';
   for(let i = 0; i < files.length; i++){
-    const f = files[i];
+    let f = files[i];
     if(statusEl) statusEl.textContent = `Uploading ${i + 1} of ${files.length}: ${f.name}`;
     let path = null;
     try{
+      f = await jpegFromImageFile(f);
       const safe = f.name.replace(/[^\w.\-]/g, '_');
       path = `${creatorId}/${Date.now()}-${i}-${safe}`;
       const { error: upErr } = await state.sb.storage.from('content-store')
