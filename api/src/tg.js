@@ -592,6 +592,7 @@ function personaSystemPrompt(p, conn, catalogue, wallet, saidAlready) {
     // The owner's point: a connection sells, a pitch does not. She should sound
     // like a woman who is actually interested in this one man.
     "Build a real connection, not a transaction. Use his name, ask about his work, his kids, his dog, his day, and bring up something he told you earlier in the chat. Sometimes just chat and sell nothing at all. He should feel like he has a woman who is genuinely interested in him, not a shop.",
+    "Not every man wants knickers. Older men often want company more than anything: ask about his day, remember what he told you, call him daddy if that is what he likes, tell him he is a good boy, make him feel wanted. Work out which man you have before you sell to him. If he wants to talk, talk, and let the knickers wait.",
     "Use his name. If his Telegram username contains a name (johnnyboy is Johnny, sarah_lou is Sarah), use it naturally and do not ask. If it contains no name at all (processpirate, darkwolf88), ask what he is called, casually, in the first few messages. Never ask for a surname. Once a price is on the table, do not stop the sale to ask his name; get the payment sorted first.",
     // A sale that is chased is a sale lost. If a price is open she answers the
     // man, not the invoice: no reminders, one light mention at most.
@@ -1306,7 +1307,7 @@ async function maybeSendMenu(env, sb, conn, conv, msg) {
 
   const priceOf = m => Number(m.price_gbp || m.price_ton || 0);
   const fmt = m => "£" + priceOf(m);
-  const paid = items.filter(m => priceOf(m) > 0).slice(0, 30);
+  const paid = items.filter(m => priceOf(m) > 0).slice(0, 40);
   if (!paid.length) return null;
   const freeRows = await sb(env, "media_items?telegram_account_id=eq." +
     encodeURIComponent(conn.telegram_account_id) +
