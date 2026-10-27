@@ -633,12 +633,13 @@ async function checkPayment(env, body) {
   const quotes = await sb(env, "messages?conversation_id=eq." + encodeURIComponent(b.conversation_id) +
     "&raw->>via=eq.pay-details&select=raw,sent_at&order=sent_at.desc&limit=1").catch(() => null);
   const q = quotes && quotes[0];
-  let price = 0, itemName = "";
+  let price = 0, itemName = "", itemKind = "";
   if (q && q.raw && q.raw.item_id) {
-    let item = (await sb(env, "telegram_menu_items?id=eq." + q.raw.item_id + "&select=name,price_gbp").catch(() => null) || [])[0];
-    if (!item) item = (await sb(env, "media_items?id=eq." + q.raw.item_id + "&select=title,price_ton").catch(() => null) || [])[0];
+    let item = (await sb(env, "telegram_menu_items?id=eq." + q.raw.item_id + "&select=name,price_gbp,kind").catch(() => null) || [])[0];
+    if (!item) item = (await sb(env, "media_items?id=eq." + q.raw.item_id + "&select=title,price_ton,kind").catch(() => null) || [])[0];
     price = Number((item && (item.price_gbp || item.price_ton)) || 0);
     itemName = (item && (item.name || item.title)) || "";
+    itemKind = (item && item.kind) || "";
   }
   let hit = null;
   try {
@@ -676,8 +677,15 @@ async function checkPayment(env, body) {
       askedName = !!(prev && prev.length);
     } catch (e) {}
   }
+  // Paid is not the end of the sale, it is the start of the detail. She confirms,
+  // then asks exactly what he wants from it while he is still excited.
+  const follow = itemKind === "physical"
+    ? " now tell me exactly what you want... full or thong, what colour, and how many days do you want me wearing them? x"
+    : itemKind === "service"
+      ? " tell me what you want from it and when you're free x"
+      : " tell me exactly how you want it x";
   const text = hit
-    ? "got it baby, thank you 😘" + (itemName ? " " + itemName + " coming to you x" : " x")
+    ? "got it baby, thank you 😘" + (itemName ? " that's the " + itemName.replace(/^[^A-Za-z]+/, "") + " sorted x" : " x") + follow
     : askedName
       ? "still not showing on mine baby, give it a minute and I'll look again x"
       : "not showing on mine yet baby, what name did you send it under? x";
