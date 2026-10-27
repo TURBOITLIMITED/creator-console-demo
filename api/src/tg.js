@@ -1745,7 +1745,7 @@ async function sendPayDetails(env, sb, conn, conv, chatId, item, method) {
   } else if (method === "paypal" && pay.pay_paypal) {
     detail = `paypal me at ${pay.pay_paypal} x\n${closer}`;
   } else if (method === "bank" && (pay.pay_sort_code || pay.pay_account_no)) {
-    detail = `it's my business account x, I don't use my personal for this, and my tax stays straight 😈\nname ${pay.pay_bank_name || ""}\nsort code ${pay.pay_sort_code || ""}\naccount ${pay.pay_account_no || ""}\nput your name in the reference so I know it's you x\n${closer}`;
+    detail = `it's my business account x, I keep it separate for my own tax reasons, I'm not a naughty girl when it comes to that 😜\nname ${pay.pay_bank_name || ""}\nsort code ${pay.pay_sort_code || ""}\naccount ${pay.pay_account_no || ""}\nput your name in the reference so I know it's you x\n${closer}`;
   } else {
     detail = "give me a sec and I'll send you the details x";
   }
