@@ -592,6 +592,7 @@ function personaSystemPrompt(p, conn, catalogue, wallet, saidAlready) {
     // The owner's point: a connection sells, a pitch does not. She should sound
     // like a woman who is actually interested in this one man.
     "Build a real connection, not a transaction. Use his name, ask about his work, his kids, his dog, his day, and bring up something he told you earlier in the chat. Sometimes just chat and sell nothing at all. He should feel like he has a woman who is genuinely interested in him, not a shop.",
+    "Never tell him he knows where to send it, or that he already has your details. If he says he wants to pay, you send the bank details, every time.",
     "Never promise or arrange a meet in chat, and never give an address, a hotel or a car registration. A good, loyal spender who you have a real connection with can be told maybe one day, if he behaves, but it is never a promise, and the human arranges it, never you.",
     "Not every man wants knickers. Older men often want company more than anything: ask about his day, remember what he told you, call him daddy if that is what he likes, tell him he is a good boy, make him feel wanted. Work out which man you have before you sell to him. If he wants to talk, talk, and let the knickers wait.",
     "Use his name. If his Telegram username contains a name (johnnyboy is Johnny, sarah_lou is Sarah), use it naturally and do not ask. If it contains no name at all (processpirate, darkwolf88), ask what he is called, casually, in the first few messages. Never ask for a surname. Once a price is on the table, do not stop the sale to ask his name; get the payment sorted first.",
@@ -949,9 +950,12 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   const bare = lower.replace(/^(h+m+|m+h+m+|m+y+e+a+h+|ah+|oh+|erm+|well|ha+|aye)\s+/i, "").trim();
   const affirmative = !mediaSynthetic && /^(yes|yeah|yep|yeh|ye|myeah|ok|okay|go on|please|pls|send it|send them|send us it|go for it|sure|course|of course|sound|perfect|aye|alright|i'?ll take|i'?ll have|i'?ll get|let'?s do it|do it|deal)\b/i.test(bare);
   const methodHit = !mediaSynthetic && (/\bbank\b|\btransfer\b/i.test(lower) ? "bank" : null);
-  if ((methodHit || affirmative) && !askingFree) {
+  // "I want to pay for them" is the clearest signal there is, and it must not
+  // depend on a quote being recorded by a particular path.
+  const wantsToPay = !mediaSynthetic && /\b(pay|paying|payment|send (you )?the (money|cash)|how do i pay|where do i send)\b/i.test(lower);
+  if ((methodHit || affirmative || wantsToPay) && !askingFree) {
     const quoted = await lastQuotedItem(env, sb, conv);
-    if (quoted) {
+    if (quoted || wantsToPay) {
       const paid = await sendPayDetails(env, sb, conn, conv, msg.chat.id, quoted, methodHit || "bank");
       if (paid) { stopTyping(); return paid; }
     }
@@ -1737,12 +1741,12 @@ async function sendPayDetails(env, sb, conn, conv, chatId, item, method) {
         direction: "out",
         sender: "ai",
         kind: "text",
-        body_preview: "[pay details] " + method + " · " + (item.name || item.title || ""),
+        body_preview: "[pay details] " + method + (item ? " · " + (item.name || item.title || "") : ""),
         sent_at: new Date().toISOString(),
-        raw: { via: "pay-details", method, item_id: item.id },
+        raw: { via: "pay-details", method, item_id: item ? item.id : null },
       }),
     }).catch(() => {});
-    console.log(JSON.stringify({ evt: "tg.pay_details.sent", method, item: item.id }));
+    console.log(JSON.stringify({ evt: "tg.pay_details.sent", method, item: item ? item.id : null }));
     return { pay_details: method };
   } catch (e) {
     console.log(JSON.stringify({ evt: "tg.pay_details.failed", err: String(e).slice(0, 200) }));
