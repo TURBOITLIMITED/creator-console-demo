@@ -3548,7 +3548,13 @@ document.addEventListener('click', async e => {
       state.libGirl = m.creator_id || state.libGirl;
       const w = $('#gal-form-wrap'); w.innerHTML = libForm(m); w.scrollIntoView({behavior:'smooth',block:'start'}); $('#md-title').focus(); break; }
     case 'gal-del': if(armed(a) && await withBusy(a, () => Data.remove('media_items', id), 'Deleted from gallery')){ loadGallery(); $('#gal-form-wrap').innerHTML=''; } break;
-    case 'lib-price': { state.libPriceFilter = ['all','free','paid'].includes(a.dataset.f) ? a.dataset.f : 'all'; if(state.libOpen) openGirlLibrary(state.libOpen.accountId, state.libOpen.creatorId); break; }
+    case 'lib-price': {
+      state.libPriceFilter = ['all','free','paid'].includes(a.dataset.f) ? a.dataset.f : 'all';
+      if(state.libOpen){
+        await openGirlLibrary(state.libOpen.accountId, state.libOpen.creatorId);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+      break; }
     case 'lib-edit': { const m = libCache.find(x => x.id === id); if(!m){ toast('Could not find that item', 'error', 'Reload her library and try again.'); break; } $('#lib-form-wrap').innerHTML = libForm(m); $('#md-title').focus(); break; }
     case 'lib-toggle': if(await withBusy(a, () => Data.update('media_items', id, { visible: a.dataset.on!=='1' }), a.dataset.on==='1'?'Removed from live':'Item is live')){
       if(state.libOpen) openGirlLibrary(state.libOpen.accountId, state.libOpen.creatorId); else loadLibrary(); } break;
