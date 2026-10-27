@@ -393,6 +393,15 @@ input[type=range]{accent-color:var(--accent);width:100%}
 .girl-card .gc-top small{color:var(--ink-3)}
 .girl-card p{margin:2px 0 0;font-size:13px;color:var(--ink-2)}
 .girl-card .i{color:var(--ink-3)}
+/* drag and drop upload: one target per creator, plus the big one in her detail */
+.dropzone{border:1.5px dashed var(--rule);border-radius:12px;background:var(--sunk);padding:16px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;text-align:center;
+  cursor:pointer;transition:border-color .15s,background .15s}
+.dropzone b{font-size:13.5px;font-weight:600}
+.dropzone span{font-size:12px;color:var(--ink-3)}
+.dropzone .dz-status{min-height:14px;color:var(--ink-2)}
+.dropzone.is-over,.girl-card.is-over{border-color:var(--accent);background:var(--accent-soft)}
+.girl-card.is-over{box-shadow:inset 0 0 0 1px var(--accent)}
 .gal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
 .gal-card{background:var(--panel);border:1px solid var(--rule);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
 .gal-card.is-hidden{opacity:.62}
@@ -2734,8 +2743,10 @@ async function fsSend(guid, user, btn){
    everything she has live, with hide/edit/remove. All uploads land in the
    Gallery; adding to live is done from there (or per girl here). */
 async function renderLibrary(){
+  state.libOpen = null;
+  state.libAccountId = null;
   setView(`
-    ${secHead("Each girl's live content: photos, videos and bundles. Click a girl to manage hers, or open the Gallery to add more.")}
+    ${secHead("Each girl's live content: photos, videos and bundles. Drag files onto a girl to upload them, or click her to manage hers.")}
     ${ownerPicker()}
     <div id="lib-sections">${spinner('Loading…')}</div>
     <div id="lib-detail"></div>`);
@@ -2754,7 +2765,7 @@ async function loadLibrary(){
       const live = items.filter(m => m.visible).length;
       const buns = bundles.filter(b => (b.telegram_account_id || b.creator_id) === (g.id || g.creator_id));
       const name = g.first_name || g.username || 'Creator';
-      return `<button type="button" class="girl-card" data-act="lib-girl" data-id="${esc(g.id)}" data-girl="${esc(g.creator_id)}">
+      return `<button type="button" class="girl-card" data-act="lib-girl" data-id="${esc(g.id)}" data-girl="${esc(g.creator_id)}" data-drop-zone data-account="${esc(g.id)}" data-creator="${esc(g.creator_id)}">
         <div class="avatar">${esc(name[0].toUpperCase())}</div>
         <div class="gc-body"><div class="gc-top"><b>${esc(name)}</b>${g.username?`<small>@${esc(g.username)}</small>`:''}</div>
           <p>${live} live item${live===1?'':'s'}${items.length>live?` · ${items.length-live} hidden`:''}${buns.length?` · ${buns.length} bundle${buns.length===1?'':'s'}`:''}</p></div>
@@ -2791,6 +2802,14 @@ async function openGirlLibrary(accountId, creatorId){
         <div class="cell-main"><div class="avatar">${esc(name[0].toUpperCase())}</div><div><b>${esc(name)}</b>${a?.username?`<small>@${esc(a.username)}</small>`:''}</div></div>
         <span class="end"><button class="btn sm" data-act="lib-girl-add" data-girl="${esc(creatorId)}">${ic('plus')}Add item</button>
         <button class="btn sm" data-act="bun-girl-new" data-girl="${esc(creatorId)}">${ic('package')}New bundle</button></span>
+      </div>
+      <div class="panel-body" style="padding:14px 16px 0">
+        <div class="dropzone" data-drop-zone data-account="${esc(accountId)}" data-creator="${esc(creatorId)}">
+          <input class="dz-file" type="file" multiple accept="image/*,video/*,audio/*,.pdf,.zip" hidden>
+          <b>Drag her photos and videos here</b>
+          <span>Or click to choose files. They land in her library, live.</span>
+          <span class="dz-status"></span>
+        </div>
       </div>
       <div class="table-wrap">${hers.length || herBuns.length ? `<table><tbody>
       ${hers.map(m => `<tr>
@@ -2868,6 +2887,59 @@ function galLightbox(url, kind){
   lb.innerHTML = `<div class="gal-lb-body">${kind === 'video' ? `<video src="${esc(url)}" controls autoplay playsinline></video>` : `<img src="${esc(url)}" alt="">`}</div><button class="icon-btn gal-lb-close" aria-label="Close">${ic('x')}</button>`;
   lb.addEventListener('click', e => { if(e.target === lb || e.target.closest('.gal-lb-close')) lb.remove(); });
   document.body.appendChild(lb);
+}
+
+/* ---------- Drag and drop into a creator's library ----------
+   Dropping files on a girl card or on the drop zone in her detail uploads them
+   straight to her: content-store first, then a media_items row tagged to her
+   creator and bot account, visible so they appear in the library at once. */
+function libKindForFile(f){
+  const t = String((f && f.type) || '');
+  if(t.startsWith('image/')) return 'image';
+  if(t.startsWith('video/')) return 'video';
+  return 'document';
+}
+function libTitleForFile(name){
+  const base = String(name || '').replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return (base || 'Untitled').slice(0, 120);
+}
+async function libUploadFiles(fileList, accountId, creatorId, statusEl, fromDetail){
+  const files = [...(fileList || [])].filter(f => f && f.size > 0);
+  if(!files.length) return;
+  if(!creatorId){ toast('No creator for that drop', 'error', 'Open a creator first.'); return; }
+  let ok = 0, failed = 0;
+  for(let i = 0; i < files.length; i++){
+    const f = files[i];
+    if(statusEl) statusEl.textContent = `Uploading ${i + 1} of ${files.length}: ${f.name}`;
+    try{
+      const safe = f.name.replace(/[^\w.\-]/g, '_');
+      const path = `${creatorId}/${Date.now()}-${i}-${safe}`;
+      const { error: upErr } = await state.sb.storage.from('content-store')
+        .upload(path, f, { contentType: f.type || 'application/octet-stream' });
+      if(upErr) throw upErr;
+      const { error } = await state.sb.from('media_items').insert({
+        creator_id: creatorId,
+        telegram_account_id: accountId || null,
+        title: libTitleForFile(f.name),
+        kind: libKindForFile(f),
+        media_key: path,
+        media_type: f.type || 'application/octet-stream',
+        media_size: f.size,
+        visible: true,
+      });
+      if(error) throw error;
+      ok++;
+    }catch(e){
+      failed++;
+      console.error('library upload failed', f.name, e);
+    }
+  }
+  if(statusEl) statusEl.textContent = '';
+  toast(`${ok} file${ok === 1 ? '' : 's'} uploaded${failed ? ', ' + failed + ' failed' : ''}`,
+    failed ? 'error' : 'success',
+    failed ? 'Check the type and try again.' : 'In her library and live.');
+  if(fromDetail && state.libOpen) openGirlLibrary(state.libOpen.accountId, state.libOpen.creatorId);
+  else loadLibrary();
 }
 
 /* ---------- Gallery ---------- */
@@ -3626,6 +3698,45 @@ function setDrawer(open, restore=true){
 $('#menu').onclick = () => setDrawer(true);
 // A click on the sheet's backdrop closes it; Escape is handled by the dialog itself.
 $('#menu-dialog')?.addEventListener('click', e => { if(e.target === $('#menu-dialog')) $('#menu-dialog').close(); });
+
+/* ---------- Library drag and drop ----------
+   Stop the browser opening a dropped file anywhere on the page, highlight the
+   creator under the pointer, upload on drop, and make the box clickable. */
+const dropHasFiles = e => [...((e.dataTransfer && e.dataTransfer.types) || [])].includes('Files');
+const dropZoneAt = t => (t instanceof Element ? t.closest('[data-drop-zone]') : null);
+window.addEventListener('dragover', e => {
+  if(!dropHasFiles(e)) return;
+  e.preventDefault();
+  const z = dropZoneAt(e.target);
+  document.querySelectorAll('.is-over').forEach(el => { if(el !== z) el.classList.remove('is-over'); });
+  if(z) z.classList.add('is-over');
+});
+window.addEventListener('dragleave', e => {
+  const z = dropZoneAt(e.target);
+  if(z && !z.contains(e.relatedTarget)) z.classList.remove('is-over');
+});
+window.addEventListener('drop', e => {
+  if(!dropHasFiles(e)) return;
+  e.preventDefault();
+  const z = dropZoneAt(e.target);
+  document.querySelectorAll('.is-over').forEach(el => el.classList.remove('is-over'));
+  if(!z){ toast('Drop onto a creator', 'info', 'Drag the files onto her card or her upload box.'); return; }
+  libUploadFiles(e.dataTransfer.files, z.dataset.account, z.dataset.creator, z.querySelector('.dz-status'), !!z.closest('#lib-detail'));
+});
+document.addEventListener('click', e => {
+  if(e.target instanceof Element && e.target.closest('.dz-file')) return;
+  const z = dropZoneAt(e.target);
+  if(!z) return;
+  const file = z.querySelector('input[type=file]');
+  if(file) file.click();
+});
+document.addEventListener('change', e => {
+  if(!(e.target instanceof Element) || !e.target.matches('.dz-file')) return;
+  const z = e.target.closest('[data-drop-zone]');
+  if(!z) return;
+  libUploadFiles(e.target.files, z.dataset.account, z.dataset.creator, z.querySelector('.dz-status'), !!z.closest('#lib-detail'));
+  e.target.value = '';
+});
 $('#auditBtn').onclick = () => { if(location.hash === '#audit') route(true); else location.hash = '#audit'; };
 $('#logout').onclick = async () => {
   if(state.sb && state.session){ await state.sb.auth.signOut(); }
