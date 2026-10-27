@@ -599,6 +599,18 @@ input,select,textarea,.input{background:var(--sunk);border-color:var(--rule);col
 .palette li{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--r-sm);cursor:pointer;color:var(--ink-2)}
 .palette li[aria-selected="true"]{background:var(--accent-soft);color:var(--ink);box-shadow:inset 0 0 0 1px var(--accent-line)}
 .palette li small{margin-left:auto;font:500 10.5px var(--f-mono);color:var(--ink-3)}
+/* add/edit sheet: a popup, not a form at the foot of the page */
+dialog.sheet{position:fixed;inset:0;margin:auto;z-index:70;width:min(520px,calc(100vw - 32px));
+  max-height:min(86vh,720px);padding:0;border:1px solid var(--rule);border-radius:var(--r);
+  background:var(--bg);color:var(--ink);box-shadow:var(--shadow);overflow:auto}
+:root[data-theme="light"] dialog.sheet{background:#fff}
+dialog.sheet::backdrop{background:rgba(4,6,12,.62);backdrop-filter:blur(6px)}
+.sheet-head{display:flex;align-items:center;gap:12px;padding:16px 18px;border-bottom:1px solid var(--rule)}
+.sheet-head h2{margin:0;font-size:15px;letter-spacing:-.01em}
+.sheet-head .icon-btn{margin-left:auto}
+.sheet-body{padding:16px 18px 6px;display:grid;gap:12px}
+.sheet-actions{display:flex;justify-content:flex-end;gap:10px;padding:14px 18px;border-top:1px solid var(--rule);
+  background:var(--sunk);position:sticky;bottom:0}
 /* honour reduced motion everywhere: no entrance animation, no hover lift */
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;
@@ -829,6 +841,39 @@ document.addEventListener('gesturechange', e => e.preventDefault(), { passive:fa
     <ul id="paletteList" role="listbox" aria-label="Sections"></ul>
   </div>
 </div>
+<dialog class="sheet" id="menu-dialog" aria-labelledby="tm-dialog-title">
+  <form class="form" data-form="tg-menu" id="tm-form" autocomplete="off">
+    <div class="sheet-head">
+      <h2 id="tm-dialog-title">Add to menu</h2>
+      <button class="icon-btn" type="button" data-act="tg-menu-close" aria-label="Close"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="sheet-body">
+      <div class="row2">
+        <div class="field"><label for="tm-name">What it is</label>
+          <input class="input" id="tm-name" name="name" placeholder="Full nude set" required></div>
+        <div class="field"><label for="tm-price">Price in £</label>
+          <input class="input" id="tm-price" name="price" inputmode="decimal" placeholder="15"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label for="tm-kind">Type</label>
+          <select class="input" id="tm-kind" name="kind">
+            <option value="image">Photo</option>
+            <option value="video">Video</option>
+            <option value="physical">Posted item (knickers, etc.)</option>
+            <option value="service">Service (sexting, custom, call)</option>
+          </select></div>
+        <div class="field"><label for="tm-file">File <span class="muted">(optional)</span></label>
+          <input class="input" id="tm-file" name="file" type="file"></div>
+      </div>
+      <div class="field"><label for="tm-desc">One line she can say about it</label>
+        <input class="input" id="tm-desc" name="description" placeholder="me, completely naked, 12 photos"></div>
+    </div>
+    <div class="form-actions sheet-actions">
+      <button class="btn" type="button" data-act="tg-menu-close">Cancel</button>
+      <button class="btn primary" type="submit"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>Add to menu</button>
+    </div>
+  </form>
+</dialog>
 <div class="page-loading" id="pageLoading"><div class="spinner"></div></div>
 
 <script type="module">
@@ -2476,29 +2521,8 @@ async function renderTelegram(){
     <section class="panel" style="margin-top:16px">
       <div class="panel-head"><h2>Menu</h2><span class="end muted" id="tg-menu-count"></span></div>
       <div id="tg-menu">${spinner('Loading menu...')}</div>
-      <div class="panel-body" style="border-top:1px solid var(--rule-2)">
-        <form class="form" data-form="tg-menu" data-account="${esc(open.id)}" autocomplete="off">
-          <div class="row2">
-            <div class="field"><label for="tm-name">What it is</label>
-              <input class="input" id="tm-name" name="name" placeholder="Full nude set" required></div>
-            <div class="field"><label for="tm-price">Price in £</label>
-              <input class="input" id="tm-price" name="price" inputmode="decimal" placeholder="15"></div>
-          </div>
-          <div class="row2">
-            <div class="field"><label for="tm-kind">Type</label>
-              <select class="input" id="tm-kind" name="kind">
-                <option value="image">Photo</option>
-                <option value="video">Video</option>
-                <option value="physical">Posted item (knickers, etc.)</option>
-                <option value="service">Service (sexting, custom, call)</option>
-              </select></div>
-            <div class="field"><label for="tm-file">File <span class="muted">(optional)</span></label>
-              <input class="input" id="tm-file" name="file" type="file"></div>
-          </div>
-          <div class="field"><label for="tm-desc">One line she can say about it</label>
-            <input class="input" id="tm-desc" name="description" placeholder="me, completely naked, 12 photos"></div>
-          <div class="form-actions"><button class="btn primary" type="submit">${ic('plus')}Add to menu</button></div>
-        </form>
+      <div class="panel-body" style="border-top:1px solid var(--rule-2);display:flex;justify-content:flex-end">
+        <button class="btn primary" type="button" data-act="tg-menu-add">${ic('plus')}Add item</button>
       </div>
     </section>`);
   tgLoadMenu(open.id);
@@ -2528,7 +2552,7 @@ async function tgLoadMenu(accountId){
     const items = data || [];
     state.tgMenu = items;
     $('#tg-menu-count').textContent = items.length ? `${items.length} item${items.length===1?'':'s'}` : '';
-    if(!items.length){ el.innerHTML = `<div class="panel-body"><p class="muted" style="margin:0">Nothing on the menu yet. Add the first thing below.</p></div>`; return; }
+    if(!items.length){ el.innerHTML = `<div class="panel-body"><p class="muted" style="margin:0">Nothing on the menu yet. Use Add item to write the first one.</p></div>`; return; }
     const kindLabel = k => k === 'physical' ? 'Posted' : k === 'video' ? 'Video' : k === 'service' ? 'Service' : 'Photo';
     el.innerHTML = `<ul class="audit-list">${items.map(m => `<li>
       <span class="a-kind" style="background:${m.active?'var(--ok-soft)':'var(--sunk)'};color:${m.active?'var(--ok)':'var(--ink-3)'}">${esc(kindLabel(m.kind))}</span>
@@ -2543,6 +2567,29 @@ async function tgLoadMenu(accountId){
   }catch(e){ el.innerHTML = errorState(e, 'telegram'); }
 }
 
+/* The add/edit sheet. It is a popup over the page: the old form sat at the foot
+   of the account page and the edit action scrolled the whole page down to it. */
+function openMenuDialog(item){
+  const d = $('#menu-dialog'), f = $('#tm-form');
+  if(!d || !f) return;
+  f.reset();
+  delete f.dataset.edit;
+  f.dataset.account = state.tgOpenFor || '';
+  f.querySelectorAll('.invalid').forEach(el => el.classList.remove('invalid'));
+  $('#tm-dialog-title').textContent = item ? 'Edit menu item' : 'Add to menu';
+  if(item){
+    f.dataset.edit = item.id;
+    f.querySelector('#tm-name').value = item.name || '';
+    f.querySelector('#tm-price').value = item.price_gbp != null ? item.price_gbp : '';
+    f.querySelector('#tm-kind').value = item.kind || 'image';
+    f.querySelector('#tm-desc').value = item.description || '';
+  }
+  const b = f.querySelector('button[type="submit"]');
+  if (b) b.innerHTML = item ? ic('check') + 'Save changes' : ic('plus') + 'Add to menu';
+  if(!d.open) d.showModal();
+  setTimeout(() => f.querySelector('#tm-name')?.focus(), 40);
+}
+
 async function tgSaveMenuItem(f, btn){
   const accountId = f.dataset.account;
   const name = f.name.value.trim();
@@ -2554,7 +2601,7 @@ async function tgSaveMenuItem(f, btn){
   const acct = (state.tgAccounts || []).find(a => a.id === accountId);
   const file = f.file?.files?.[0];
   const editId = f.dataset.edit || '';
-  await withBusy(btn, async () => {
+  const ok = await withBusy(btn, async () => {
     let media_key = null;
     if(file){
       const path = `${accountId}/${Date.now()}-${file.name.replace(/[^\w.\-]/g,'_')}`;
@@ -2576,10 +2623,10 @@ async function tgSaveMenuItem(f, btn){
       if(error) throw error;
     }
   }, editId ? 'Menu item updated' : 'Added to the menu');
+  if(!ok) return;
   delete f.dataset.edit;
   f.reset();
-  const sbBtn = f.querySelector('button[type="submit"]');
-  if (sbBtn) sbBtn.innerHTML = ic('plus') + 'Add to menu';
+  const d = $('#menu-dialog'); if (d && d.open) d.close();
   tgLoadMenu(accountId);
 }
 
@@ -3055,7 +3102,7 @@ async function renderWallet(){
    EVENTS
    ============================================================ */
 const view = $('#view');
-view.addEventListener('click', async e => {
+document.addEventListener('click', async e => {
   const a = e.target.closest('[data-act]'); if(!a) return;
   const id = a.dataset.id, act = a.dataset.act;
   switch(act){
@@ -3207,18 +3254,12 @@ view.addEventListener('click', async e => {
     case 'tg-load': tgLoadAccounts(); break;
     case 'tg-open': { state.tgOpenFor = a.dataset.id; if(!state.tgAccounts || !state.tgAccounts.length) await tgLoadAccounts(); renderTelegram(); window.scrollTo({top:0}); break; }
     case 'tg-back': { state.tgOpenFor = null; renderTelegram(); window.scrollTo({top:0}); break; }
+    case 'tg-menu-add': openMenuDialog(null); break;
+    case 'tg-menu-close': { const d = $('#menu-dialog'); if(d && d.open) d.close(); break; }
     case 'tg-menu-edit': {
       const m = (state.tgMenu || []).find(x => x.id === id);
-      const f = document.querySelector('form[data-form="tg-menu"]');
-      if (!m || !f) break;
-      f.dataset.edit = m.id;
-      f.querySelector('#tm-name').value = m.name || '';
-      f.querySelector('#tm-price').value = m.price_gbp != null ? m.price_gbp : '';
-      f.querySelector('#tm-kind').value = m.kind || 'image';
-      f.querySelector('#tm-desc').value = m.description || '';
-      const b = f.querySelector('button[type="submit"]');
-      if (b) b.innerHTML = ic('check') + 'Save changes';
-      f.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (!m) break;
+      openMenuDialog(m);
       break;
     }
     case 'tg-menu-toggle': {
@@ -3326,7 +3367,7 @@ view.addEventListener('change', e => {
   if(e.target.closest('form[data-form="ai"]')) updateAIPreview();
 });
 
-view.addEventListener('submit', async e => {
+document.addEventListener('submit', async e => {
   e.preventDefault();
   const f = e.target, btn = f.querySelector('button[type="submit"]'), kind = f.dataset.form, id = f.dataset.id;
   if(kind === 'account'){
@@ -3541,6 +3582,8 @@ function setDrawer(open, restore=true){
   }
 }
 $('#menu').onclick = () => setDrawer(true);
+// A click on the sheet's backdrop closes it; Escape is handled by the dialog itself.
+$('#menu-dialog')?.addEventListener('click', e => { if(e.target === $('#menu-dialog')) $('#menu-dialog').close(); });
 $('#auditBtn').onclick = () => { if(location.hash === '#audit') route(true); else location.hash = '#audit'; };
 $('#logout').onclick = async () => {
   if(state.sb && state.session){ await state.sb.auth.signOut(); }
