@@ -677,6 +677,26 @@ async function checkPayment(env, body) {
       askedName = !!(prev && prev.length);
     } catch (e) {}
   }
+  // If he has since said he has not sent it, or the "not showing" line has
+  // already gone out, leave it alone. Repeating it is what makes her look
+  // broken, and he is a client, not a checklist.
+  if (!hit) {
+    try {
+      const lastIn = await sb(env, "messages?conversation_id=eq." + encodeURIComponent(b.conversation_id) +
+        "&direction=eq.in&select=body_preview,sent_at&order=sent_at.desc&limit=1").catch(() => null);
+      const said = String((lastIn && lastIn[0] && lastIn[0].body_preview) || "").toLowerCase();
+      const notSent = /\b(haven'?t|hasn'?t|didn'?t|not|no|never)\b[^.!?]{0,24}\b(sent|send|paid|pay|transfer)\b/.test(said)
+        || /\b(not yet|leave it|forget it|don'?t worry)\b/.test(said);
+      const outs = await sb(env, "messages?conversation_id=eq." + encodeURIComponent(b.conversation_id) +
+        "&direction=eq.out&select=body_preview,sent_at&order=sent_at.desc&limit=8").catch(() => null);
+      const repeated = (outs || []).some(m => /not showing on mine/i.test(m.body_preview || "") &&
+        Date.now() - new Date(m.sent_at).getTime() < 30 * 60 * 1000);
+      if (notSent || repeated) {
+        console.log(JSON.stringify({ evt: "revolut.check_left_alone", notSent, repeated }));
+        return;
+      }
+    } catch (e) {}
+  }
   // Paid is not the end of the sale, it is the start of the detail. She confirms,
   // then asks exactly what he wants from it while he is still excited.
   const knickers = /knicker|thong|panties/i.test(itemName);
