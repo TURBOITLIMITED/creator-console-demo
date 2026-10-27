@@ -405,7 +405,9 @@ input[type=range]{accent-color:var(--accent);width:100%}
 .gal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
 .gal-card{background:var(--panel);border:1px solid var(--rule);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
 .gal-card.is-hidden{opacity:.62}
-.gal-thumb{height:110px;display:grid;place-items:center;background:var(--sunk);border-bottom:1px solid var(--rule)}
+.gal-thumb{height:110px;display:grid;place-items:center;background:var(--sunk);border-bottom:1px solid var(--rule);position:relative}
+.gal-dur{position:absolute;right:6px;bottom:6px;padding:2px 6px;border-radius:5px;background:rgba(0,0,0,.72);
+  color:#fff;font:600 10.5px var(--f-mono);letter-spacing:.02em}
 .gal-thumb.image{color:var(--ok)}
 .gal-thumb.video{color:var(--accent)}
 .gal-thumb.document{color:var(--warn)}
@@ -909,6 +911,11 @@ const D = 864e5;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const fmtNum = n => Number(n||0).toLocaleString('en-GB');
 const fmtTon = (n) => '£' + Number(n||0).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmtDuration = (s) => {
+  const t = Math.round(Number(s || 0));
+  if(!t) return '';
+  return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0');
+};
 
 /* Telegram Stars. A developer nets $0.0130 per Star; a buyer pays $0.01999,
    because Apple/Google take 30%. Converted at today's GBP/USD so a £ price is
@@ -2814,7 +2821,7 @@ async function openGirlLibrary(accountId, creatorId){
       </div>
       <div class="table-wrap">${hers.length || herBuns.length ? `<table><tbody>
       ${hers.map(m => `<tr>
-        <td><div class="cell-main"><div class="thumb ${m.kind} lib-thumb" data-key="${esc(m.media_key||'')}" data-kind="${esc(m.kind)}">${m.media_key ? '' : ic(typeIcon(m.kind))}</div><div><b>${esc(m.title)}</b><small>${esc(m.kind)}</small></div></div></td>
+        <td><div class="cell-main"><div class="thumb ${m.kind} lib-thumb" data-key="${esc(m.media_key||'')}" data-kind="${esc(m.kind)}">${m.media_key ? '' : ic(typeIcon(m.kind))}</div><div><b>${esc(m.title)}</b><small>${esc(m.kind)}${m.duration_secs ? ' · ' + fmtDuration(m.duration_secs) : ''}</small></div></div></td>
           <td class="num" data-l="Price"><span class="price">${fmtTon(m.price_ton)}${m.price_stars ? ' · ' + Number(m.price_stars) + ' ⭐' : ''}</span></td>
           <td data-l="Status">${pill(m.visible,'Live','Hidden','draft')}</td>
           <td><div class="row-actions">
@@ -2857,7 +2864,12 @@ function libForm(item=null){
     </div></div>
     <div class="field"><label for="md-price">Price</label><div class="input-affix"><input class="input mono" id="md-price" name="price_ton" type="number" min="0" step="0.1" value="${item?.price_ton ?? ''}" placeholder="9.5" oninput="window.starsHintText('md-stars-hint', this.value)"><span>£</span></div></div>
     <div class="field"><label for="md-stars">Stars price</label><div class="input-affix"><input class="input mono" id="md-stars" name="price_stars" type="number" min="1" max="25000" step="1" value="${item?.price_stars ?? ''}" placeholder="${starsFromGbp(item?.price_ton) || 500}"><span>⭐</span></div><span class="hint" id="md-stars-hint">${starsHintLine(item?.price_ton)}</span></div>
-    <div class="field"><label for="md-file">File</label><input class="input" id="md-file" name="file" type="file" accept="video/*,image/*,audio/*,.zip,.pdf"><span class="hint">${item?'Leave empty to keep the current file.':'Stored in content-store; the bot delivers it after payment.'}</span></div>
+    ${item?.media_key ? `<div class="field"><span class="flabel">Current file</span>
+      <div class="input mono" style="background:var(--sunk);display:flex;gap:10px;justify-content:space-between;align-items:center;overflow:hidden">
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(item.media_key).split('/').pop())}</span>
+        <span class="muted" style="flex:none">${item.media_size ? (item.media_size/1048576).toFixed(2)+' MB' : ''}${item.duration_secs ? (item.media_size ? ' · ' : '') + fmtDuration(item.duration_secs) : ''}</span>
+      </div></div>` : ''}
+    <div class="field"><label for="md-file">File</label><input class="input" id="md-file" name="file" type="file" accept="video/*,image/*,audio/*,.zip,.pdf"><span class="hint">${item?'Choose a replacement, or leave it empty to keep the current one.':'Stored in content-store; the bot delivers it after payment.'}</span></div>
     <div class="field"><label for="md-desc">Description</label><textarea class="input" id="md-desc" name="description" maxlength="280" style="min-height:64px" placeholder="What fans get.">${esc(item?.description||'')}</textarea></div>
     <label class="switch" for="md-visible"><input type="checkbox" id="md-visible" name="visible" ${item?.visible ?? true ?'checked':''}><span class="track"></span><span>Visible<small>Visible to fans and the AI</small></span></label>
     <div class="form-actions"><button class="btn primary" type="submit">${ic('check')}${item?'Save changes':'Add to library'}</button>${item?`<button class="btn" type="button" data-act="lib-new">Cancel</button>`:''}</div>
@@ -2997,8 +3009,8 @@ async function loadGallery(){
     el.innerHTML = media.length ? `<div class="gal-grid">` + media.map(m => {
       const girl = byCreator.get(m.creator_id) || 'Unassigned';
       return `<div class="gal-card ${m.visible?'':'is-hidden'}" data-id="${esc(m.id)}">
-        <div class="gal-thumb ${m.kind}" data-key="${esc(m.media_key||'')}">${m.media_key ? '' : ic(typeIcon(m.kind))}</div>
-        <div class="gal-meta"><b>${esc(m.title)}</b><small>${esc(girl)} · ${esc(m.kind)}</small></div>
+        <div class="gal-thumb ${m.kind}" data-key="${esc(m.media_key||'')}" data-dur="${m.duration_secs?fmtDuration(m.duration_secs):''}">${m.media_key ? '' : ic(typeIcon(m.kind))}</div>
+        <div class="gal-meta"><b>${esc(m.title)}</b><small>${esc(girl)} · ${esc(m.kind)}${m.duration_secs ? ' · ' + fmtDuration(m.duration_secs) : ''}</small></div>
         <div class="gal-actions">
           <button class="act" data-act="gal-live" data-id="${m.id}" data-on="${m.visible?1:0}" title="${m.visible?'Remove from live':'Add to live'}">${ic('power')}${m.visible?'Live':'Add to live'}</button>
           <button class="act" data-act="gal-edit" data-id="${m.id}" title="Edit">${ic('edit')}</button>
@@ -3010,6 +3022,7 @@ async function loadGallery(){
     await Promise.all(thumbs.map(async t => {
       const url = await galSignedUrl(t.dataset.key);
       galPreviewInto(t, t.classList.contains('image') ? 'image' : t.classList.contains('video') ? 'video' : 'document', url);
+      if(t.dataset.dur) t.insertAdjacentHTML('beforeend', `<span class="gal-dur">${esc(t.dataset.dur)}</span>`);
       if(url){
         t.style.cursor = 'zoom-in';
         t.addEventListener('click', () => galLightbox(url, t.classList.contains('video') ? 'video' : 'image'));
