@@ -585,6 +585,7 @@ async function liveCatalogue(env, sb, conn) {
     for (const m of free) lines.push("- " + m.title + " (" + (m.kind || "content") + ")");
   }
   if (!lines.length) return "";
+  lines.push("The names above are internal labels for you, not words to say. Never read one out word for word, especially one with a dash, a number of seconds or underscores. Describe the item the way you would to a man.");
   return lines.join("\n");
 }
 
