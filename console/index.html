@@ -2802,6 +2802,20 @@ async function openGirlLibrary(accountId, creatorId){
     const otherGirls = await Data.list('telegram_accounts', { select:'id', size:50, scopeOwner:true }).then(({rows}) => rows.map(x=>x.id)).catch(() => []);
     const hers = (media||[]).filter(m => m.telegram_account_id === accountId || (!m.telegram_account_id && !otherGirls.some(oid => oid === accountId)));
     const herBuns = (buns||[]).filter(b => b.telegram_account_id === accountId || (!b.telegram_account_id && !otherGirls.some(oid => oid === accountId)));
+    // Free and paid are the two shelves. Anything with a price above zero is
+    // paid; a zero price is free; an empty price is not priced yet, so it sits
+    // on the free shelf until a price is put on it.
+    const priceOf = m => Number((m.price_ton != null ? m.price_ton : m.price_gbp) || 0);
+    const priceLabel = m => {
+      const p = priceOf(m);
+      if(p > 0) return fmtTon(p);
+      return (m.price_ton === 0 || m.price_gbp === 0) ? 'Free' : 'No price';
+    };
+    const freeItems = hers.filter(m => priceOf(m) <= 0);
+    const paidItems = hers.filter(m => priceOf(m) > 0);
+    const pf = ['all', 'free', 'paid'].includes(state.libPriceFilter) ? state.libPriceFilter : 'all';
+    const shown = pf === 'free' ? freeItems : pf === 'paid' ? paidItems : hers;
+    const showBuns = pf === 'all' ? herBuns : [];
     libCache = hers;
     el.innerHTML = `
     <section class="panel" style="margin-top:16px">
@@ -2819,17 +2833,20 @@ async function openGirlLibrary(accountId, creatorId){
           <span class="dz-status"></span>
         </div>
       </div>
-      <div class="table-wrap">${hers.length || herBuns.length ? `<table><tbody>
-      ${hers.map(m => `<tr>
+      <div class="fs-tabs" role="tablist" aria-label="Free or paid">
+        ${[['all','All',hers.length],['free','Free',freeItems.length],['paid','Paid',paidItems.length]].map(([k,l,n]) => `<button class="fs-tab" role="tab" aria-selected="${pf===k}" data-act="lib-price" data-f="${k}">${l} <b>${n}</b></button>`).join('')}
+      </div>
+      <div class="table-wrap">${shown.length || showBuns.length ? `<table><tbody>
+      ${shown.map(m => `<tr>
         <td><div class="cell-main"><div class="thumb ${m.kind} lib-thumb" data-key="${esc(m.media_key||'')}" data-kind="${esc(m.kind)}">${m.media_key ? '' : ic(typeIcon(m.kind))}</div><div><b>${esc(m.title)}</b><small>${esc(m.kind)}${m.duration_secs ? ' · ' + fmtDuration(m.duration_secs) : ''}</small></div></div></td>
-          <td class="num" data-l="Price"><span class="price">${fmtTon(m.price_ton)}${m.price_stars ? ' · ' + Number(m.price_stars) + ' ⭐' : ''}</span></td>
+          <td class="num" data-l="Price"><span class="price">${priceLabel(m)}${m.price_stars ? ' · ' + Number(m.price_stars) + ' ⭐' : ''}</span></td>
           <td data-l="Status">${pill(m.visible,'Live','Hidden','draft')}</td>
           <td><div class="row-actions">
             <button class="act" data-act="lib-toggle" data-id="${m.id}" data-on="${m.visible?1:0}">${ic('power')}${m.visible?'Remove from live':'Add to live'}</button>
             <button class="act" data-act="lib-edit" data-id="${m.id}" title="Edit">${ic('edit')}</button>
             <button class="act danger" data-act="lib-del" data-id="${m.id}" title="Delete">${ic('trash')}Delete</button>
           </div></td></tr>`).join('')}
-        ${herBuns.map(b => `<tr>
+        ${showBuns.map(b => `<tr>
           <td><div class="cell-main"><div class="thumb bundle">${ic('package')}</div><div><b>${esc(b.name)}</b><small>Bundle · ${(b.bundle_items||[]).length} items</small></div></div></td>
           <td class="num" data-l="Price"><span class="price">${fmtTon(b.price_ton)}</span></td>
           <td data-l="Status">${pill(b.active)}</td>
@@ -2838,7 +2855,7 @@ async function openGirlLibrary(accountId, creatorId){
             <button class="act" data-act="bun-edit" data-id="${b.id}" title="Edit">${ic('edit')}</button>
             <button class="act danger" data-act="bun-del" data-id="${b.id}" title="Delete">${ic('trash')}Delete</button>
           </div></td></tr>`).join('')}
-      </tbody></table>` : empty('layers','Nothing here yet','Add her first photo or video, or pull one in from the Gallery. Use Add item above.')}</div>
+      </tbody></table>` : empty('layers', pf === 'free' ? 'Nothing free yet' : pf === 'paid' ? 'Nothing priced yet' : 'Nothing here yet', pf === 'all' ? 'Add her first photo or video, or pull one in from the Gallery. Use Add item above.' : 'Switch to All to see everything, or add a price to move an item to Paid.')}</div>
     </section>
     <aside class="panel form-panel" id="lib-form-wrap" style="margin-top:16px"></aside>`;
     // fill row thumbnails with real previews
@@ -3522,6 +3539,7 @@ document.addEventListener('click', async e => {
     case 'gal-edit': { state.libGirl = libCache.find(m=>m.id===id)?.creator_id || state.libGirl;
       const w = $('#gal-form-wrap'); w.innerHTML = libForm(libCache.find(m=>m.id===id)); w.scrollIntoView({behavior:'smooth',block:'start'}); $('#md-title').focus(); break; }
     case 'gal-del': if(armed(a) && await withBusy(a, () => Data.remove('media_items', id), 'Deleted from gallery')){ loadGallery(); $('#gal-form-wrap').innerHTML=''; } break;
+    case 'lib-price': { state.libPriceFilter = ['all','free','paid'].includes(a.dataset.f) ? a.dataset.f : 'all'; if(state.libOpen) openGirlLibrary(state.libOpen.accountId, state.libOpen.creatorId); break; }
     case 'lib-edit': $('#lib-form-wrap').innerHTML = libForm(libCache.find(m=>m.id===id)); $('#md-title').focus(); break;
     case 'lib-toggle': if(await withBusy(a, () => Data.update('media_items', id, { visible: a.dataset.on!=='1' }), a.dataset.on==='1'?'Removed from live':'Item is live')){
       if(state.libOpen) openGirlLibrary(state.libOpen.accountId, state.libOpen.creatorId); else loadLibrary(); } break;
