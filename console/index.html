@@ -2807,7 +2807,7 @@ async function openGirlLibrary(accountId, creatorId){
         <div class="dropzone" data-drop-zone data-account="${esc(accountId)}" data-creator="${esc(creatorId)}">
           <input class="dz-file" type="file" multiple accept="image/*,video/*,audio/*,.pdf,.zip" hidden>
           <b>Drag her photos and videos here</b>
-          <span>Or click to choose files. They land in her library, live.</span>
+          <span>Or click to choose files. They land as drafts, then you add the details.</span>
           <span class="dz-status"></span>
         </div>
       </div>
@@ -2891,8 +2891,8 @@ function galLightbox(url, kind){
 
 /* ---------- Drag and drop into a creator's library ----------
    Dropping files on a girl card or on the drop zone in her detail uploads them
-   straight to her: content-store first, then a media_items row tagged to her
-   creator and bot account, visible so they appear in the library at once. */
+   straight to her: content-store first, then a draft media_items row tagged to
+   her creator and bot account. They go live once the details are filled in. */
 function libKindForFile(f){
   const t = String((f && f.type) || '');
   if(t.startsWith('image/')) return 'image';
@@ -2907,7 +2907,7 @@ async function libUploadFiles(fileList, accountId, creatorId, statusEl, fromDeta
   const files = [...(fileList || [])].filter(f => f && f.size > 0);
   if(!files.length) return;
   if(!creatorId){ toast('No creator for that drop', 'error', 'Open a creator first.'); return; }
-  let ok = 0, failed = 0;
+  let ok = 0, failed = 0, newRow = null;
   for(let i = 0; i < files.length; i++){
     const f = files[i];
     if(statusEl) statusEl.textContent = `Uploading ${i + 1} of ${files.length}: ${f.name}`;
@@ -2917,7 +2917,7 @@ async function libUploadFiles(fileList, accountId, creatorId, statusEl, fromDeta
       const { error: upErr } = await state.sb.storage.from('content-store')
         .upload(path, f, { contentType: f.type || 'application/octet-stream' });
       if(upErr) throw upErr;
-      const { error } = await state.sb.from('media_items').insert({
+      const { data: row, error } = await state.sb.from('media_items').insert({
         creator_id: creatorId,
         telegram_account_id: accountId || null,
         title: libTitleForFile(f.name),
@@ -2925,9 +2925,10 @@ async function libUploadFiles(fileList, accountId, creatorId, statusEl, fromDeta
         media_key: path,
         media_type: f.type || 'application/octet-stream',
         media_size: f.size,
-        visible: true,
-      });
+        visible: false,
+      }).select().single();
       if(error) throw error;
+      newRow = row || newRow;
       ok++;
     }catch(e){
       failed++;
@@ -2937,9 +2938,14 @@ async function libUploadFiles(fileList, accountId, creatorId, statusEl, fromDeta
   if(statusEl) statusEl.textContent = '';
   toast(`${ok} file${ok === 1 ? '' : 's'} uploaded${failed ? ', ' + failed + ' failed' : ''}`,
     failed ? 'error' : 'success',
-    failed ? 'Check the type and try again.' : 'In her library and live.');
-  if(fromDetail && state.libOpen) openGirlLibrary(state.libOpen.accountId, state.libOpen.creatorId);
-  else loadLibrary();
+    failed ? 'Check the type and try again.' : 'Saved as drafts. Add the details, then put them live.');
+  if(fromDetail && state.libOpen){
+    await openGirlLibrary(state.libOpen.accountId, state.libOpen.creatorId);
+    if(ok === 1 && newRow){
+      const host = $('#lib-form-wrap');
+      if(host){ host.innerHTML = libForm(newRow); $('#md-title')?.focus(); }
+    }
+  } else loadLibrary();
 }
 
 /* ---------- Gallery ---------- */
