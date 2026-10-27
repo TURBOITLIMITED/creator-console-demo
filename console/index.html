@@ -852,7 +852,7 @@ document.addEventListener('gesturechange', e => e.preventDefault(), { passive:fa
         <div class="field"><label for="tm-name">What it is</label>
           <input class="input" id="tm-name" name="name" placeholder="Full nude set" required></div>
         <div class="field"><label for="tm-price">Price in £</label>
-          <input class="input" id="tm-price" name="price" inputmode="decimal" placeholder="15"></div>
+          <input class="input" id="tm-price" name="price" inputmode="decimal" placeholder="15" oninput="window.starsHintText('tm-stars-hint', this.value)"></div>
       </div>
       <div class="row2">
         <div class="field"><label for="tm-kind">Type</label>
@@ -865,7 +865,7 @@ document.addEventListener('gesturechange', e => e.preventDefault(), { passive:fa
         <div class="field"><label for="tm-stars">Stars price</label>
           <input class="input" id="tm-stars" name="stars" inputmode="numeric" placeholder="500"></div>
       </div>
-      <span class="hint" style="margin-top:-6px;display:block">How many Stars unlock this in the chat. Empty means it is worked out from the £ price. Photos and videos only; posted items and services stay bank transfer.</span>
+      <span class="hint" id="tm-stars-hint" style="margin-top:-6px;display:block">Leave empty to work the Star price out from the £ price. Posted items and services stay bank transfer.</span>
       <div class="field"><label for="tm-file">File <span class="muted">(optional)</span></label>
         <input class="input" id="tm-file" name="file" type="file"></div>
       <div class="field"><label for="tm-desc">One line she can say about it</label>
@@ -900,6 +900,29 @@ const D = 864e5;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const fmtNum = n => Number(n||0).toLocaleString('en-GB');
 const fmtTon = (n) => '£' + Number(n||0).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+/* Telegram Stars. A developer nets $0.0130 per Star; a buyer pays $0.01999,
+   because Apple/Google take 30%. Converted at today's GBP/USD so a £ price is
+   what SHE keeps, not what he spends. */
+const STAR_GBP_NET = 0.0097;      // £ she keeps per Star
+const STAR_BUYER_GBP = 0.0150;    // £ he pays per Star
+function starsFromGbp(gbp){
+  const n = Number(gbp) || 0;
+  if(!(n > 0)) return 0;
+  const raw = n / STAR_GBP_NET;
+  const r = raw >= 100 ? Math.round(raw / 10) * 10 : Math.max(1, Math.round(raw));
+  return Math.min(25000, r);
+}
+function starsHintLine(gbp){
+  const s = starsFromGbp(gbp);
+  return s
+    ? `≈ ${s.toLocaleString()} ⭐ · you net ≈ £${(s*STAR_GBP_NET).toFixed(2)} · he pays ≈ £${(s*STAR_BUYER_GBP).toFixed(2)}`
+    : 'Leave empty to work the Star price out from the £ price.';
+}
+window.starsHintText = (id, gbp) => {
+  const el = document.getElementById(id); if(!el) return;
+  el.textContent = starsHintLine(gbp);
+};
 const fmtDate = iso => iso ? new Date(iso).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) : '—';
 const fmtTime = iso => new Date(iso).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
 function ago(iso){ if(!iso) return '—'; const s=(Date.now()-new Date(iso))/1000;
@@ -2595,6 +2618,7 @@ function openMenuDialog(item){
     f.querySelector('#tm-name').value = item.name || '';
     f.querySelector('#tm-price').value = item.price_gbp != null ? item.price_gbp : '';
     if (f.querySelector('#tm-stars')) f.querySelector('#tm-stars').value = item.price_stars != null ? item.price_stars : '';
+    window.starsHintText('tm-stars-hint', item.price_gbp);
     f.querySelector('#tm-kind').value = item.kind || 'image';
     f.querySelector('#tm-desc').value = item.description || '';
   }
@@ -2811,8 +2835,8 @@ function libForm(item=null){
     <div class="field"><span class="flabel">Type</span><div class="seg" role="radiogroup">
       ${['video','image','document'].map(v=>`<input type="radio" name="kind" id="md-type-${v}" value="${v}" ${t===v?'checked':''}><label for="md-type-${v}">${ic(typeIcon(v))}${v[0].toUpperCase()+v.slice(1)}</label>`).join('')}
     </div></div>
-    <div class="field"><label for="md-price">Price</label><div class="input-affix"><input class="input mono" id="md-price" name="price_ton" type="number" min="0" step="0.1" value="${item?.price_ton ?? ''}" placeholder="9.5"><span>£</span></div></div>
-    <div class="field"><label for="md-stars">Stars price</label><div class="input-affix"><input class="input mono" id="md-stars" name="price_stars" type="number" min="1" max="25000" step="1" value="${item?.price_stars ?? ''}" placeholder="500"><span>⭐</span></div><span class="hint">Optional. Unlocks in the chat for this many Stars. Empty means derived from the £ price. Posted items and services are never sold for Stars.</span></div>
+    <div class="field"><label for="md-price">Price</label><div class="input-affix"><input class="input mono" id="md-price" name="price_ton" type="number" min="0" step="0.1" value="${item?.price_ton ?? ''}" placeholder="9.5" oninput="window.starsHintText('md-stars-hint', this.value)"><span>£</span></div></div>
+    <div class="field"><label for="md-stars">Stars price</label><div class="input-affix"><input class="input mono" id="md-stars" name="price_stars" type="number" min="1" max="25000" step="1" value="${item?.price_stars ?? ''}" placeholder="${starsFromGbp(item?.price_ton) || 500}"><span>⭐</span></div><span class="hint" id="md-stars-hint">${starsHintLine(item?.price_ton)}</span></div>
     <div class="field"><label for="md-file">File</label><input class="input" id="md-file" name="file" type="file" accept="video/*,image/*,audio/*,.zip,.pdf"><span class="hint">${item?'Leave empty to keep the current file.':'Stored in content-store; the bot delivers it after payment.'}</span></div>
     <div class="field"><label for="md-desc">Description</label><textarea class="input" id="md-desc" name="description" maxlength="280" style="min-height:64px" placeholder="What fans get.">${esc(item?.description||'')}</textarea></div>
     <label class="switch" for="md-visible"><input type="checkbox" id="md-visible" name="visible" ${item?.visible ?? true ?'checked':''}><span class="track"></span><span>Visible<small>Visible to fans and the AI</small></span></label>

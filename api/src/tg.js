@@ -1907,7 +1907,7 @@ async function lastQuotedItem(env, sb, conv) {
 /* Telegram Stars. A digital item with a file behind it can be unlocked in the
    chat for Stars; a posted item or a service can never be, so it is bank only.
    Star price is derived from the GBP price unless the item carries its own. */
-const STAR_GBP_DEFAULT = 0.01;   // ~£0.01 net per Star; override with STAR_GBP_RATE
+const STAR_GBP_DEFAULT = 0.0097;   // £ the bot keeps per Star ($0.0130 × 0.749); override with STAR_GBP_RATE
 
 function starsEligible(item) {
   if (!item) return false;
@@ -1923,7 +1923,9 @@ function starsFor(item, env) {
   const gbp = Number(item.price_gbp) || Number(item.price_ton) || 0;
   if (!gbp) return 0;
   const rate = Number(env.STAR_GBP_RATE) > 0 ? Number(env.STAR_GBP_RATE) : STAR_GBP_DEFAULT;
-  return Math.min(25000, Math.max(1, Math.round(gbp / rate)));
+  const raw = gbp / rate;
+  const rounded = raw >= 100 ? Math.round(raw / 10) * 10 : Math.max(1, Math.round(raw));
+  return Math.min(25000, rounded);
 }
 
 const STARS_THANKS = [

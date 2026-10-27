@@ -29,6 +29,10 @@
   // every chat ran on the 24B fallback model.
   "vars": {
     "AI_MODEL": "@cf/meta/llama-4-scout-17b-16e-instruct",
+    // Telegram Stars: £ the bot keeps per Star. $0.0130 developer proceeds (the
+    // app stores take 30% before it reaches Telegram) at GBP/USD 0.749. Change
+    // this one number to reprice every derived Star price.
+    "STAR_GBP_RATE": "0.0097",
     // Where "he asked for something off the menu" alerts go. This is the
     // owner's own Telegram user id, and the bot must have been started by them.
     "OWNER_TELEGRAM_ID": "8380225719",
