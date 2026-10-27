@@ -1441,11 +1441,12 @@ async function withBusy(btn, fn, okTitle, okSub){
     return false;
   }finally{ if(btn){ btn.disabled = false; btn.classList.remove('busy'); } }
 }
-/* two-tap delete: first tap arms, second tap within 3s confirms */
+/* two-tap delete: first tap arms, second tap within 5s confirms */
 function armed(btn){
   if(btn.classList.contains('armed')) return true;
-  btn.classList.add('armed'); const old = btn.innerHTML; btn.innerHTML = `${ic('trash')}Confirm`;
-  setTimeout(() => { if(btn.isConnected){ btn.classList.remove('armed'); btn.innerHTML = old; } }, 3000);
+  btn.classList.add('armed'); const old = btn.innerHTML; btn.innerHTML = `${ic('trash')}Confirm delete`;
+  toast('Tap delete again to confirm', 'info', 'It only goes once you tap a second time.');
+  setTimeout(() => { if(btn.isConnected){ btn.classList.remove('armed'); btn.innerHTML = old; } }, 5000);
   return false;
 }
 
@@ -1650,7 +1651,7 @@ async function loadAccounts(){
         <td class="muted">${fmtDate(a.created_at)}</td>
         <td><div class="row-actions">
           <a href="account.html?id=${a.id}" class="act" title="Open">${ic('edit')}Open</a>
-          <button class="act danger" data-act="acc-del" data-id="${a.id}" title="Remove">${ic('trash')}</button>
+          <button class="act danger" data-act="acc-del" data-id="${a.id}" title="Remove">${ic('trash')}Remove</button>
         </div></td></tr>`).join('')}</tbody></table>`
       : empty('send','No accounts yet','Connect a Telegram bot account to start chatting and selling in DMs. Use Connect account above.');
   }catch(e){ el.innerHTML = errorState(e,'accounts'); }
@@ -2027,7 +2028,7 @@ async function openConversation(id){
       <div class="end">${conv.state==='closed'?'<span class="pill draft">Closed</span>':'<span class="pill ok">Open</span>'}
         <button class="act bot-toggle ${conv.mode!=='human'?'on':''}" data-act="conv-bot" data-id="${conv.id}" data-on="${conv.mode!=='human'?1:0}" title="${conv.mode!=='human'?'Bot is replying automatically. Turn off to type yourself.':'Bot is off. You reply manually.'}">${ic('power')}${conv.mode!=='human'?'Bot on':'Bot off'}</button>
         <button class="act" data-act="conv-status" data-id="${conv.id}">${ic(conv.state==='closed'?'refresh':'check')}${conv.state==='closed'?'Reopen':'Close'}</button>
-        <button class="act danger" data-act="conv-del" data-id="${conv.id}" title="Delete conversation">${ic('trash')}</button></div>
+        <button class="act danger" data-act="conv-del" data-id="${conv.id}" title="Delete conversation">${ic('trash')}Delete</button></div>
     </div>
     <div class="msgs" id="msgs">${spinner('Loading messages…')}</div>
     <form class="composer" data-form="reply" data-id="${conv.id}">
@@ -2408,7 +2409,7 @@ async function loadFabSwingers() {
           <td class="num"><div class="row-actions">
             <button class="act" data-act="fs-edit" data-id="${esc(r.id)}" title="Edit login and personality">${ic('edit')}Edit</button>
             <button class="act" data-act="fs-toggle" data-id="${esc(r.id)}" data-on="${r.enabled ? 1 : 0}" title="${r.enabled ? 'Stop auto-reply for this account' : 'Start auto-reply for this account'}">${ic('power')}${r.enabled ? 'Turn off' : 'Turn on'}</button>
-            <button class="act danger" data-act="fs-remove" data-id="${esc(r.id)}" title="Remove">${ic('trash')}</button>
+            <button class="act danger" data-act="fs-remove" data-id="${esc(r.id)}" title="Remove">${ic('trash')}Remove</button>
           </div></td></tr>`;
       }).join('')}</tbody></table></div>`;
   } catch (e) { el.innerHTML = errorState(e, 'fabswingers'); }
@@ -2606,7 +2607,7 @@ async function tgLoadMenu(accountId){
         <div class="row-actions" style="margin-top:6px">
           <button class="act" data-act="tg-menu-edit" data-id="${esc(m.id)}">${ic('edit')}Edit</button>
           <button class="act" data-act="tg-menu-toggle" data-id="${esc(m.id)}" data-on="${m.active?1:0}">${ic('power')}${m.active?'Hide':'Show'}</button>
-          <button class="act danger" data-act="tg-menu-del" data-id="${esc(m.id)}">${ic('trash')}</button>
+          <button class="act danger" data-act="tg-menu-del" data-id="${esc(m.id)}">${ic('trash')}Delete</button>
         </div>
       </div></li>`).join('')}</ul>`;
   }catch(e){ el.innerHTML = errorState(e, 'telegram'); }
@@ -2819,7 +2820,7 @@ async function openGirlLibrary(accountId, creatorId){
           <td><div class="row-actions">
             <button class="act" data-act="lib-toggle" data-id="${m.id}" data-on="${m.visible?1:0}">${ic('power')}${m.visible?'Remove from live':'Add to live'}</button>
             <button class="act" data-act="lib-edit" data-id="${m.id}" title="Edit">${ic('edit')}</button>
-            <button class="act danger" data-act="lib-del" data-id="${m.id}" title="Delete">${ic('trash')}</button>
+            <button class="act danger" data-act="lib-del" data-id="${m.id}" title="Delete">${ic('trash')}Delete</button>
           </div></td></tr>`).join('')}
         ${herBuns.map(b => `<tr>
           <td><div class="cell-main"><div class="thumb bundle">${ic('package')}</div><div><b>${esc(b.name)}</b><small>Bundle · ${(b.bundle_items||[]).length} items</small></div></div></td>
@@ -2828,7 +2829,7 @@ async function openGirlLibrary(accountId, creatorId){
           <td><div class="row-actions">
             <button class="act" data-act="bun-toggle" data-id="${b.id}" data-on="${b.active?1:0}">${ic('power')}${b.active?'Deactivate':'Activate'}</button>
             <button class="act" data-act="bun-edit" data-id="${b.id}" title="Edit">${ic('edit')}</button>
-            <button class="act danger" data-act="bun-del" data-id="${b.id}" title="Delete">${ic('trash')}</button>
+            <button class="act danger" data-act="bun-del" data-id="${b.id}" title="Delete">${ic('trash')}Delete</button>
           </div></td></tr>`).join('')}
       </tbody></table>` : empty('layers','Nothing here yet','Add her first photo or video, or pull one in from the Gallery. Use Add item above.')}</div>
     </section>
@@ -2974,7 +2975,7 @@ async function loadGallery(){
         <div class="gal-actions">
           <button class="act" data-act="gal-live" data-id="${m.id}" data-on="${m.visible?1:0}" title="${m.visible?'Remove from live':'Add to live'}">${ic('power')}${m.visible?'Live':'Add to live'}</button>
           <button class="act" data-act="gal-edit" data-id="${m.id}" title="Edit">${ic('edit')}</button>
-          <button class="act danger" data-act="gal-del" data-id="${m.id}" title="Delete">${ic('trash')}</button>
+          <button class="act danger" data-act="gal-del" data-id="${m.id}" title="Delete">${ic('trash')}Delete</button>
         </div></div>`;
     }).join('') + `</div>` : empty('image','Nothing uploaded yet','Upload her photos and videos here first, then add them to live. Use Upload above.');
     // fill previews for stored files (photos first-class, videos muted)
@@ -3078,7 +3079,7 @@ async function loadBundles(){
         <td><div class="row-actions">
           <button class="act" data-act="bun-toggle" data-id="${b.id}" data-on="${b.active?1:0}">${ic('power')}${b.active?'Deactivate':'Activate'}</button>
           <button class="act" data-act="bun-edit" data-id="${b.id}" title="Edit">${ic('edit')}</button>
-          <button class="act danger" data-act="bun-del" data-id="${b.id}" title="Delete">${ic('trash')}</button>
+          <button class="act danger" data-act="bun-del" data-id="${b.id}" title="Delete">${ic('trash')}Delete</button>
         </div></td></tr>`; }).join('')}</tbody></table>`
       : empty('package','No bundles yet','Pick a few library items, set a price and start selling in DMs. Use New bundle above.');
     $('#bun-pager').innerHTML = pager('bundles', page, count);
@@ -3446,14 +3447,14 @@ document.addEventListener('click', async e => {
     case 'lib-edit': $('#lib-form-wrap').innerHTML = libForm(libCache.find(m=>m.id===id)); $('#md-title').focus(); break;
     case 'lib-toggle': if(await withBusy(a, () => Data.update('media_items', id, { visible: a.dataset.on!=='1' }), a.dataset.on==='1'?'Removed from live':'Item is live')){
       if(state.libOpen) openGirlLibrary(state.libOpen.accountId, state.libOpen.creatorId); else loadLibrary(); } break;
-    case 'lib-del': if(armed(a) && await withBusy(a, () => Data.remove('media_items', id), 'Item deleted')){ loadLibrary(); $('#lib-form-wrap').innerHTML = libForm(); } break;
+    case 'lib-del': if(armed(a) && await withBusy(a, () => Data.remove('media_items', id), 'Item deleted')){ const w=$('#lib-form-wrap'); if(w) w.innerHTML=''; if(state.libOpen) openGirlLibrary(state.libOpen.accountId, state.libOpen.creatorId); else loadLibrary(); } break;
     /* bundles */
     case 'bun-girl-new': { state.libGirl = a.dataset.girl || ownerTarget();
       fillBundleForm(null, state.libGirl).then(()=>{ $('#lib-form-wrap').innerHTML=''; $('#bun-form-wrap')?.scrollIntoView({behavior:'smooth',block:'start'}); $('#bu-name')?.focus(); }); break; }
     case 'bun-new': fillBundleForm().then(()=>$('#bu-name')?.focus()); break;
     case 'bun-edit': fillBundleForm(bunCache.find(b=>b.id===id)).then(()=>$('#bu-name')?.focus()); break;
     case 'bun-toggle': if(await withBusy(a, () => Data.update('content_bundles', id, { active: a.dataset.on!=='1' }), a.dataset.on==='1'?'Bundle deactivated':'Bundle is on sale')) loadLibrary(); break;
-    case 'bun-del': if(armed(a) && await withBusy(a, () => Data.remove('content_bundles', id), 'Bundle deleted')){ loadLibrary(); fillBundleForm(); } break;
+    case 'bun-del': if(armed(a) && await withBusy(a, () => Data.remove('content_bundles', id), 'Bundle deleted')){ if(state.libOpen && $('#lib-detail')) openGirlLibrary(state.libOpen.accountId, state.libOpen.creatorId); else { loadLibrary(); fillBundleForm(); } } break;
     /* wallet */
     case 'ln-copy': {
       const { data: c } = await state.sb.from('creators').select('dashboard_token').eq('id', id).single();
