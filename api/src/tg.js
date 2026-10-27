@@ -581,7 +581,7 @@ async function liveCatalogue(env, sb, conn) {
     lines.push("Prices are exact. Never invent an item, an add-on, a discount, a bundle or a different price. If he asks for anything that is not on this list, say you have not got that on you right now.");
   }
   if (free.length) {
-    lines.push("Free pictures of you. The first one he gets is your face picture when he asks to see you, and only then:");
+    lines.push("Pictures you can send as the opener when he asks to see you. They cost him nothing, but never use the word free:");
     for (const m of free) lines.push("- " + m.title + " (" + (m.kind || "content") + ")");
   }
   if (!lines.length) return "";
@@ -626,6 +626,8 @@ function personaSystemPrompt(p, conn, catalogue, wallet, saidAlready) {
     // The most common failure is a flirty line that never answers what he
     // asked. This rule comes first for that reason.
     "RULE ONE: answer the question he actually asked, in the first few words. If he asked where you are, say the place. If he asked how old, say the age. If he asked what you do, tell him. A tease is not an answer. Only then flirt or move it on. If you did not answer him, the reply is wrong.",
+    "If he asks what you do, say you are a content girl: you make content. Plainly, in your own words, then carry on.",
+    "Never be cheeky or sarcastic with him. Warm, flirty and direct, never a smart arse.",
     `You are ${name}, replying to fans in her Telegram DMs. You are chatting to sell her photos and videos.`,
     `Voice: ${tone}. Emoji: ${emoji}.`,
   ];
@@ -640,8 +642,9 @@ function personaSystemPrompt(p, conn, catalogue, wallet, saidAlready) {
   }
   const hasPaid = !!catalogue && /£\d/.test(catalogue);
   if (hasPaid) lines.push(
-    "The first picture is free and it is how he sees what you look like. The second time he asks for pictures, that is when you tell him what you do, casually, in your own words: you sell your photos and videos, and the other things on your list. One line, like it just slipped out. Not a speech and not a pitch.",
-    "Build him up first. Match what he is into, take it dirtier than he does, and let him get hard before selling exists. Do not mention money, prices or content while he is building, and never in the first few messages of a new chat. Wait until he has sent several messages and has asked for something (to see you, a picture, what you are doing, or he is close). Then it is one soft line, casually, like it just slipped out: say you sell your stuff and name one thing from your list with its exact price. Then let him choose. If he is just chatting, keep chatting. Never abrupt, never a pitch, and never before he has given you a reason to say it.");
+    "Build the connection first: answer him, flirt, take it dirtier than he does. As soon as he has replied a couple of times, or the moment he asks what you do or what you have got, prompt him to your menu: say you have got a menu of your stuff and ask if he wants to see it. Do not wait for him to ask twice.",
+    "When he picks something, name it naturally and give the exact price from your list. Never invent an item, an add-on, a discount or a price.",
+    "Never say free, freebie, or that he has already had one. If he asks for more pictures after the opener, do not mention what he has had; just point him at the menu.");
   lines.push(
     // Real payment details are the owner's to give. Never quote a placeholder
     // sort code or an address at a paying customer.
@@ -1297,7 +1300,7 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
       // Selling before he has said anything is the thing that makes a chat feel
   // like a shop. In a new chat she flirts and nothing else.
   const hisCount = history.filter(h => h.dir === "in").length;
-  const sellGate = hisCount < 5
+  const sellGate = hisCount < 2
     ? " He has only sent " + hisCount + " message" + (hisCount === 1 ? "" : "s") +
       " so far. Do not mention selling, prices or content at all in this reply, and do not drop hints about it. Chat and flirt, that is all."
     : "";
@@ -1467,13 +1470,11 @@ async function maybeSendFreeItem(env, sb, conn, conv, msg) {
   const token = await botTokenFor(env, sb, conn);
   if (!token) return null;
 
-  // One freebie per chat, full stop. Once a free item has gone out, another
-  // request gets the line rather than a file, even if her library holds more.
+  // One opener per chat. A second request gets no line about having had one;
+  // the model steers him to the menu instead.
   const alreadyFree = await sb(env, "messages?conversation_id=eq." + conv.id +
     "&direction=eq.out&raw->>via=eq.free-item&select=id&limit=1").catch(() => null);
-  if (alreadyFree && alreadyFree.length) {
-    return await sendFreeLimitLine(env, sb, conn, conv, msg, recent, token);
-  }
+  if (alreadyFree && alreadyFree.length) return null;
 
   // First free request: the face picture, and only that one. He sees her, then
   // the next ask gets the paid list. Other free files stay in reserve.
