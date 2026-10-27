@@ -592,20 +592,15 @@ async function liveCatalogue(env, sb, conn) {
 function payLineFrom(prof) {
   const f = prof || {};
   const bits = [];
-  if (f.pay_bank_name || f.pay_sort_code || f.pay_account_no) {
-    const b = [];
-    if (f.pay_bank_name) b.push("name " + f.pay_bank_name);
-    if (f.pay_sort_code) b.push("sort code " + f.pay_sort_code);
-    if (f.pay_account_no) b.push("account " + f.pay_account_no);
-    bits.push("bank transfer (" + b.join(", ") + ")");
-  }
-  if (f.pay_note) bits.push(f.pay_note);
+  if (f.pay_bank_name || f.pay_sort_code || f.pay_account_no) bits.push("bank transfer");
   if (!bits.length) return "";
-  return "Payment methods you have, and the ONLY details you may give: " + bits.join("; ") +
+  // The numbers are deliberately NOT in the prompt. The model leaked them to a
+  // man who offered money to meet, so only the deterministic payment path sends
+  // the real details, and only for an item.
+  return "Payment methods you have: " + bits.join("; ") +
     ", plus Telegram Stars for photos and videos (never for anything posted, a meet or a service). " +
-    "Everything is quoted in pounds. Bank transfer is your main way; Stars is the other, paid in the chat. " +
-    "Never offer or mention PayPal, crypto or any other method, and if he asks for one say bank transfer or stars is all you do x. " +
-    "Never invent or alter a detail and never promise a link.";
+    "Everything is quoted in pounds. Never type, quote or invent bank details, a sort code, an account number, a PayPal address or a link: the system sends the real details when he is paying for an item. " +
+    "If he asks for a meet, never send payment details. Never offer or mention PayPal, crypto or any other method, and if he asks for one say bank transfer or stars is all you do x.";
 }
 
 function personaSystemPrompt(p, conn, catalogue, wallet, saidAlready) {
@@ -677,9 +672,10 @@ function personaSystemPrompt(p, conn, catalogue, wallet, saidAlready) {
     // The owner's point: a connection sells, a pitch does not. She should sound
     // like a woman who is actually interested in this one man.
     "Build a real connection, not a transaction. Use his name, ask about his work, his kids, his dog, his day, and bring up something he told you earlier in the chat. Sometimes just chat and sell nothing at all. He should feel like he has a woman who is genuinely interested in him, not a shop.",
-    "Never tell him he knows where to send it, or that he already has your details. If he says he wants to pay, you send the bank details, every time.",
+    "Never tell him he knows where to send it, or that he already has your details. When he says he wants to pay for an item, the details go out on their own; never type them yourself, and never send them for a meet.",
     "When he has paid, do not stop at thank you. Confirm it in your own voice, then ask for exactly what you need to make it: for knickers, full or thong, colour, how many days you wear them, anything else he wants. Keep him excited while you get the detail, and tell him you will sort it.",
     "Never promise or arrange a meet in chat, and never give an address, a hotel or a car registration. A good, loyal spender who you have a real connection with can be told maybe one day, if he behaves, but it is never a promise, and the human arranges it, never you.",
+    "If he offers money to meet, say: we don't meet until you treat me for sure x. Never agree to a meet, never name a meet price, and never send payment details for one. Then carry on and offer the menu.",
     "Not every man wants knickers. Older men often want company more than anything: ask about his day, remember what he told you, call him daddy if that is what he likes, tell him he is a good boy, make him feel wanted. Work out which man you have before you sell to him. If he wants to talk, talk, and let the knickers wait.",
     "Use his name. If his Telegram username contains a name (johnnyboy is Johnny, sarah_lou is Sarah), use it naturally and do not ask. If it contains no name at all (processpirate, darkwolf88), ask what he is called, casually, once, in the first few messages, never mid-scene. If he has already told you his name, or you have already asked, never ask again, and if he did not answer, let it go. Never ask for a surname. Once a price is on the table, do not stop the sale to ask his name; get the payment sorted first.",
     // A sale that is chased is a sale lost. If a price is open she answers the
@@ -1143,9 +1139,11 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
     ? (starsHit ? "stars" : (/\bbank\b|\btransfer\b/i.test(lower) ? "bank" : null))
     : null;
   // "I want to pay for them" is the clearest signal there is, and it must not
-  // depend on a quote being recorded by a particular path.
-  const wantsToPay = !mediaSynthetic && /\b(pay|paying|payment|send (you )?the (money|cash)|how do i pay|where do i send)\b/i.test(lower);
-  if ((methodHit || affirmative || wantsToPay) && !askingFree) {
+  // depend on a quote being recorded by a particular path. Money offered to
+  // meet is not that signal.
+  const meetAsk = !mediaSynthetic && MEET_RE.test(lower);
+  const wantsToPay = !mediaSynthetic && !meetAsk && /\b(pay|paying|payment|send (you )?the (money|cash)|how do i pay|where do i send)\b/i.test(lower);
+  if ((methodHit || affirmative || wantsToPay) && !askingFree && !meetAsk) {
     const quoted = await lastQuotedItem(env, sb, conv);
     // Stars first: a digital item is unlocked in this chat, not by bank details.
     if (quoted && methodHit === "stars" && starsEligible(quoted)) {
@@ -1161,7 +1159,7 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
 
   // "how do I pay?" -> re-send the payment-method buttons for the last item
   // they were quoted, instead of letting the model invent details.
-  const askingHowPay = !mediaSynthetic && /how (do|can) i pay|how.*(pay|payment)|payment (method|options|details)?|ways? to pay|pay options/.test(lower);
+  const askingHowPay = !mediaSynthetic && !meetAsk && /how (do|can) i pay|how.*(pay|payment)|payment (method|options|details)?|ways? to pay|pay options/.test(lower);
   if (askingHowPay && !askingFree && !askingMenu) {
     const lastReq = await sb(env, "messages?conversation_id=eq." + conv.id +
       "&direction=eq.out&select=body_preview,raw&order=sent_at.desc&limit=10").catch(() => null);
@@ -2118,10 +2116,15 @@ async function sendPayDetails(env, sb, conn, conv, chatId, item, method) {
   }
 }
 
+/* A meet or an address. Money offered for one is not a payment for an item. */
+const MEET_RE = /\b(meet|meeting|meet ?up|come (round|over)|your address|where do you live|postcode|hotel|visit you|see you in person)\b/i;
+
 /* A payment claim we should act on. A question is not a claim, a promise is
-   not a claim, a negation is not a claim, and sending a photo is not money. */
+   not a claim, a negation is not a claim, sending a photo is not money, and
+   money offered to meet is not a payment. */
 function isPaymentClaim(text) {
   const raw = String(text || "").trim();
+  if (MEET_RE.test(raw)) return false;
   const lower = raw.toLowerCase();
   const paidWord = /\b(paid|payed|sent|transferred|transfer|payment)\b/i.test(raw);
   const notMoney = /\b(pic|pics|photo|photos|video|clip|message|msg|text|email)\b/i.test(raw);

@@ -27,3 +27,12 @@ test("a negation, a promise, a question or a photo is not a claim", () => {
     "i sent you a pic",
   ]) assert.equal(isPaymentClaim(t), false, t);
 });
+
+test("money offered to meet is not a payment for an item", () => {
+  for (const t of [
+    "i can send you £100 to meet",
+    "£100 for a meet",
+    "will pay u to meet",
+    "can i pay you to meet up",
+  ]) assert.equal(isPaymentClaim(t), false, t);
+});
