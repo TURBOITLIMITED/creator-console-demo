@@ -944,7 +944,10 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   // only rail: a yes gets the bank details. If he names PayPal or crypto, the
   // model answers "bank only x" from the persona rather than us sending a bank
   // message he did not ask for.
-  const affirmative = !mediaSynthetic && /^(yes|yeah|yep|yeh|ye|ok|okay|go on|please|pls|send it|send them|send us it|go for it|sure|course|of course|sound|perfect)\b/i.test(lower);
+  // "hmmm myeah" is a yes. Strip the filler before deciding, or a man who has
+  // agreed in the way men actually type is left without the bank details.
+  const bare = lower.replace(/^(h+m+|m+h+m+|m+y+e+a+h+|ah+|oh+|erm+|well|ha+|aye)\s+/i, "").trim();
+  const affirmative = !mediaSynthetic && /^(yes|yeah|yep|yeh|ye|myeah|ok|okay|go on|please|pls|send it|send them|send us it|go for it|sure|course|of course|sound|perfect|aye|alright|i'?ll take|i'?ll have|i'?ll get|let'?s do it|do it|deal)\b/i.test(bare);
   const methodHit = !mediaSynthetic && (/\bbank\b|\btransfer\b/i.test(lower) ? "bank" : null);
   if ((methodHit || affirmative) && !askingFree) {
     const quoted = await lastQuotedItem(env, sb, conv);
