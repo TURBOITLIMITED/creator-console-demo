@@ -4,7 +4,7 @@
 // actually said.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { nameFromText, nameForChat, usableName, NAME_QUESTION } from "../src/tg.js";
+import { nameFromText, nameForChat, nameFromUsername, usableName, NAME_QUESTION } from "../src/tg.js";
 
 test("the name he actually gave is learned", () => {
   assert.equal(nameFromText("Mark for now. You're Michaela?", false), "Mark");
@@ -30,6 +30,16 @@ test("a profile that is not a name is not used", () => {
   assert.equal(nameForChat({ first_name: "Me", username: "Kinkster74" }), null);
   assert.equal(nameForChat({ first_name: "Me", flags: { learned_name: "Mark" } }), "Mark");
   assert.equal(nameForChat({ first_name: "Tony" }), "Tony");
+});
+
+test("the username is used when it holds a name, and only then", () => {
+  assert.equal(nameFromUsername("mark74"), "Mark");
+  assert.equal(nameFromUsername("mark_smith"), "Mark");
+  assert.equal(nameFromUsername("Tony1962"), "Tony");
+  assert.equal(nameFromUsername("johnnyboy"), "Johnny");
+  assert.equal(nameFromUsername("Kinkster74"), null);
+  assert.equal(nameFromUsername("darkwolf88"), null);
+  assert.equal(nameFromUsername(""), null);
 });
 
 test("the name question is recognised in every wording she uses", () => {

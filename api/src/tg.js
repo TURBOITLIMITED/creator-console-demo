@@ -661,7 +661,7 @@ function personaSystemPrompt(p, conn, catalogue, wallet, saidAlready) {
     "When he has paid, do not stop at thank you. Confirm it in your own voice, then ask for exactly what you need to make it: for knickers, full or thong, colour, how many days you wear them, anything else he wants. Keep him excited while you get the detail, and tell him you will sort it.",
     "Never promise or arrange a meet in chat, and never give an address, a hotel or a car registration. A good, loyal spender who you have a real connection with can be told maybe one day, if he behaves, but it is never a promise, and the human arranges it, never you.",
     "Not every man wants knickers. Older men often want company more than anything: ask about his day, remember what he told you, call him daddy if that is what he likes, tell him he is a good boy, make him feel wanted. Work out which man you have before you sell to him. If he wants to talk, talk, and let the knickers wait.",
-    "Use his name. If his Telegram username contains a name (johnnyboy is Johnny, sarah_lou is Sarah), use it naturally and do not ask. If it contains no name at all (processpirate, darkwolf88), ask what he is called, casually, once, in the first few messages, never mid-scene. If he has already told you his name, or you have already asked, never ask again. Never ask for a surname. Once a price is on the table, do not stop the sale to ask his name; get the payment sorted first.",
+    "Use his name. If his Telegram username contains a name (johnnyboy is Johnny, sarah_lou is Sarah), use it naturally and do not ask. If it contains no name at all (processpirate, darkwolf88), ask what he is called, casually, once, in the first few messages, never mid-scene. If he has already told you his name, or you have already asked, never ask again, and if he did not answer, let it go. Never ask for a surname. Once a price is on the table, do not stop the sale to ask his name; get the payment sorted first.",
     // A sale that is chased is a sale lost. If a price is open she answers the
     // man, not the invoice: no reminders, one light mention at most.
     "If you have quoted a price and he has not paid, do not chase it. Talk to him like normal. If he comes back after saying he would pay and did not, say nothing about the money until he raises it. At most one light mention, ever, and only if he is clearly still buying.",
@@ -836,6 +836,36 @@ function nameFromText(text, asked) {
   if ((m = t.match(/^([\p{L}][\p{L}'’-]{1,19})\s*,?\s+(?:here|for now|miss|sir|mate)\b/iu))) return usableName(m[1]);
   if (!asked) return null;
   if ((m = t.match(/^([\p{L}][\p{L}'’-]{1,19})$/u))) return usableName(m[1]);
+  return null;
+}
+
+/* The username is the other clue, and the owner's rule is to use it rather
+   than ask: mark74 is Mark, mark_smith is Mark. A curated list rather than a
+   guess, because "kinkster74" is not a name and calling him Kinkster is worse
+   than not knowing. */
+const COMMON_MALE_NAMES = new Set(("aaron adam adrian alan albert alex alexander alfie andrew andy angus anthony " +
+  "archie arthur ashley barry ben benjamin bernard bill bob bobby brett brian bruce bryan callum cameron carl " +
+  "charlie chris christopher colin connor craig curtis dale dan daniel darren dave david dean dennis derek des " +
+  "dominic don donald doug douglas duncan ed eddie edward elliot ethan eugene frank fred freddie gareth gary " +
+  "gavin george gerry gilbert glen glenn gordon graham grant greg gregg harold harry harvey hayden henry " +
+  "howard hugh ian jack jacob jake james jamie jason jay jeff jeremy jerry jim jimmy joe joel john johnny jon " +
+  "jonathan jordan joseph josh joshua julian justin karl keith ken kenneth kevin kieran kurt kyle larry lee " +
+  "leon lewis liam luke malcolm marc mark martin matt matthew maurice max michael mick mike miles mitchell " +
+  "nathan neil nick nigel norman oliver oscar owen pat patrick paul pete peter phil philip phillip ralph ray " +
+  "raymond richard rick ricky rob robert robin rod roger ron ronald ross roy russell ryan sam samuel scott " +
+  "sean sebastian shaun shawn simon stefan stephen steve steven stuart terry theo thomas tim timothy toby " +
+  "todd tom tommy tony trevor troy tyler victor vincent wade walter warren wayne will william willie xavier").split(" "));
+
+function nameFromUsername(user) {
+  const parts = String(user || "").toLowerCase().replace(/[^a-z]+/g, " ").trim().split(" ").filter(Boolean);
+  for (const p of parts) if (COMMON_MALE_NAMES.has(p)) return p[0].toUpperCase() + p.slice(1);
+  // "johnnyboy", "markymark": the name at the front of a glued handle.
+  for (const p of parts) {
+    if (p.length < 6) continue;
+    for (let n = Math.min(10, p.length - 2); n >= 4; n--) {
+      if (COMMON_MALE_NAMES.has(p.slice(0, n))) return p[0].toUpperCase() + p.slice(1, n);
+    }
+  }
   return null;
 }
 
@@ -1160,18 +1190,19 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
           const rows = await sb(env, q + "&select=first_name,username,flags&limit=1").catch(() => null);
           cu = (rows && rows[0]) || {};
         }
-        const custName = nameForChat(cu);
         const custUser = String((cu && cu.username) || "").trim();
+        const knownName = nameForChat(cu);
+        const userHint = knownName || nameFromUsername(custUser);
         const askedBefore = history.some(h => h.dir === "out" && NAME_QUESTION.test(h.text));
-        if (custName) {
-          custLine = "You're chatting with " + custName + ", that is his name and he has told you. Use it now and then, the way you would with someone you know. Never ask him his name, not now and not later.";
+        if (knownName) {
+          custLine = "You're chatting with " + knownName + ", that is his name and he has told you. Use it now and then, the way you would with someone you know. Never ask him his name, not now and not later.";
+        } else if (userHint) {
+          custLine = "His username is @" + custUser + " and it carries the name " + userHint +
+            ". Use it naturally without asking. Never ask him his name.";
         } else if (askedBefore) {
-          custLine = "You have already asked him what he is called. Do not ask again, in this message or any later one. Carry on without a name and do not bring it up.";
-        } else if (custUser) {
-          custLine = "His Telegram username is @" + custUser +
-            ". A username is not a name. Only use it as one when a real name is obvious in it (johnnyboy is Johnny). If it is not obvious (processpirate), never call him by it and ask what he is called, casually, once, in the first few messages, never mid-scene.";
+          custLine = "You have already asked him what he is called and he did not tell you. That is the end of it: never ask again, in this message or any later one. Carry on without a name and do not bring it up.";
         } else {
-          custLine = "You do not know his name yet. You may ask what he is called, casually, once, in the first few messages and never in the middle of a scene. If you have asked before, do not ask again.";
+          custLine = "You do not know his name and his username gives nothing away. You may ask what he is called, casually, once, in the first few messages and never in the middle of a scene. If he does not answer, let it go and never ask again.";
         }
         // An open sale: a price quoted in the last three hours with nothing paid
         // since. Without this she answered "Tony" and drifted into flirting
@@ -2020,4 +2051,4 @@ export async function handleWebhook(request, env, sb, persona) {
 
 // Exported for the reply-quality regression tests.
 export { generateReply, repeatsSomething, personaSystemPrompt, ensureEmoji, sellableItems,
-         nameFromText, nameForChat, usableName, NAME_QUESTION };
+         nameFromText, nameForChat, nameFromUsername, usableName, NAME_QUESTION };
