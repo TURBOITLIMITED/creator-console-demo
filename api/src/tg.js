@@ -581,7 +581,7 @@ async function liveCatalogue(env, sb, conn) {
     lines.push("Prices are exact. Never invent an item, an add-on, a discount, a bundle or a different price. If he asks for anything that is not on this list, say you have not got that on you right now.");
   }
   if (free.length) {
-    lines.push("Free pictures of you. Send these when he asks to see you or asks for a pic of you, and only then:");
+    lines.push("Free pictures of you. The first one he gets is your face picture when he asks to see you, and only then:");
     for (const m of free) lines.push("- " + m.title + " (" + (m.kind || "content") + ")");
   }
   if (!lines.length) return "";
@@ -1475,9 +1475,10 @@ async function maybeSendFreeItem(env, sb, conn, conv, msg) {
     return await sendFreeLimitLine(env, sb, conn, conv, msg, recent, token);
   }
 
-  // First free request: send the lot, back to back, so he gets the whole free
-  // set in one go instead of one now and a drip later. After that the line.
-  const batch = items.slice(0, 5);
+  // First free request: the face picture, and only that one. He sees her, then
+  // the next ask gets the paid list. Other free files stay in reserve.
+  const opener = items.find(m => /\bface\b|selfie/i.test(m.title || "")) || items[0];
+  const batch = opener ? [opener] : [];
   const sentIds = [];
   for (let i = 0; i < batch.length; i++) {
     const it = batch[i];
