@@ -581,7 +581,7 @@ async function liveCatalogue(env, sb, conn) {
     lines.push("Prices are exact. Never invent an item, an add-on, a discount, a bundle or a different price. If he asks for anything that is not on this list, say you have not got that on you right now.");
   }
   if (free.length) {
-    lines.push("Free things you may send once, and only when he asks for something free:");
+    lines.push("Free pictures of you. Send these when he asks to see you or asks for a pic of you, and only then:");
     for (const m of free) lines.push("- " + m.title + " (" + (m.kind || "content") + ")");
   }
   if (!lines.length) return "";
