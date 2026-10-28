@@ -1157,8 +1157,13 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   // meet is not that signal.
   const meetAsk = !mediaSynthetic && MEET_RE.test(lower);
   const wantsToPay = !mediaSynthetic && !meetAsk && /\b(pay|paying|payment|send (you )?the (money|cash)|how do i pay|where do i send)\b/i.test(lower);
+  // A turn-down is not a go-ahead. "no thanks", "too much", "maybe later" must
+  // stop the payment path entirely: re-posting the gated picture after a no is
+  // the single most shop-like thing she can do.
+  const rejectHit = !mediaSynthetic && (/^(no|nope|nah|pass)\b/i.test(bare) ||
+    /\b(no thanks|not (interested|for me)|i'?ll pass|too (much|expensive)|can'?t afford|maybe later|another time|not right now)\b/i.test(lower));
   const cardHit = !mediaSynthetic && /\b(card|link|fangate)\b/i.test(lower);
-  if ((methodHit || cardHit || affirmative || wantsToPay) && !askingFree && !meetAsk) {
+  if ((methodHit || cardHit || affirmative || wantsToPay) && !askingFree && !meetAsk && !rejectHit) {
     const quoted = await lastQuotedItem(env, sb, conv);
     if (cardHit && quoted && quoted.metadata && quoted.metadata.fangate_url) {
       const sentLink = await sendFangateLink(env, sb, conn, conv, msg.chat.id, quoted);
@@ -1328,7 +1333,10 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
     ? " He has only sent " + hisCount + " message" + (hisCount === 1 ? "" : "s") +
       " so far. Do not mention selling, prices or content at all in this reply, and do not drop hints about it. Chat and flirt, that is all."
     : "";
-  const system = personaSystemPrompt(p, conn, catalogue, payLine, priorOut) + (custLine ? " " + custLine : "") + catchUp + sellGate;
+  const rejectLine = rejectHit
+    ? " He has just turned down what you offered. Do not repost it, do not repeat the price and do not ask him to unlock it again: say something light and either offer something cheaper or in a different direction, or just keep the chat going."
+    : "";
+  const system = personaSystemPrompt(p, conn, catalogue, payLine, priorOut) + (custLine ? " " + custLine : "") + catchUp + sellGate + rejectLine;
       replyText = scrubBankText(await generateReply(env, system, history, text));
       via = "workers-ai";
       // A name the profile or the username already gives must never be asked
@@ -2030,6 +2038,12 @@ async function sendStarsItem(env, sb, conn, conv, chatId, item) {
   const type = /video/.test(kind) ? "video" : "photo";
   const caption = pickOf(PAID_CAPTIONS);
   const payload = ("v1|" + conv.id + "|" + item.id).slice(0, 128);
+  // Already on screen from the last half hour? Then it is already his to tap.
+  const prior = await sb(env, "messages?conversation_id=eq." + conv.id +
+    "&direction=eq.out&raw->>via=eq.stars-paid-media&select=raw,sent_at&order=sent_at.desc&limit=5").catch(() => null);
+  const onScreen = (prior || []).some(m => m.raw && m.raw.item_id === item.id &&
+    Date.now() - new Date(m.sent_at).getTime() < 30 * 60 * 1000);
+  if (onScreen) return { stars_media: item.id, stars, reused: true };
   let sent = null;
   try {
     if (meta.tg_file_id) {
@@ -2118,6 +2132,13 @@ async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
   const name = item.name || item.title || "that";
   const starPrice = starsEligible(item) ? starsFor(item, env) : 0;
   const fangate = (item.metadata && item.metadata.fangate_url) || "";
+  // If the gated picture for this item is already sitting in the chat, do not
+  // post it again: that is what made her look like a vending machine.
+  const wallHist = await sb(env, "messages?conversation_id=eq." + conv.id +
+    "&direction=eq.out&raw->>via=eq.stars-paid-media&select=raw,sent_at&order=sent_at.desc&limit=5").catch(() => null);
+  const wallRecent = (wallHist || []).some(m => m.raw && m.raw.item_id === item.id &&
+    Date.now() - new Date(m.sent_at).getTime() < 30 * 60 * 1000);
+  if (wallRecent) return null;
   // Wall first. A digital item is posted locked, for Stars, the moment he picks
   // it; bank transfer is the fallback he is told about in the line underneath.
   if (starPrice) {
