@@ -321,9 +321,19 @@ async function onMessage(env, sb, msg, edited) {
       const seen = await sb(env, "messages?conversation_id=eq." + conv.id +
         "&direction=eq.in&select=id&limit=2").catch(() => null);
       const saysPaid = isPaymentClaim(text);
+      // One check per claim per chat per six hours. Without this, every later
+      // message that merely mentions "sent" restarts the check and she repeats
+      // "checking now" / "not showing on mine" until the conversation dies.
+      let claimFresh = true;
+      if (saysPaid) {
+        const lastCheck = await sb(env, "messages?conversation_id=eq." + conv.id +
+          "&direction=eq.out&raw->>via=eq.payment-checking&select=sent_at&order=sent_at.desc&limit=1").catch(() => null);
+        claimFresh = !(lastCheck && lastCheck[0] &&
+          Date.now() - new Date(lastCheck[0].sent_at).getTime() < 6 * 3600 * 1000);
+      }
       if (seen && seen.length === 1) {
         await notifyOwner(env, sb, conn, conv, msg, "New chat", who + ": " + String(text).slice(0, 120));
-      } else if (saysPaid) {
+      } else if (saysPaid && claimFresh) {
         // He says he has sent it. She says she is checking straight away, then
         // half a minute later the bank is read and she answers with the truth.
         try {
@@ -1341,10 +1351,13 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
     ? " He has only sent " + hisCount + " message" + (hisCount === 1 ? "" : "s") +
       " so far. Do not mention selling, prices or content at all in this reply, and do not drop hints about it. Chat and flirt, that is all."
     : "";
+  const openerRule = hisCount === 1
+    ? " This is your first reply to him. Pick up on what he actually said, in his own words, then ask him ONE short question about it (what he is into, where he is, what he does with his evenings). Overriding the usual rule against questions: ask that one question now. No prices, no menu, no content talk."
+    : "";
   const rejectLine = rejectHit
     ? " He has just turned down what you offered. Do not repost it, do not repeat the price and do not ask him to unlock it again. Say something light, and if your menu has something else, name ONE other item (the cheapest is fine) exactly as it is written, once — then drop it. If he is not buying, just carry on chatting and flirting with him."
     : "";
-  const system = personaSystemPrompt(p, conn, catalogue, payLine, priorOut) + (custLine ? " " + custLine : "") + catchUp + sellGate + rejectLine;
+  const system = personaSystemPrompt(p, conn, catalogue, payLine, priorOut) + (custLine ? " " + custLine : "") + catchUp + sellGate + openerRule + rejectLine;
       replyText = scrubBankText(await generateReply(env, system, history, text));
       via = "workers-ai";
       // A name the profile or the username already gives must never be asked
