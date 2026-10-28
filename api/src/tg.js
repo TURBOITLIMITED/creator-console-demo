@@ -1513,9 +1513,10 @@ async function maybeSendFreeItem(env, sb, conn, conv, msg) {
     if (!fileUrl) continue;
     const tgKind = it.kind === "image" ? "photo" : it.kind === "video" ? "video" : "document";
     try {
-      if (i === 0) await humanPace(token, conn.id, msg.chat.id, "for you 💜");
+      const cap = pickOf(FREE_CAPTIONS);
+      if (i === 0) await humanPace(token, conn.id, msg.chat.id, cap);
       const sent = await tg.sendMedia(token, conn.id, msg.chat.id, tgKind, fileUrl,
-        i === 0 ? "for you 💜" : "");
+        i === 0 ? cap : "");
       await sb(env, "messages", {
         method: "POST",
         headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
@@ -2009,7 +2010,7 @@ async function sendStarsItem(env, sb, conn, conv, chatId, item) {
   const meta = (item && item.metadata) || {};
   const kind = String(item.media_type || item.kind || "image").toLowerCase();
   const type = /video/.test(kind) ? "video" : "photo";
-  const caption = item.name || item.title || "";
+  const caption = pickOf(PAID_CAPTIONS);
   const payload = ("v1|" + conv.id + "|" + item.id).slice(0, 128);
   let sent = null;
   try {
@@ -2196,6 +2197,26 @@ async function sendPayChoice(env, sb, conn, conv, chatId, item){
     return null;
   }
 }
+
+/* A picture with "for you" on every send reads like a bot. Rotate the line. */
+const FREE_CAPTIONS = [
+  "here's a little something 💜",
+  "thought you'd like this x",
+  "me, earlier 😏",
+  "just for you, keep it between us x",
+  "a taste 😈",
+  "this is me being good 💋",
+  "don't go sharing this x",
+  "one from this morning x",
+];
+const PAID_CAPTIONS = [
+  "unlock me 😏",
+  "this one's worth it x",
+  "you know you want to 😈",
+  "go on then 😏",
+  "worth every star x",
+];
+function pickOf(list){ return list[Math.floor(Math.random() * list.length)]; }
 
 async function sendPayDetails(env, sb, conn, conv, chatId, item, method) {
   const token = await botTokenFor(env, sb, conn);
