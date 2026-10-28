@@ -228,10 +228,11 @@ function fsStopReason(text){
    muted. */
 const FS_T_ASKS = [
   "have you got T/ x",
-  "you on tele? x",
+  "you on TG? x",
   "what's your t/ x",
+  "have you got TG x",
   "got t/ babe? x",
-  "are you on t/? x",
+  "are you on tg? x",
 ];
 function fsTAsk(seed){ return FS_T_ASKS[Math.abs(Number(seed) || 0) % FS_T_ASKS.length]; }
 
@@ -240,7 +241,7 @@ function fsTAsk(seed){ return FS_T_ASKS[Math.abs(Number(seed) || 0) % FS_T_ASKS.
    if he asks, but nothing is pushed at him. */
 function fsScrub(text){
   return String(text || "")
-    .replace(/\btelegram\b/gi, "T/")
+    .replace(/\btelegram\b/gi, "TG")
     .replace(/\bhttps?:\/\/\S+/gi, "")
     .replace(/\bt\.me\/\S+/gi, "")
     .replace(/@([a-z0-9_]{4,})/gi, "$1")
@@ -251,7 +252,7 @@ function fsScrub(text){
 function fsInviteRule(acct, seed){
   if (!acct || !acct.telegram_username) return "";
   const handle = String(acct.telegram_username).replace(/^@/, "");
-  return `Getting him onto T/ is the point, but never write the word telegram, never a link, and never an @ in your first message. Ask in code and vary it, the way "${fsTAsk(seed)}" lands. Only when he says he has T/ or asks for yours, give it as "${handle}", bare, no @. If he has not got it, say "no worries x" once and leave it.`;
+  return `Getting him onto T/ or TG is the point, but never write the word telegram, never a link, and never an @ in your first message. Ask in code and vary it, the way "${fsTAsk(seed)}" lands. Only when he says he has T/ or TG, or asks for yours, give it as "${handle}", bare, no @. If he has not got it, say "no worries x" once and leave it.`;
 }
 
 async function fsDraftFor(env, acct, persona, row, thread, turn, meetAsk, force){
@@ -534,7 +535,7 @@ async function pollFab(env){
           // the coded ask goes in the first couple of replies, after the
           // answer, and never the same phrase every time
           const shrug = /that'?s a shame|no worries/i.test(text || "");
-          const hasAsk = /\bt\/|tele|snap|whatsapp/i.test(text || "");
+          const hasAsk = /\bt\/|\btg\b|tele|snap|whatsapp/i.test(text || "");
           if(acct.telegram_username && !shrug && text && !hasAsk){
             text = text.replace(/[\s.]+$/, "") + " " + fsTAsk(row.user);
           }
