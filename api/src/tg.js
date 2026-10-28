@@ -281,6 +281,14 @@ async function onMessage(env, sb, msg, edited) {
     delivered: true,
   }, "resolution=merge-duplicates,return=minimal");
 
+  // Mark it read on the business account, so he gets the double tick straight
+  // away instead of thinking nobody has looked at it.
+  if (!outgoing && msg.message_id && conn.id) {
+    botTokenFor(env, sb, conn).then(token => {
+      if (token) return tg.readBusinessMessage(token, conn.id, msg.chat.id, msg.message_id).catch(() => {});
+    }).catch(() => {});
+  }
+
   // Learn the name he gives. It has to live in flags: the customers upsert
   // above rewrites first_name from the Telegram profile on every message, so a
   // name stored there would be wiped by his next line.
