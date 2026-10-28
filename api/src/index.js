@@ -449,9 +449,10 @@ async function pollFab(env){
           body: JSON.stringify({ last_poll_at: new Date().toISOString(), last_error: "UPGRADE: FabSwingers is asking for a Site Supporter upgrade before more messages can be sent." }) }).catch(() => null);
         continue;
       }
-      // FabSwingers blocks an account that pushes too hard, so there is an
-      // hourly ceiling as well as a daily one: sixty an hour has been safe.
-      const perHour = Number(env.FS_PER_HOUR || 120);
+      // FabSwingers mutes a new account that pushes, so age decides the pace.
+      // Day one gets a handful an hour, not the hundred the old default allowed.
+      const ageH = Math.max(0, (Date.now() - new Date(acct.created_at || Date.now()).getTime()) / 3600000);
+      const perHour = ageH < 48 ? 6 : ageH < 24 * 7 ? 12 : Number(env.FS_PER_HOUR || 20);
       const hourAgo = new Date(Date.now() - 3600 * 1000).toISOString();
       const lastHour = await sb(env, `fabswingers_messages?fabswingers_account_id=eq.${acct.id}&direction=eq.out&at=gte.${encodeURIComponent(hourAgo)}&select=id`).catch(() => []);
       if ((lastHour || []).length >= perHour){
@@ -460,7 +461,7 @@ async function pollFab(env){
         continue;
       }
 
-      const dailyCap = Number(env.FS_DAILY_CAP || 1000);
+      const dailyCap = ageH < 48 ? 30 : ageH < 24 * 7 ? 80 : Number(env.FS_DAILY_CAP || 150);
       if (await fsAnsweredToday(env, acct.id) >= dailyCap){
         await sb(env, `fabswingers_accounts?id=eq.${acct.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" },
           body: JSON.stringify({ last_error: `Daily cap reached (${dailyCap}). Resumes tomorrow.` }) }).catch(() => null);
