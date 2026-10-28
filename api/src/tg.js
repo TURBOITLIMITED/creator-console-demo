@@ -1221,7 +1221,7 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   // "i'll take the half naked one", "yes pls" right after a menu). Match it
   // against her live titles and jump straight to the payment request.
   const shortNamed = !mediaSynthetic && !askingFree && !askingMenu &&
-    bare.split(/\s+/).filter(Boolean).length <= 4 && await strongItemMatch(env, sb, conn, text);
+    bare.split(/\s+/).filter(Boolean).length <= 9 && await strongItemMatch(env, sb, conn, text);
   if (!mediaSynthetic && !askingFree && !askingMenu && (shortNamed || await looksLikeBuyIntent(text, lower))) {
     const picked = shortNamed || await matchLiveItem(env, sb, conn, text);
     if (picked) {
@@ -1353,6 +1353,23 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   const system = personaSystemPrompt(p, conn, catalogue, payLine, priorOut) + (custLine ? " " + custLine : "") + catchUp + sellGate + openerRule + rejectLine;
       replyText = scrubBankText(await generateReply(env, system, history, text));
       via = "workers-ai";
+      // The model has learned the gate wording and sometimes writes "N ⭐ unlocks
+      // it" with no locked media behind it. That is a dead end for the customer.
+      // If there is no wall on screen, post the real one for the item he named.
+      if (replyText && /\d{2,5}\s*⭐/.test(replyText)) {
+        const walls = await sb(env, "messages?conversation_id=eq." + conv.id +
+          "&direction=eq.out&raw->>via=eq.stars-paid-media&select=id,sent_at&order=sent_at.desc&limit=1").catch(() => null);
+        const onScreen = walls && walls[0] && Date.now() - new Date(walls[0].sent_at).getTime() < 30 * 60 * 1000;
+        if (!onScreen) {
+          const picked = await matchLiveItem(env, sb, conn, text);
+          if (picked && starsEligible(picked)) {
+            const walled = await sendPaymentRequest(env, sb, conn, conv, msg, picked);
+            if (walled) { console.log(JSON.stringify({ evt: "tg.reply.gate_guard_walled", item: picked.id })); return walled; }
+          }
+          replyText = "want me to send you my menu so you can pick one? x";
+          console.log(JSON.stringify({ evt: "tg.reply.gate_guard_text" }));
+        }
+      }
       // A name the profile or the username already gives must never be asked
       // for. The prompt says so, but a small model still asks, so this is the
       // hard backstop: one rewrite, then the question is cut out.
@@ -1821,7 +1838,7 @@ async function looksLikeBuyIntent(text, lower) {
   // Only a clear decision to buy. Naming a video or asking to see something is
   // not a purchase, and treating it as one fired prices and payment buttons at
   // men who were only chatting.
-  return /\b(i'?ll take|i'?ll buy|i want to buy|buy it|buy that|i'?ll have|take it|pay for (it|that)|send (it|that) (to me|over)|send me (that|the|your|those|them)|give me (that|it|those|them)|i want (that|the|those)|let me see (that|the)|show me (that|the))\b/i.test(text);
+  return /\b(i'?ll take|i'?ll buy|i want to buy|buy it|buy that|i'?ll have|take it|pay for (it|that)|send (it|that) (to me|over)|send me (that|the|your|those|them)|give me (that|it|those|them)|i want (that|the|those)|let me see (that|the)|show me (that|the)|can i (have|get|see)|could i (have|get|see)|i'?d like (that|the))\b/i.test(text);
 }
 
 /* Match their words against her live item titles. Exact-word overlap wins;
