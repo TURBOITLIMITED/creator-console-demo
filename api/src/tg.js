@@ -590,18 +590,13 @@ async function liveCatalogue(env, sb, conn) {
    methods that are actually filled in are offered: a missing method is a
    method she does not have. */
 function payLineFrom(prof) {
-  const f = prof || {};
-  const bits = [];
-  if (f.pay_bank_name || f.pay_sort_code || f.pay_account_no) bits.push("bank transfer");
-  if (!bits.length) return "";
-  // The numbers are deliberately NOT in the prompt. The model leaked them to a
-  // man who offered money to meet, so only the deterministic payment path sends
-  // the real details, and only for an item.
-  return "Payment methods you have: " + bits.join("; ") +
-    ", plus Telegram Stars for photos and videos (never for anything posted, a meet or a service). " +
-    "Everything is quoted in pounds. Never type, quote or invent bank details, a sort code, an account number, a PayPal address or a link: the system sends the real details when he is paying for an item. " +
+  // Bank transfer is off until the owner confirms the account details. Stars
+  // only for now, and the numbers are never in the model's prompt.
+  return "Payment method: Telegram Stars only, for photos and videos. Everything is quoted in stars, with the pound price it equals. " +
+    "Never type, quote or invent bank details, a sort code, an account number, a PayPal address or a link. " +
     "Stars are never sent to you: he taps the unlock on the picture or video you posted in the chat. " +
-    "If he asks for a meet, never send payment details. Never offer or mention PayPal, crypto or any other method, and if he asks for one say bank transfer or stars is all you do x.";
+    "If he asks for bank transfer or any other way, say stars is all you are doing at the moment x. " +
+    "Never offer or mention PayPal, crypto or any other method.";
 }
 
 function personaSystemPrompt(p, conn, catalogue, wallet, saidAlready) {
@@ -1591,7 +1586,10 @@ async function maybeSendMenu(env, sb, conn, conv, msg) {
   if (!items.length) return null;
 
   const priceOf = m => Number(m.price_gbp || m.price_ton || 0);
-  const fmt = m => "£" + priceOf(m);
+  const fmt = m => {
+    const s = Number(m.price_stars) || starsFor(m, env) || 0;
+    return "£" + priceOf(m) + (s ? " / " + s + " ⭐" : "");
+  };
   const paid = items.filter(m => priceOf(m) > 0).slice(0, 45);
   if (!paid.length) return null;
   const freeRows = await sb(env, "media_items?telegram_account_id=eq." +
@@ -2124,7 +2122,7 @@ async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
   if (starPrice) {
     const wall = await sendStarsItem(env, sb, conn, conv, msg.chat.id, item);
     if (wall) {
-      const line = `${starPrice} ⭐ (${price}) unlocks it babe, tap the lock 😏` + (fangate ? `\nor card here if you'd rather 💕 ${fangate}` : ` or bank transfer if you'd rather x`);
+      const line = `${starPrice} ⭐ (${price}) unlocks it babe, tap the lock 😏` + (fangate ? `\nor card here if you'd rather 💕 ${fangate}` : ` x`);
       const sealedLine = await sealedBody(env, sb, conn.creator_id, line);
       try {
         await humanPace(token, conn.id, msg.chat.id, line);
@@ -2153,7 +2151,7 @@ async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
   }
   const payText = fangate
     ? `ooh good choice 😏 ${name} is ${price} babe, here's the link 💕 ${fangate}`
-    : `ooh good choice 😏 ${name} is ${price} babe, want me to send my bank details? x`;
+    : `ooh good choice 😏 ${name} is stars only at the moment babe, tap the lock on the one you want x`;
   const sealedPay = await sealedBody(env, sb, conn.creator_id, payText);
   // No inline keyboard. Buttons make the account look like a shop bot; the
   // methods are named in the text and he answers with the one he wants.
@@ -2205,7 +2203,7 @@ async function sendPayChoice(env, sb, conn, conv, chatId, item){
   const starPrice = starsEligible(item) ? starsFor(item, env) : 0;
   if (!starPrice) return await sendPayDetails(env, sb, conn, conv, chatId, item, "bank");
   const name = item.name || item.title || "that";
-  const line = `${name} is £${gbp} by bank transfer, or ${starPrice} ⭐ here in the chat. which one do you want baby? x`;
+  const line = `${name} is ${starPrice} ⭐ (${gbp}) here in the chat. tap the lock and it's yours x`;
   try {
     await humanPace(token, conn.id, chatId, line);
     const sent = await tg.sendMessage(token, conn.id, chatId, line);
@@ -2251,21 +2249,9 @@ function pickOf(list){ return list[Math.floor(Math.random() * list.length)]; }
 async function sendPayDetails(env, sb, conn, conv, chatId, item, method) {
   const token = await botTokenFor(env, sb, conn);
   if (!token || !chatId) return null;
-  const closer = PAY_CLOSERS[Math.floor(Math.random() * PAY_CLOSERS.length)];
-  const prof = await sb(env, "ai_profiles?creator_id=eq." +
-    encodeURIComponent(conn.creator_id) +
-    "&select=wallet_address,pay_bank_name,pay_sort_code,pay_account_no,pay_paypal").catch(() => null);
-  const pay = (prof && prof[0]) || {};
-  let detail;
-  if (method === "ton" && pay.wallet_address) {
-    detail = `my ton address is\n${pay.wallet_address}\nput your username in the comment so I know it's you x\n${closer}`;
-  } else if (method === "paypal" && pay.pay_paypal) {
-    detail = `paypal me at ${pay.pay_paypal} x\n${closer}`;
-  } else if (method === "bank" && (pay.pay_sort_code || pay.pay_account_no)) {
-    detail = `it's my business account x, I keep it separate for my own tax reasons, I'm not a naughty girl when it comes to that 😜\nname ${pay.pay_bank_name || ""}\nsort code ${pay.pay_sort_code || ""}\naccount ${pay.pay_account_no || ""}\nput your name in the reference so I know it's you x\n${closer}`;
-  } else {
-    detail = "give me a sec and I'll send you the details x";
-  }
+  // Bank, PayPal and TON are off until the owner confirms the account. Nothing
+  // here reads the payment fields, so no wrong numbers can go out.
+  const detail = "it's stars only at the moment babe, tap the lock on the one you want x";
   const sealedDetail = await sealedBody(env, sb, conn.creator_id, detail);
   try {
     await humanPace(token, conn.id, chatId, detail);
