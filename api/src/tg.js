@@ -1110,7 +1110,12 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   const askingMenu = !mediaSynthetic && /(menu|what.*(offer|have|sell|sellin|got)|price list|how much|options|what can i buy|show me what)/.test(lower);
   // He has just been told what she does and asked to see it. That is a yes to
   // the menu, so it goes out rather than another line about knickers.
-  const wantsMenu = !mediaSynthetic && /^(yes|yeah|yep|yeh|ye|yup|yh|ya|why not|sure|ok|okay|go on|go for it|please|pls|send it|send them|send us|show me|let'?s see|of course|course|definitely|absolutely|sounds good|alright|aye|deal|do it|i'?ll (have|take|get)|fine|cool)\b/i.test(lower);
+  // Any sign of interest counts, not only a clean yes. The menu only goes out
+  // once per chat, so an early prompt costs nothing.
+  const wantsMenu = !mediaSynthetic && (
+    /^(yes|yeah|yep|yeh|ye|yup|yh|ya|why not|sure|ok|okay|go on|go for it|please|pls|send it|send them|send us|show me|let'?s see|of course|course|definitely|absolutely|sounds good|alright|aye|deal|do it|i'?ll (have|take|get)|fine|cool)\b/i.test(lower) ||
+    /(what else|what kind|what sort|like what|such as|tell me more|what do you mean|what'?s on (it|the menu)|how much|any good|what can i (get|have)|maybe|hmm+|interesting|oh yeah|really\?|go on then|and\?)/i.test(lower)
+  );
   if (wantsMenu) {
     // He is saying yes to whatever she offered last. If that was the menu, the
     // list goes out now, whoever wrote the offer.
