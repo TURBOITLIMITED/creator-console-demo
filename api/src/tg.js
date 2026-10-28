@@ -2210,11 +2210,17 @@ const DEFLECT_PLATFORM = [
   "i'd rather keep it all on here tbh x 😘",
   "i'm rubbish with other apps babe, telegram's where i am x",
   "just keep me on here x i like it better 😏",
+  "i don't really do other apps, this is where you get me x",
+  "haha you'll have to keep me on telegram, i'm comfy here 💋",
+  "no other apps babe, but i'm not going anywhere on here x",
 ];
 const DEFLECT_MEET = [
-  "i don't meet babe, but i'd rather keep you all to myself on here x 😘",
-  "i'm not a meet up girl x but there's plenty of me right here 😏",
-  "no meets x but i'll keep you company on here all night",
+  "slow down x i like to get to know someone properly first 😘",
+  "you've not even bought me a drink yet 😏 tell me more about you first",
+  "i want to know you a bit more before any of that x",
+  "i'm enjoying talking to you, let's keep it like this for now x",
+  "you're keen 😅 i like to take my time with someone",
+  "let's keep chatting a bit first, i'm not in a rush x",
 ];
 
 async function maybeDeflect(env, sb, conn, conv, msg, text) {
@@ -2226,7 +2232,15 @@ async function maybeDeflect(env, sb, conn, conv, msg, text) {
     "&direction=eq.out&raw->>via=eq." + via + "&select=sent_at&order=sent_at.desc&limit=1").catch(() => null);
   if (recent && recent[0] && Date.now() - new Date(recent[0].sent_at).getTime() < 30 * 60 * 1000) return null;
   const pool = isPlatform ? DEFLECT_PLATFORM : DEFLECT_MEET;
-  let line = pool[Math.floor(Math.random() * pool.length)];
+  // Never the same line twice in a chat: read the ones already used, walk
+  // through the rest, and only repeat once the whole pool is spent.
+  const usedRows = await sb(env, "messages?conversation_id=eq." + conv.id +
+    "&direction=eq.out&raw->>via=eq." + via + "&select=raw&order=sent_at.desc&limit=8").catch(() => null);
+  const used = new Set((usedRows || []).map(r => r.raw && Number.isInteger(r.raw.i) ? r.raw.i : -1));
+  const free = pool.map((_, i) => i).filter(i => !used.has(i));
+  const pick = free.length ? free[Math.floor(Math.random() * free.length)]
+                           : Math.floor(Math.random() * pool.length);
+  let line = pool[pick];
   const menus = await sb(env, "messages?conversation_id=eq." + conv.id +
     "&direction=eq.out&raw->>via=eq.menu-text&select=id&limit=1").catch(() => null);
   if (!menus || !menus.length) line += " want the list? x";
@@ -2244,7 +2258,7 @@ async function maybeDeflect(env, sb, conn, conv, msg, text) {
       direction: "out", sender: "ai", kind: "text",
       body_preview: "[" + via + "] " + line.slice(0, 60),
       sent_at: new Date().toISOString(), ...sealed,
-      raw: { via },
+      raw: { via, i: pick },
     }),
   }).catch(() => {});
   console.log(JSON.stringify({ evt: "tg.deflect", kind: via, conversation: conv.id }));
