@@ -2292,6 +2292,12 @@ function pickOf(list){ return list[Math.floor(Math.random() * list.length)]; }
 async function sendPayDetails(env, sb, conn, conv, chatId, item, method) {
   const token = await botTokenFor(env, sb, conn);
   if (!token || !chatId) return null;
+  // Once an item has a Fangate checkout, that IS its payment method: asking for
+  // "bank" gets the link, never the bank details. Remove the link and bank works
+  // again, so the two rail changes need no code.
+  if (item && item.metadata && item.metadata.fangate_url) {
+    return await sendFangateLink(env, sb, conn, conv, chatId, item);
+  }
   // Bank, PayPal and TON are off until the owner confirms the account. Nothing
   // here reads the payment fields, so no wrong numbers can go out.
   const detail = "it's stars only at the moment babe, tap the lock on the one you want x";
