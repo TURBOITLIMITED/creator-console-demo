@@ -1106,7 +1106,7 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   const lower = String(text || "").toLowerCase();
   // "send us a pic" is the most common opener there is. It gets the free one,
   // the same as asking for a freebie.
-  const askingFree = !mediaSynthetic && /(free|4free|for free|anything for me|freebie|sample|preview|\bpic|\bphoto|\bpicture|show (me|us)|what do you look like|send (me )?(something|one)|any nudes|\bnudes\b|can i see you|let me see you|see you|show yourself|your body|your tits|your arse|your ass)/.test(lower);
+  const askingFree = !mediaSynthetic && /(free|4free|for free|anything for me|freebie|sample|preview|\b(pic|pics|photo|photos|picture|pictures)\b|show (me|us)(?!\s+(the|that|your|a)\s+(video|vid|clip))|what do you look like|send (me )?(something|one)|any nudes|\bnudes\b|can i see you|let me see you|see you|show yourself|your body|your tits|your arse|your ass)/.test(lower);
   if (askingFree) {
     const sentFree = await maybeSendFreeItem(env, sb, conn, conv, msg);
     if (sentFree) { stopTyping(); return sentFree; }   // media sent; no text needed
@@ -1227,6 +1227,49 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
     if (picked) {
       const payReq = await sendPaymentRequest(env, sb, conn, conv, msg, picked);
       if (payReq) { stopTyping(); return payReq; }
+    }
+  }
+
+  // He asked to see a video or clip without naming one. Show the ones she has,
+  // locked, instead of leaving him to guess which video it is.
+  if (!mediaSynthetic && !askingFree && !askingMenu && /\b(video|vid|clip|film)\b/i.test(lower)) {
+    const vids = (await sellableItems(env, sb, conn))
+      .filter(i => i.kind === "video" && Number(i.price_gbp || i.price_ton || 0) > 0);
+    if (vids.length === 1) {
+      const payReq = await sendPaymentRequest(env, sb, conn, conv, msg, vids[0]);
+      if (payReq) { stopTyping(); return payReq; }
+    }
+    if (vids.length > 1) {
+      const lines = ["which one baby 😈"];
+      for (const v of vids.slice(0, 6)) {
+        const s = Number(v.price_stars) || starsFor(v, env) || 0;
+        lines.push("• " + v.title + " - " + s + " ⭐");
+      }
+      lines.push("say the one you want and I'll unlock it x");
+      const body = lines.join("\n");
+      const token = await botTokenFor(env, sb, conn);
+      if (token) {
+        if (msg.message_id) await tg.readBusinessMessage(token, conn.id, msg.chat.id, msg.message_id).catch(() => {});
+        await humanPace(token, conn.id, msg.chat.id, body).catch(() => {});
+        try {
+          const sent = await tg.sendMessage(token, conn.id, msg.chat.id, body);
+          await sb(env, "messages", {
+            method: "POST",
+            headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+            body: JSON.stringify({
+              conversation_id: conv.id, creator_id: conn.creator_id,
+              tg_message_id: sent && sent.message_id ? sent.message_id : null,
+              direction: "out", sender: "ai", kind: "text",
+              body_preview: preview(body), sent_at: new Date().toISOString(),
+              raw: { via: "video-options", count: vids.length },
+            }),
+          }).catch(() => {});
+          stopTyping();
+          return { video_options: vids.length };
+        } catch (e) {
+          console.log(JSON.stringify({ evt: "tg.video_options.failed", err: String(e).slice(0, 160) }));
+        }
+      }
     }
   }
 
@@ -1614,7 +1657,7 @@ async function sellableItems(env, sb, conn) {
   }
   const rows = await sb(env, "media_items?telegram_account_id=eq." +
     encodeURIComponent(conn.telegram_account_id) +
-    "&visible=eq.true&select=id,title,kind,price_ton,price_gbp,price_stars,media_key,metadata&order=price_ton.desc&limit=20").catch(() => null);
+    "&visible=eq.true&select=id,title,kind,price_ton,price_gbp,price_stars,media_key,metadata,duration_secs&order=price_ton.desc&limit=20").catch(() => null);
   return (rows || []).filter(m => m.title).map(m => ({ ...m, source: "media" }));
 }
 
@@ -1858,6 +1901,14 @@ async function matchLiveItem(env, sb, conn, text) {
     if (score > bestScore) { bestScore = score; best = it; }
   }
   if (best && bestScore > 0) return best;
+  // "the 2 min one" is how men ask for a video. Match on the length.
+  const dm = lower.match(/(\d+)\s*(mins?|minutes?|secs?|seconds?)/);
+  if (dm) {
+    const want = /min/.test(dm[2]) ? Number(dm[1]) * 60 : Number(dm[1]);
+    const hit = items.find(i => Number(i.duration_secs) > 0 &&
+      Math.abs(Number(i.duration_secs) - want) <= Math.max(3, want * 0.2));
+    if (hit) return hit;
+  }
   // Kind-based fallback: "the video please" when exactly one video is live.
   const wantsVideo = /video|vid|clip/.test(lower);
   const wantsPic = /pic|photo|image|nude|naked/.test(lower);
