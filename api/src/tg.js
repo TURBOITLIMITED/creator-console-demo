@@ -443,11 +443,10 @@ async function onMessage(env, sb, msg, edited) {
         ((customer && (customer.first_name || customer.username)) || from.first_name || "someone") +
         " got nasty: " + String(text).slice(0, 120)).catch(() => null);
     } else if (DECLINE.test(text) && conv.purchase_intent_at) {
-      // He has been quoted and said no. The conversation goes dead: no reply,
-      // no follow-up, and the bot stays off in this chat.
-      intercept = "declined";
-      patch.state = "dormant";
-      patch.ai_disabled = true;
+      // He has been quoted and said no. Never chase, but never go silent either:
+      // one light line back and the chat carries on. No price, no second push,
+      // and the AI stays on for this thread.
+      patch.declined_at = new Date().toISOString();
     } else if (DISMISS.test(text)) {
       // nothing to say, and nothing worth spending a model call on
       intercept = "dismissed";
