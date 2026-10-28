@@ -806,6 +806,13 @@ async function deliverQueuedReply(env, body) {
   const bots = uname ? await sb(env, "bots?persona=eq." + encodeURIComponent(uname) + "&select=token") : null;
   const token = bots && bots[0] && bots[0].token;
   if (!token) throw new Error("no bot token for " + uname);
+  // Show typing for the last few seconds, then send. Without this the message
+  // just appears out of nowhere after the pause, which reads as a machine.
+  try {
+    const words = String(b.text || "").split(/\s+/).filter(Boolean).length;
+    await tgapi.sendChatAction(token, b.business_connection_id, b.chat_id, "typing");
+    await new Promise(r => setTimeout(r, Math.min(9000, 1500 + words * 450)));
+  } catch (e) { /* sending matters more than the badge */ }
   const sent = await tgapi.sendMessage(token, b.business_connection_id, b.chat_id, b.text);
   // Seal the body even when the producer did not: without it the inbox can only
   // show the 80-character preview and the message looks cut off mid-sentence.

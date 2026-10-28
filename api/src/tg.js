@@ -34,10 +34,10 @@ function replyDelaySeconds(text, conv, opts) {
   // type. A four-word line can land in eight seconds; a long one cannot, or it
   // reads as a machine again.
   const replyWords = String(o.replyText || "").split(/\s+/).filter(Boolean).length;
-  const typing = Math.min(9000, 700 + replyWords * 320);
-  if (o.ownerOnline) return Math.max(8, Math.round((typing + 2500 + Math.random() * 3500) / 1000));
-  if (horny) return Math.max(8, Math.round((typing + 3000 + Math.random() * 4000) / 1000));
-  return 12 + Math.floor(Math.random() * 39);                        // 12 to 50 seconds
+  const typing = Math.min(14000, 1200 + replyWords * 600);
+  if (o.ownerOnline) return Math.max(14, Math.round((typing + 5000 + Math.random() * 4000) / 1000));
+  if (horny) return Math.max(16, Math.round((typing + 7000 + Math.random() * 6000) / 1000));
+  return 20 + Math.floor(Math.random() * 45);                        // 20 to 65 seconds
 }
 
 /* The deterministic sends (menu, payment request, freebie) used to land the
@@ -46,7 +46,7 @@ function replyDelaySeconds(text, conv, opts) {
 async function humanPace(token, connId, chatId, text) {
   if (!token || !chatId) return;
   const words = String(text || "").split(/\s+/).filter(Boolean).length;
-  const hold = Math.min(7000, 1200 + words * 180 + Math.random() * 1500);
+  const hold = Math.min(12000, 2500 + words * 400 + Math.random() * 2500);
   let typing = true;
   (async () => {
     while (typing) {
@@ -1616,7 +1616,7 @@ async function maybeSendMenu(env, sb, conn, conv, msg) {
     if (!(alreadyFree && alreadyFree.length)) {
       await maybeSendFreeItem(env, sb, conn, conv, msg).catch(() => null);
     }
-    const menuDelay = 3 + Math.floor(Math.random() * 4);   // 3 to 6 seconds
+    const menuDelay = 18 + Math.floor(Math.random() * 14);   // 18 to 31 seconds
     await env.REPLY_QUEUE.send({
       conversation_id: conv.id,
       creator_id: conn.creator_id,
