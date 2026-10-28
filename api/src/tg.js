@@ -1121,7 +1121,12 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
     const recentLimit = await sb(env, "messages?conversation_id=eq." + conv.id +
       "&direction=eq.out&raw->>via=eq.free-limit&select=sent_at&order=sent_at.desc&limit=1").catch(() => null);
     const limitFresh = recentLimit && recentLimit[0] && Date.now() - new Date(recentLimit[0].sent_at).getTime() < 30 * 60 * 1000;
-    if (offered || limitFresh) {
+    // A bare yes from a man who has never seen the menu gets the menu. Once it
+    // has gone out, another yes is just a yes and the model answers it.
+    const menuSent = await sb(env, "messages?conversation_id=eq." + conv.id +
+      "&direction=eq.out&raw->>via=eq.menu-text&select=id&limit=1").catch(() => null);
+    const neverSent = Array.isArray(menuSent) && menuSent.length === 0;
+    if (offered || limitFresh || neverSent) {
       const m = await maybeSendMenu(env, sb, conn, conv, msg);
       if (m) { stopTyping(); return m; }
     }
