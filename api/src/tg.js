@@ -128,12 +128,22 @@ async function onConnection(env, sb, conn, botAccount) {
   // unknown human granting access must not crash the insert (creator_id NOT
   // NULL) and must not create an unclaimed shell row either. The connection
   // row below still records the link, waiting to be claimed in the dashboard.
-  const found = await sb(env, "telegram_accounts?tg_user_id=eq." + n.tg_user_id + "&select=id,creator_id");
+  // select=* so a missing owner_tg_user_id column (migration not yet applied)
+  // reads as "no owner set" and fails closed instead of throwing.
+  const found = await sb(env, "telegram_accounts?tg_user_id=eq." + n.tg_user_id + "&select=*");
   // The human granting access is not one of our bot accounts, so the link
   // belongs to the bot's own account. Without this the insert dies on
   // creator_id NOT NULL and the connection is never recorded at all.
   const ownerAccount = (found && found[0]) || null;
   const account = ownerAccount || botAccount || null;
+  // Only the one human named on the account may plug the bot into their own
+  // Telegram and be answered in her persona. Anyone else who adds the bot (the
+  // Turbo IT test account did, and sent 134 replies in Michaela's voice) is
+  // recorded, unclaimed, and the owner is told. telegram_accounts.tg_user_id is
+  // the BOT's id, so it cannot be the test; owner_tg_user_id is the human.
+  const ownerTg = account && account.owner_tg_user_id != null ? String(account.owner_tg_user_id) : "";
+  const isOwner = !!(ownerTg && n.tg_user_id != null && String(n.tg_user_id) === ownerTg);
+  const claimCreator = (isOwner && account && account.creator_id) || null;
   // Only overwrite the profile when the row really is the owner's own account.
   // Patching the bot's row with the human's username renamed the bot account
   // and broke the token lookup, so no reply could be sent.
@@ -151,12 +161,12 @@ async function onConnection(env, sb, conn, botAccount) {
     }).catch(() => {});
   }
 
-  // creator_id stays NULL until a human claims this account in the dashboard.
-  // Guessing here would attach a stranger's private DMs to the wrong creator,
-  // which is the one onboarding mistake that cannot be walked back.
+  // creator_id stays NULL unless the connecting human is the account's named
+  // owner. Guessing here would attach a stranger's private DMs to the wrong
+  // creator, which is the one onboarding mistake that cannot be walked back.
   await upsert(sb, env, "business_connections", "id", {
     id: n.id,
-    creator_id: (account && account.creator_id) || null,
+    creator_id: claimCreator,
     telegram_account_id: account ? account.id : null,
     tg_user_id: n.tg_user_id,
     user_chat_id: n.user_chat_id,
@@ -174,7 +184,8 @@ async function onConnection(env, sb, conn, botAccount) {
     headers: { Prefer: "return=minimal" },
     body: JSON.stringify({
       creator_id: (account && account.creator_id) || null,
-      action: n.is_enabled ? "business_connection.granted" : "business_connection.revoked",
+      action: n.is_enabled ? (claimCreator ? "business_connection.granted" : "business_connection.unclaimed")
+                           : "business_connection.revoked",
       detail: {
         connection_id: n.id,
         tg_user_id: n.tg_user_id,
@@ -184,13 +195,164 @@ async function onConnection(env, sb, conn, botAccount) {
         over_granted: n.over_granted,
         // On API 10.3 an absent rights object means something is wrong.
         rights_missing: n.rights_missing,
-        claimed: !!(account && account.creator_id),
+        claimed: !!claimCreator,
+        owner_tg_user_id: ownerTg || null,
       },
     }),
   }).catch(() => {});
 
-  return { claimed: !!(account && account.creator_id) };
+  // A stranger connecting the bot is the owner's business, not ours to guess.
+  if (n.is_enabled && !claimCreator && account) {
+    console.log(JSON.stringify({ evt: "tg.connection.unclaimed", connection: n.id,
+      tg_user_id: n.tg_user_id, owner_set: !!ownerTg }));
+    await notifyOwner(env, sb, { telegram_account_id: account.id }, null, null, "Needs you",
+      "Someone connected your bot to their own Telegram: " +
+      ([u.first_name, u.last_name].filter(Boolean).join(" ") || "unknown") +
+      (u.username ? " (@" + u.username + ")" : "") + ", user " + n.tg_user_id +
+      ". It is NOT claimed and the bot will not answer for them." +
+      (ownerTg ? "" : " No owner Telegram id is set on this account yet.")).catch(() => null);
+  }
+
+  return { claimed: !!claimCreator };
 }
+
+/* One conversation per (her Telegram user, his chat). The connection id
+   changes every time her account reconnects, and keying on it started every
+   man from zero three times in three days. Her own Telegram user id is stable
+   and belongs to one human, so re-pointing the row at the new connection can
+   never send one persona's reply out of another persona's account. Never key
+   on creator_id: one creator runs several personas, and a man who talks to two
+   of them has two chats. Falls back to the old (connection, chat) key when the
+   owner column is not there yet, so this is safe to deploy before the
+   migration (but the migration must still go first, see 0018). */
+async function findOrCreateConversation(env, sb, conn, chatId, fields) {
+  const f = fields || {};
+  const owner = conn.tg_user_id != null ? conn.tg_user_id : null;
+  let ownerKeyOk = owner != null;
+  const byOwner = async () => {
+    if (!ownerKeyOk) return null;
+    try {
+      const rows = await sb(env, "conversations?owner_tg_user_id=eq." + encodeURIComponent(owner) +
+        "&chat_id=eq." + chatId + "&select=*&limit=1");
+      return (rows && rows[0]) || null;
+    } catch (e) {
+      ownerKeyOk = false;
+      console.log(JSON.stringify({ evt: "tg.conv.owner_lookup_failed", err: String(e).slice(0, 160) }));
+      return null;
+    }
+  };
+  const byConnection = async () => {
+    const rows = await sb(env, "conversations?business_connection_id=eq." + encodeURIComponent(conn.id) +
+      "&chat_id=eq." + chatId + "&select=*&order=last_message_at.desc&limit=1").catch(() => null);
+    return (rows && rows[0]) || null;
+  };
+
+  let conv = await byOwner();
+  if (conv) {
+    const change = {};
+    if (conv.business_connection_id !== conn.id) change.business_connection_id = conn.id;
+    if (!conv.customer_id && f.customer_id) change.customer_id = f.customer_id;
+    if (Object.keys(change).length) {
+      try {
+        await sb(env, "conversations?id=eq." + conv.id, {
+          method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify(change),
+        });
+        if (change.business_connection_id) {
+          console.log(JSON.stringify({ evt: "tg.conv.repointed", conversation: conv.id,
+            from: conv.business_connection_id, to: conn.id }));
+        }
+        Object.assign(conv, change);
+      } catch (e) {
+        // A leftover row already holds (new connection, chat). Use that one
+        // rather than answer through a connection that no longer exists.
+        console.log(JSON.stringify({ evt: "tg.conv.repoint_failed", conversation: conv.id, err: String(e).slice(0, 160) }));
+        const other = await byConnection();
+        if (other) conv = other;
+      }
+    }
+    return conv;
+  }
+
+  conv = await byConnection();
+  if (conv) {
+    if (ownerKeyOk && conv.owner_tg_user_id == null) {
+      await sb(env, "conversations?id=eq." + conv.id, {
+        method: "PATCH", headers: { Prefer: "return=minimal" },
+        body: JSON.stringify({ owner_tg_user_id: owner }),
+      }).then(() => { conv.owner_tg_user_id = owner; })
+        .catch(e => console.log(JSON.stringify({ evt: "tg.conv.owner_backfill_failed", err: String(e).slice(0, 160) })));
+    }
+    return conv;
+  }
+
+  const row = {
+    business_connection_id: conn.id,
+    chat_id: chatId,
+    creator_id: conn.creator_id,
+    customer_id: f.customer_id || null,
+    customer_ref: f.customer_ref || null,
+    last_message_at: new Date().toISOString(),
+  };
+  if (ownerKeyOk) row.owner_tg_user_id = owner;
+  try {
+    const made = await upsert(sb, env, "conversations", "business_connection_id,chat_id", row);
+    conv = made && made[0];
+  } catch (e) {
+    // Lost a race on the (owner, chat) index: the other request made it.
+    console.log(JSON.stringify({ evt: "tg.conv.create_failed", err: String(e).slice(0, 160) }));
+    conv = null;
+  }
+  return conv || (await byOwner()) || (await byConnection());
+}
+
+/* What she knows about him, kept on the conversation so it can never cross
+   personas or creators. Written on events, never summarised by a model. */
+function memOf(conv) {
+  const m = conv && conv.memory;
+  return m && typeof m === "object" && !Array.isArray(m) ? m : {};
+}
+
+async function remember(env, sb, conv, change) {
+  if (!conv || !conv.id) return;
+  const cur = memOf(conv);
+  const next = { ...cur, ...(typeof change === "function" ? change(cur) : change) };
+  conv.memory = next;
+  await sb(env, "conversations?id=eq." + conv.id, {
+    method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ memory: next }),
+  }).catch(e => console.log(JSON.stringify({ evt: "tg.memory.write_failed", conversation: conv.id,
+    err: String(e).slice(0, 160) })));
+}
+
+const minsAgo = iso => iso ? (Date.now() - new Date(iso).getTime()) / 60000 : Infinity;
+
+/* The prompt block, at most sixty words. Only facts recorded by code. */
+function memoryLine(mem) {
+  const m = mem || {};
+  const bits = [];
+  if (m.name) bits.push("his name is " + m.name);
+  const bought = Array.isArray(m.bought) ? m.bought.length : 0;
+  if (bought) bits.push("he has bought " + bought + " thing" + (bought === 1 ? "" : "s") + " from you");
+  const free = Array.isArray(m.free_sent) ? m.free_sent.length : 0;
+  if (free >= 2) bits.push("he has had both of the pictures you give away, so never offer another");
+  else if (free === 1) bits.push("he has had one picture from you already");
+  const q = m.open_quote;
+  if (q && q.status === "open" && minsAgo(q.at) < 24 * 60) bits.push("you quoted him " + (q.stars || "a price") + " ⭐ and he has not paid, so do not chase it");
+  if (q && q.status === "declined" && minsAgo(q.at) < 24 * 60) bits.push("he turned down your last offer, so no selling today");
+  if (m.custom_ask && minsAgo(m.custom_ask.at) < 7 * 24 * 60) bits.push("he asked for something special (" + String(m.custom_ask.text || "").slice(0, 60) + ") and the owner is sorting it");
+  const lm = m.last_media;
+  if (lm && minsAgo(lm.at) < 60) bits.push("the last thing you sent him was a " + (lm.free ? "free " : lm.item_id ? "locked " : "") +
+    (/video/.test(String(lm.kind || "")) ? "video" : "picture") + ", " + Math.max(1, Math.round(minsAgo(lm.at))) + " min ago");
+  if (m.owner_notes) bits.push("the owner says: " + String(m.owner_notes).slice(0, 120));
+  if (!bits.length) return "";
+  const words = ("What you know about him: " + bits.join("; ") + ".").split(/\s+/);
+  return words.length > 60 ? words.slice(0, 60).join(" ") + "…" : words.join(" ");
+}
+
+/* Model lines that promise something nothing in the code will ever send. Andy
+   was lost to "I've got a free pic to start you off", "one sec babe", "nearly
+   ready for you x". Run on HER outbound text only, never on his. */
+const PROMISE_OUT = /\b(one sec|give me a (sec|min(ute)?)|hang on|hold on|bear with|(nearly|almost) ready|on (its|it'?s) way|coming (right )?(up|your way)|sending (it|you|now|one)|(i'?ll|i will|let me|gonna|going to) (send|show|get|grab|film|make|take|record|sort) (you|it|one|that|something|a)\b|i'?ve got (a|something|just the thing|one)\b[^.!?]{0,25}\b(for you|to start you off|you'?ll (like|love)))/i;
+const CHASE_IN = /\b(still waiting|where('?s| is) (it|my|that|the (pic|photo|video|vid))|you (said|promised)|(said|thought) (ya|you) (was|were) sending|never (sent|got) (it|anything)|what happened to (it|my|the)|not (got|received) (it|anything))\b/i;
 
 // ---------------------------------------------------------------------------
 // business_message: a message in a connected chat, either direction
@@ -202,6 +364,9 @@ async function onMessage(env, sb, msg, edited) {
   const conn = rows && rows[0];
   if (!conn) return { skipped: "unknown connection" };
   if (!conn.creator_id) return { skipped: "unclaimed connection" };
+  // A connection switched off (revoked, or disabled because the human on it is
+  // not the account's owner) is never answered, even if a message arrives.
+  if (conn.is_enabled === false) return { skipped: "disabled connection" };
 
   const ownerId = conn.tg_user_id;
   const from = msg.from || {};
@@ -229,22 +394,10 @@ async function onMessage(env, sb, msg, edited) {
   });
   const customer = customers && customers[0];
 
-  // The composite key is load-bearing: chat_id alone COLLIDES across accounts
-  // and that collision is a cross-account data leak.
-  const convs = await upsert(sb, env, "conversations", "business_connection_id,chat_id", {
-    business_connection_id: bcId,
-    chat_id: msg.chat.id,
-    creator_id: conn.creator_id,
+  const conv = await findOrCreateConversation(env, sb, conn, msg.chat.id, {
     customer_id: customer ? customer.id : null,
     customer_ref: String(custTgId),
-    last_message_at: new Date().toISOString(),
   });
-  let conv = convs && convs[0];
-  if (!conv) {
-    const found = await sb(env, "conversations?business_connection_id=eq." +
-      encodeURIComponent(bcId) + "&chat_id=eq." + msg.chat.id + "&select=*&order=last_message_at.desc&limit=1");
-    conv = found && found[0];
-  }
   if (!conv) return { skipped: "no conversation" };
 
   // Read the PRIOR inbound time before we overwrite it. telegram-dm-bot set
@@ -288,6 +441,11 @@ async function onMessage(env, sb, msg, edited) {
     delivered: true,
   }, "resolution=merge-duplicates,return=minimal");
 
+  // A picture she sent from her own phone is what "how much is that" points at.
+  if (outgoing && sender === "human" && (kind === "photo" || kind === "video")) {
+    await remember(env, sb, conv, { last_media: { item_id: null, source: null, kind,
+      stars: 0, free: null, via: "owner", at: new Date().toISOString() } });
+  }
 
   // Learn the name he gives. It has to live in flags: the customers upsert
   // above rewrites first_name from the Telegram profile on every message, so a
@@ -307,6 +465,7 @@ async function onMessage(env, sb, msg, edited) {
             body: JSON.stringify({ flags }),
           }).catch(() => {});
           customer.flags = flags;
+          await remember(env, sb, conv, { name: nm, name_source: "chat" });
           console.log(JSON.stringify({ evt: "tg.customer.name_learned", name: nm }));
         }
       }
@@ -340,13 +499,14 @@ async function onMessage(env, sb, msg, edited) {
           const tk = await botTokenFor(env, sb, conn);
           if (tk) {
             await tg.sendMessage(tk, conn.id, msg.chat.id, "ok checking now x");
+            const sealedCheck = await sealedBody(env, sb, conn.creator_id, "ok checking now x");
             await sb(env, "messages", {
               method: "POST",
               headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
               body: JSON.stringify({
                 conversation_id: conv.id, creator_id: conn.creator_id,
                 direction: "out", sender: "ai", kind: "text",
-                body_preview: "ok checking now x",
+                body_preview: "ok checking now x", ...sealedCheck,
                 sent_at: new Date().toISOString(),
                 raw: { via: "payment-checking" },
               }),
@@ -447,6 +607,11 @@ async function onMessage(env, sb, msg, edited) {
       // one light line back and the chat carries on. No price, no second push,
       // and the AI stays on for this thread.
       patch.declined_at = new Date().toISOString();
+      const mem = memOf(conv);
+      if (mem.open_quote && mem.open_quote.status === "open") {
+        conv.memory = { ...mem, open_quote: { ...mem.open_quote, status: "declined", at: patch.declined_at } };
+        patch.memory = conv.memory;
+      }
     } else if (DISMISS.test(text)) {
       // nothing to say, and nothing worth spending a model call on
       intercept = "dismissed";
@@ -454,9 +619,14 @@ async function onMessage(env, sb, msg, edited) {
     }
   }
 
+  // Never let the bookkeeping eat the reply. On 28 Oct this PATCH carried a
+  // column the table did not have, threw, and the man who said "no thanks"
+  // would have got silence. Log it and carry on to the answer.
   await sb(env, "conversations?id=eq." + conv.id, {
     method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify(patch),
-  });
+  }).catch(e => console.log(JSON.stringify({ evt: "tg.conv_patch_failed", conversation: conv.id,
+    keys: Object.keys(patch), err: String(e && e.message || e).slice(0, 200) })));
+  if (patch.declined_at) conv.declined_at = patch.declined_at;
 
   // Not every line needs an answer. A short ack, a laugh or a single emoji after
   // she has already replied is left alone about half the time, which is what a
@@ -506,10 +676,11 @@ async function onMessage(env, sb, msg, edited) {
   // Auto-reply: deterministic intercept answers send straight away; everything
   // else asks the model, then sends through the business connection.
   if (!outgoing && text && windowOpen && conv.mode !== "human" && !conv.ai_disabled) {
+    // Gate 2: meet / platform, narrowest intent first. The menu re-offer that
+    // used to sit here sent the whole list every fifteen messages, mid-scene;
+    // it is now a single question inside the model reply (see reofferDue).
     const deflected = await maybeDeflect(env, sb, conn, conv, msg, text).catch(() => null);
     if (deflected) return deflected;
-    const reoffered = await maybeReofferMenu(env, sb, conn, conv, msg).catch(() => null);
-    if (reoffered) return reoffered;
   }
 
   let sent = null, vision = null;
@@ -592,16 +763,16 @@ async function liveCatalogue(env, sb, conn) {
 
   let rows = await sb(env, "media_items?telegram_account_id=eq." +
     encodeURIComponent(conn.telegram_account_id) +
-    "&visible=eq.true&select=title,kind,price_ton,price_gbp,price_stars,media_key&order=price_ton.desc&limit=15").catch(() => null);
+    "&visible=eq.true&select=title,kind,price_gbp,price_stars,media_key&order=price_gbp.desc.nullslast&limit=15").catch(() => null);
   // Content uploaded before an account existed sits unassigned. It is still
   // hers, so it counts rather than the bot saying she has nothing to sell.
   if (!(rows && rows.length)){
     rows = await sb(env, "media_items?creator_id=eq." + encodeURIComponent(conn.creator_id) +
-      "&telegram_account_id=is.null&visible=eq.true&select=title,kind,price_ton,price_gbp,price_stars,media_key&order=price_ton.desc&limit=15").catch(() => null);
+      "&telegram_account_id=is.null&visible=eq.true&select=title,kind,price_gbp,price_stars,media_key&order=price_gbp.desc.nullslast&limit=15").catch(() => null);
   }
   const items = (rows || []).filter(m => m.title && !String(m.media_key || "").startsWith("demo/"));
   if (!items.length) return "";
-  const priceOf = m => Number(m.price_gbp || m.price_ton || 0);
+  const priceOf = m => Number(m.price_gbp || 0);
   const paid = items.filter(m => priceOf(m) > 0);
   const free = items.filter(m => priceOf(m) <= 0);
   const lines = [];
@@ -742,11 +913,17 @@ const REPLY_MODELS = [
 ];
 
 async function generateReply(env, system, history, incoming) {
-  const messages = [
+  // A "gap" row is the "— 2 days later —" marker: a system line for DeepSeek,
+  // and a bracketed user line for Workers AI, whose chat templates are not
+  // guaranteed to take a system turn mid-conversation.
+  const build = gapRole => [
     { role: "system", content: system },
-    ...history.map(h => ({ role: h.dir === "in" ? "user" : "assistant", content: h.text })),
+    ...history.map(h => h.dir === "gap"
+      ? { role: gapRole, content: gapRole === "system" ? h.text : "(" + h.text + ")" }
+      : { role: h.dir === "in" ? "user" : "assistant", content: h.text }),
     { role: "user", content: incoming },
   ];
+  const messages = build("system");
   // DeepSeek first when the owner has given a key. It is the one that holds the
   // voice and the emoji on a long persona, and thinking is switched off: left on
   // it spends ~170 reasoning tokens and an extra second on every reply, and
@@ -782,7 +959,7 @@ async function generateReply(env, system, history, incoming) {
     tried.add(model);
     try {
       const out = await env.AI.run(model, {
-        messages, max_tokens: 150, temperature: 0.85,
+        messages: build("user"), max_tokens: 150, temperature: 0.85,
       });
       const text = typeof out === "string" ? out : (out && out.response) || "";
       const clean = String(text).trim().replace(/^["']|["']$/g, "");
@@ -1015,7 +1192,7 @@ async function transcribeIncomingAudio(env, sb, conn, msg) {
    shortly after, so it reads as one person catching up on the thread. */
 export async function catchUpReply(env, sb, conversationId) {
   const convs = await sb(env, "conversations?id=eq." + encodeURIComponent(conversationId) +
-    "&select=id,creator_id,business_connection_id,chat_id,mode,ai_disabled").catch(() => null);
+    "&select=*").catch(() => null);
   const conv = convs && convs[0];
   if (!conv || conv.mode === "human" || conv.ai_disabled || !conv.business_connection_id) return null;
   const conns = await sb(env, "business_connections?id=eq." + encodeURIComponent(conv.business_connection_id) +
@@ -1043,7 +1220,7 @@ export async function catchUpReply(env, sb, conversationId) {
     (now - new Date(m.sent_at).getTime()) < 30 * 60 * 1000);
   if (!waiting.length) return null;
 
-  const history = msgs.map(m => ({ dir: m.dir, text: m.text })).slice(-20);
+  const history = withGapMarkers(msgs.slice(-20), now);
   // Every line she has sent in this window, not just the last six: the model
   // copied an old pitch from earlier in the thread because it had scrolled out
   // of the guard. Twelve covers a full history buffer.
@@ -1055,7 +1232,8 @@ export async function catchUpReply(env, sb, conversationId) {
       "&select=wallet_address,pay_bank_name,pay_sort_code,pay_account_no,pay_paypal,pay_note").catch(() => null);
     payLine = payLineFrom(prof && prof[0]);
   }
-  const system = personaSystemPrompt(p, conn, catalogue, payLine, priorOut) +
+  const memLine = memoryLine(memOf(conv));
+  const system = personaSystemPrompt(p, conn, catalogue, payLine, priorOut) + (memLine ? " " + memLine : "") +
     " He sent these while you were away: " + waiting.map(m => '"' + m.text + '"').join("; ") +
     ". Answer the ones that matter (a question, anything sexual, anything about buying) and skip the filler. Do not answer each one separately. Short and human.";
   const text = finishReply(await generateReply(env, system, history, "Answer the messages he sent while you were away."));
@@ -1097,6 +1275,227 @@ function finishReply(t) {
   return cut ? cut + " x" : s;
 }
 
+/* ---------------------------------------------------------------------------
+   Inbound routing, as pure functions so the order can be tested without a DB.
+
+   Gate order (OPUS-PLAN Fix 8), narrowest intent first, canned lists last:
+     meet / be-in-the-video -> custom ask -> payment reply (only when QUOTED)
+     -> price of "that" -> explicit menu ask -> named item -> video list
+     (request verbs only) -> free picture -> model.
+   ------------------------------------------------------------------------- */
+const SYNTHETIC_RE = /^he sent you (an image|a voice note|an attachment)/;
+// A bare yes. Only a yes to HER menu offer (menuOffered) ever sends the list.
+const YES_RE = /^(yes|yeah|yep|yeh|ye|yup|yh|ya|why not|sure|ok|okay|go on|go for it|please|pls|send it|send them|send us|show me|let'?s see|of course|course|definitely|absolutely|sounds good|alright|aye|deal|do it|i'?ll (have|take|get)|fine|cool)\b/i;
+// He asked what she sells. "what would THAT cost" is not this: see thatPrice.
+const MENU_ASK_RE = /(menu|what.*(offer|have|sell|sellin|got)|price list|how much|options|what can i buy|show me what|\bcost\b|\bprices?\b|what do you charge|what'?s on offer|what is on offer)/i;
+// A request to see her. Body parts and "see you" were sexual lines, not asks.
+const FREE_ASK_RE = /\b(send|show|got|any|see|share)\s+(me\s+|us\s+)?(a\s+|any\s+|some\s+|another\s+)?(pic|pics|photo|photos|picture|pictures|pix|selfie|selfies|nude|nudes)\b|\bcan i see you\b|\blet me see you\b|\bwhat do you look like\b|\bshow yourself\b|\banything (for )?free\b|\bfreebie\b/i;
+const DEICTIC_RE = /\b(that|this|it)( one)?\b/i;
+const COST_RE = /\b(cost|costs|how much|price|worth)\b/i;
+const GENERAL_ITEM_RE = /\b(your|a|any|some)\s+(video|vid|clip|pic|photo|picture|stuff|content)s?\b/i;
+// Only a request for a video gets the list, not any sentence with "video" in it.
+const VIDEO_REQ_RE = /\b(send|show|got)\b[^.!?]{0,30}\b(video|videos|vid|vids|clip|clips)\b/i;
+// Something made for him. "say my name" is left out on purpose: mid-scene it is
+// sexting, and it would ping the owner on every hot chat.
+const CUSTOM_RE = /\b(custom|make me (one|a)|can you (make|do|film|record|wear)|will you (do|make|film|wear)|would you (do|make|film|wear)|with my name|just for me)\b/i;
+const REJECT_START_RE = /^(no|nope|nah|pass)\b/i;
+const REJECT_RE = /\b(no thanks|not (interested|for me)|i'?ll pass|too (much|expensive)|can'?t afford|maybe later|another time|not right now)\b/i;
+const AFFIRM_RE = /^(yes|yeah|yep|yeh|ye|myeah|ok|okay|go on|please|pls|send it|send them|send us it|go for it|sure|course|of course|sound|perfect|aye|alright|i'?ll take|i'?ll have|i'?ll get|let'?s do it|do it|deal)\b/i;
+const BUY_INTENT_RE = /\b(i'?ll take|i'?ll buy|i want to buy|buy it|buy that|i'?ll have|take it|pay for (it|that)|send (it|that) (to me|over)|send me (that|the|your|those|them)|give me (that|it|those|them)|i want (that|the|those)|let me see (that|the)|show me (that|the)|can i (have|get|see)|could i (have|get|see)|i'?d like (that|the))\b/i;
+// Her lines that offer the menu, for the "yes" path.
+const MENU_OFFER_RE = /\b(menu|price list|the list|what i (have|do|sell)|what i'?ve got|my stuff)\b/i;
+const OFFER_VIA = new Set(["free-limit", "menu-reoffer", "menu-question"]);
+const MENU_QUESTIONS = [
+  "want me to send you my menu so you can pick one? x",
+  "want to see what I've got? x",
+  "shall I show you what I've got babe? 😏",
+];
+// He is in the middle of it. No offer lands here.
+const SCENE_RE = /\b(cock|dick|pussy|cunt|wet|horny|hard|wank|wanking|fuck|fucking|cum|cumming|stroke|stroking|suck|sucking|lick|licking|ride|riding|tits|arse|ass|naked|nude|inside (me|you)|doggy|squirt|moan)\b/i;
+
+const bareOf = lower => String(lower || "").replace(/^(h+m+|m+h+m+|m+y+e+a+h+|ah+|oh+|erm+|well|ha+|aye)\s+/i, "").trim();
+
+/* ctx: { offered, quoted, menuRecent, lastMediaFresh, namedItem }, all booleans
+   loaded by autoReply. Returns the candidate routes in order; autoReply tries
+   each sender in turn and the model is always last. */
+function inboundSignals(text, ctx) {
+  const c = ctx || {};
+  const raw = String(text || "");
+  const synthetic = !raw || SYNTHETIC_RE.test(raw);
+  const base = { synthetic, routes: ["model"], reject: false, free: false, menuAsk: false,
+                 thatPrice: false, methodHit: null, cardHit: false, askingHowPay: false };
+  if (synthetic) return base;
+  const lower = raw.toLowerCase();
+  const bare = bareOf(lower);
+  if (MEET_RE.test(lower)) return { ...base, routes: ["meet", "model"], meet: true };
+  if (CUSTOM_RE.test(lower)) return { ...base, routes: ["custom", "model"], custom: true };
+  const free = FREE_ASK_RE.test(lower);
+  const thatPrice = DEICTIC_RE.test(lower) && COST_RE.test(lower) && !GENERAL_ITEM_RE.test(lower);
+  const menuAsk = !thatPrice && MENU_ASK_RE.test(lower);
+  const menuYes = !!c.offered && YES_RE.test(lower);
+  // A no only counts as turning something down when something was offered.
+  const reject = !!(c.quoted || c.menuRecent) && (REJECT_START_RE.test(bare) || REJECT_RE.test(lower));
+  const starsHit = /\bstars?\b|⭐/.test(lower) &&
+    (/\b(pay|paying|payment|with|use|send|via|ok|yes|yeah|please|can|do)\b/.test(lower) ||
+     bare.split(/\s+/).filter(Boolean).length <= 4);
+  const methodHit = starsHit ? "stars" : (/\bbank\b|\btransfer\b/i.test(lower) ? "bank" : null);
+  const cardHit = /\b(card|link|fangate)\b/i.test(lower);
+  const affirmative = AFFIRM_RE.test(bare);
+  const wantsToPay = /\b(pay|paying|payment|send (you )?the (money|cash)|how do i pay|where do i send)\b/i.test(lower);
+  const askingHowPay = /how (do|can) i pay|how.*(pay|payment)|payment (method|options|details)?|ways? to pay|pay options/.test(lower);
+  const routes = [];
+  if (c.quoted && !free && !reject && (methodHit || cardHit || affirmative || wantsToPay || askingHowPay)) routes.push("payment");
+  if (thatPrice) routes.push(c.lastMediaFresh ? "price-of-that" : "menu-question");
+  if (menuAsk || menuYes) routes.push("menu");
+  if (!free && !menuAsk && (c.namedItem || BUY_INTENT_RE.test(raw))) routes.push("named-item");
+  if (!free && !menuAsk && VIDEO_REQ_RE.test(lower)) routes.push("video-list");
+  if (free) routes.push("free");
+  routes.push("model");
+  return { ...base, routes, reject, free, menuAsk, thatPrice, methodHit, cardHit, askingHowPay };
+}
+const routeInbound = (text, ctx) => inboundSignals(text, ctx).routes;
+
+/* Did one of her last two lines, inside half an hour, offer the menu? */
+function menuOffered(outs) {
+  return (outs || []).slice(0, 2).some(r => minsAgo(r.sent_at) < 30 &&
+    ((r.raw && OFFER_VIA.has(r.raw.via)) || MENU_OFFER_RE.test(r.body_preview || "")));
+}
+
+/* QUOTED: a payment request in the last day, not since declined or paid. */
+function openQuoteRow(outs, conv, mem) {
+  const q = (outs || []).find(r => r.raw && r.raw.via === "menu-buy" && r.raw.item_id);
+  if (!q || minsAgo(q.sent_at) > 24 * 60) return null;
+  const t = new Date(q.sent_at).getTime();
+  if (conv && conv.declined_at && new Date(conv.declined_at).getTime() > t) return null;
+  const oq = mem && mem.open_quote;
+  if (oq && oq.item_id === q.raw.item_id && oq.status && oq.status !== "open" &&
+      new Date(oq.at).getTime() >= t) return null;
+  return q;
+}
+
+/* The once-a-day menu question. Never early, never mid-scene, never after a
+   no, never with a price already open, never within a day of a list. */
+function reofferDue(c) {
+  if (!c || (Number(c.hisCount) || 0) < 6) return false;
+  if (c.sellRecent || c.declinedRecent || c.quoted) return false;
+  if ((c.recentIn || []).some(t => SCENE_RE.test(String(t || "")))) return false;
+  return true;
+}
+
+/* "— 2 days later —" between rows more than six hours apart, and before the
+   message being answered when the thread had gone quiet. */
+function gapLabel(ms) {
+  const h = ms / 3600000;
+  if (h < 24) return "— " + Math.round(h) + " hours later —";
+  const d = Math.round(h / 24);
+  return "— " + d + " day" + (d === 1 ? "" : "s") + " later —";
+}
+function withGapMarkers(rows, now) {
+  const out = [];
+  let prev = null;
+  for (const r of rows || []) {
+    const t = r.sent_at ? new Date(r.sent_at).getTime() : NaN;
+    if (prev != null && Number.isFinite(t) && t - prev > 6 * 3600 * 1000) out.push({ dir: "gap", text: gapLabel(t - prev) });
+    if (Number.isFinite(t)) prev = t;
+    out.push({ dir: r.dir, text: r.text });
+  }
+  if (now && prev != null && now - prev > 6 * 3600 * 1000) out.push({ dir: "gap", text: gapLabel(now - prev) });
+  return out;
+}
+
+const gbpText = n => "£" + (Number(n) || 0).toFixed(2);
+
+/* One deterministic line, sent as her, recorded sealed. */
+async function sendLine(env, sb, conn, conv, chatId, line, via, extraRaw, readId) {
+  const token = await botTokenFor(env, sb, conn);
+  if (!token || !chatId || !line) return null;
+  try {
+    if (readId) await tg.readBusinessMessage(token, conn.id, chatId, readId).catch(() => {});
+    await humanPace(token, conn.id, chatId, line).catch(() => {});
+    const sent = await tg.sendMessage(token, conn.id, chatId, line);
+    const sealed = await sealedBody(env, sb, conn.creator_id, line);
+    await sb(env, "messages", {
+      method: "POST",
+      headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+      body: JSON.stringify({
+        conversation_id: conv.id, creator_id: conn.creator_id,
+        tg_message_id: sent && sent.message_id ? sent.message_id : null,
+        direction: "out", sender: "ai", kind: "text",
+        body_preview: preview(line), ...sealed,
+        sent_at: new Date().toISOString(),
+        raw: { via, ...(extraRaw || {}) },
+      }),
+    }).catch(e => console.log(JSON.stringify({ evt: "tg.line.record_failed", via, err: String(e).slice(0, 160) })));
+    return { via, text: line };
+  } catch (e) {
+    console.log(JSON.stringify({ evt: "tg.line.send_failed", via, err: String(e).slice(0, 160) }));
+    return null;
+  }
+}
+
+/* Gate 4: he answered a quote (stars, bank, card, yes, how do I pay). */
+async function routePayment(env, sb, conn, conv, msg, text, sig, quoteRow) {
+  const quoted = quoteRow ? await itemById(env, sb, quoteRow.raw.item_id, quoteRow.raw.item_source) : null;
+  if (!quoted) return null;
+  if (sig.cardHit && quoted.metadata && quoted.metadata.fangate_url) {
+    const sentLink = await sendFangateLink(env, sb, conn, conv, msg.chat.id, quoted);
+    if (sentLink) return sentLink;
+  }
+  // Stars first: a digital item is unlocked in this chat, not by bank details.
+  if (sig.methodHit === "stars" && starsEligible(quoted)) {
+    const starsSent = await sendStarsItem(env, sb, conn, conv, msg.chat.id, quoted);
+    if (starsSent) return starsSent;
+  }
+  if (!sig.methodHit) {
+    const choice = await sendPayChoice(env, sb, conn, conv, msg.chat.id, quoted);
+    if (choice) return choice;
+  }
+  const bankMethod = sig.methodHit === "stars" ? "bank" : (sig.methodHit || "bank");
+  return await sendPayDetails(env, sb, conn, conv, msg.chat.id, quoted, bankMethod);
+}
+
+/* Gate 5: "what would that cost" about the thing she just sent. */
+async function sendPriceOfThat(env, sb, conn, conv, msg, lm) {
+  if (!lm) return null;
+  if (!lm.item_id) return { ask_owner: true };          // a photo from her phone
+  const item = await itemById(env, sb, lm.item_id, lm.source || "media");
+  if (!item) return { ask_owner: true };
+  if (!lm.free && Number(item.price_gbp || 0) > 0) {
+    const req = await sendPaymentRequest(env, sb, conn, conv, msg, item);
+    if (req) return req;
+    // The lock is already on screen: say the price once, do not re-post it.
+    const s = starsEligible(item) ? starsFor(item, env) : 0;
+    if (!s) return null;
+    return await sendLine(env, sb, conn, conv, msg.chat.id, `that one's ${s} ⭐ babe, just tap the lock 😏`,
+      "price-of-that", { item_id: item.id, stars: s }, msg.message_id);
+  }
+  const kind = item.kind;
+  const paid = (await sellableItems(env, sb, conn))
+    .filter(i => i.kind === kind && Number(i.price_gbp || 0) > 0 && starsFor(i, env) > 0)
+    .sort((a, b) => starsFor(a, env) - starsFor(b, env));
+  const next = paid[0];
+  const line = "that one's yours babe 😘" + (next ? " if you want more, " + next.title + " is " + starsFor(next, env) + " ⭐ x" : " x");
+  return await sendLine(env, sb, conn, conv, msg.chat.id, line, "price-of-that",
+    { item_id: item.id, free: true, next_item: next ? next.id : null }, msg.message_id);
+}
+
+/* Gate 8: he asked for a video without naming one. Show the ones she has. */
+async function sendVideoList(env, sb, conn, conv, msg) {
+  const vids = (await sellableItems(env, sb, conn))
+    .filter(i => i.kind === "video" && Number(i.price_gbp || 0) > 0);
+  if (vids.length === 1) return await sendPaymentRequest(env, sb, conn, conv, msg, vids[0]);
+  if (vids.length < 2) return null;
+  const lines = ["which one baby 😈"];
+  for (const v of vids.slice(0, 6)) {
+    const s = Number(v.price_stars) || starsFor(v, env) || 0;
+    lines.push("• " + v.title + " - " + s + " ⭐");
+  }
+  lines.push("say the one you want and I'll unlock it x");
+  const r = await sendLine(env, sb, conn, conv, msg.chat.id, lines.join("\n"), "video-options",
+    { count: vids.length }, msg.message_id);
+  return r ? { video_options: vids.length } : null;
+}
+
 async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   // A photo or video with no caption is still a message. It used to be dropped
   // here because there was no text to answer, which is why sending a picture
@@ -1117,181 +1516,67 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   // deterministic sends keep their own short typing pause.
   const stopTyping = () => {};
 
-  // FREE CONTENT: "anything free?" -> send a live, price-0 item from this
-  // account's library, once per conversation until they ask again later.
-  // A picture or a voice note is answered from the description or transcript.
-  // That text is synthetic, so it must never be read as a request for a freebie,
-  // a menu or a purchase: the word "photo" inside a description once fired the
-  // free item instead of answering the picture.
-  const mediaSynthetic = /^he sent you (an image|a voice note)/.test(text || "");
+  // ROUTING. Narrowest intent first, canned lists last (OPUS-PLAN Fix 8). The
+  // decision is the pure inboundSignals(); this only loads what it needs and
+  // runs each route's existing sender, falling through when a sender has
+  // nothing to send. Meet/platform already ran in onMessage (maybeDeflect).
+  const mem = memOf(conv);
+  const outs = (await sb(env, "messages?conversation_id=eq." + conv.id +
+    "&direction=eq.out&select=raw,body_preview,sent_at&order=sent_at.desc&limit=12").catch(() => null)) || [];
+  const quoteRow = openQuoteRow(outs, conv, mem);
+  const lm = mem.last_media || null;
+  const preSig = inboundSignals(text, {});
+  const shortText = !preSig.synthetic && !preSig.free && !preSig.menuAsk &&
+    bareOf(String(text || "").toLowerCase()).split(/\s+/).filter(Boolean).length <= 9;
+  const namedItem = shortText ? await strongItemMatch(env, sb, conn, text) : null;
+  const sig = inboundSignals(text, {
+    offered: menuOffered(outs),
+    quoted: !!quoteRow,
+    menuRecent: outs.some(r => r.raw && r.raw.via === "menu-text" && minsAgo(r.sent_at) < 30),
+    lastMediaFresh: !!(lm && minsAgo(lm.at) < 15),
+    namedItem: !!namedItem,
+  });
   const lower = String(text || "").toLowerCase();
-  // "send us a pic" is the most common opener there is. It gets the free one,
-  // the same as asking for a freebie.
-  const askingFree = !mediaSynthetic && /(free|4free|for free|anything for me|freebie|sample|preview|\b(pic|pics|photo|photos|picture|pictures)\b|show (me|us)(?!\s+(the|that|your|a)\s+(video|vid|clip))|what do you look like|send (me )?(something|one)|any nudes|\bnudes\b|can i see you|let me see you|see you|show yourself|your body|your tits|your arse|your ass)/.test(lower);
-  if (askingFree) {
-    const sentFree = await maybeSendFreeItem(env, sb, conn, conv, msg);
-    if (sentFree) { stopTyping(); return sentFree; }   // media sent; no text needed
+  const rejectHit = sig.reject;
+  let customAsk = false, ownerPhotoAsk = false;
+  console.log(JSON.stringify({ evt: "tg.route", conversation: conv.id, routes: sig.routes }));
+  for (const route of sig.routes) {
+    if (route === "model" || route === "meet") break;
+    if (route === "custom") { customAsk = true; break; }
+    let r = null;
+    if (route === "payment") {
+      r = await routePayment(env, sb, conn, conv, msg, text, sig, quoteRow);
+    } else if (route === "price-of-that") {
+      r = await sendPriceOfThat(env, sb, conn, conv, msg, lm);
+      if (r && r.ask_owner) { ownerPhotoAsk = true; break; }
+    } else if (route === "menu-question") {
+      r = await sendLine(env, sb, conn, conv, msg.chat.id, pickOf(MENU_QUESTIONS), "menu-question", {}, msg.message_id);
+    } else if (route === "menu") {
+      r = await maybeSendMenu(env, sb, conn, conv, msg);
+    } else if (route === "named-item") {
+      const picked = namedItem || await matchLiveItem(env, sb, conn, text);
+      if (picked) r = await sendPaymentRequest(env, sb, conn, conv, msg, picked);
+    } else if (route === "video-list") {
+      r = await sendVideoList(env, sb, conn, conv, msg);
+    } else if (route === "free") {
+      // Never while a price is open: the free one would undercut it.
+      if (!quoteRow) r = await maybeSendFreeItem(env, sb, conn, conv, msg);
+    }
+    if (r) { stopTyping(); return r; }
   }
 
-  // MENU: "what do you offer / send me the menu" -> list live items with
-  // prices straight from her library, not the model's imagination.
-  const askingMenu = !mediaSynthetic && /(menu|what.*(offer|have|sell|sellin|got)|price list|how much|options|what can i buy|show me what)/.test(lower);
-  // He has just been told what she does and asked to see it. That is a yes to
-  // the menu, so it goes out rather than another line about knickers.
-  // Any sign of interest counts, not only a clean yes. The menu only goes out
-  // once per chat, so an early prompt costs nothing.
-  const wantsMenu = !mediaSynthetic && (
-    /^(yes|yeah|yep|yeh|ye|yup|yh|ya|why not|sure|ok|okay|go on|go for it|please|pls|send it|send them|send us|show me|let'?s see|of course|course|definitely|absolutely|sounds good|alright|aye|deal|do it|i'?ll (have|take|get)|fine|cool)\b/i.test(lower) ||
-    /(what else|what kind|what sort|like what|such as|tell me more|what do you mean|what'?s on (it|the menu)|how much|any good|what can i (get|have)|maybe|hmm+|interesting|oh yeah|really\?|go on then|and\?)/i.test(lower)
-  );
-  if (wantsMenu) {
-    // He is saying yes to whatever she offered last. If that was the menu, the
-    // list goes out now, whoever wrote the offer.
-    const lastOut = await sb(env, "messages?conversation_id=eq." + conv.id +
-      "&direction=eq.out&select=body_preview,sent_at&order=sent_at.desc&limit=2").catch(() => null);
-    const offered = (lastOut || []).find(m => Date.now() - new Date(m.sent_at).getTime() < 30 * 60 * 1000 &&
-      /menu|price|list|what i (have|do|sell)|my stuff/i.test(m.body_preview || ""));
-    const recentLimit = await sb(env, "messages?conversation_id=eq." + conv.id +
-      "&direction=eq.out&raw->>via=eq.free-limit&select=sent_at&order=sent_at.desc&limit=1").catch(() => null);
-    const limitFresh = recentLimit && recentLimit[0] && Date.now() - new Date(recentLimit[0].sent_at).getTime() < 30 * 60 * 1000;
-    // A bare yes from a man who has never seen the menu gets the menu. Once it
-    // has gone out, another yes is just a yes and the model answers it.
-    const menuSent = await sb(env, "messages?conversation_id=eq." + conv.id +
-      "&direction=eq.out&raw->>via=eq.menu-text&select=id&limit=1").catch(() => null);
-    const neverSent = Array.isArray(menuSent) && menuSent.length === 0;
-    if (offered || limitFresh || neverSent) {
-      const m = await maybeSendMenu(env, sb, conn, conv, msg);
-      if (m) { stopTyping(); return m; }
-    }
+  // A custom ask reaches the owner now, deterministically, before the model
+  // can promise it or price it. The DeepSeek classifier is only a refinement
+  // for asks the regex does not catch (maybeFlagCustomAsk after the queue).
+  if (customAsk) {
+    const who = (msg.from && (msg.from.first_name || msg.from.username)) || "someone";
+    await notifyOwner(env, sb, conn, conv, msg, "Needs you", "Custom request from " + who + ": " + String(text).slice(0, 160)).catch(() => null);
+    await remember(env, sb, conv, { custom_ask: { text: String(text).slice(0, 200), at: new Date().toISOString(), kind: "custom" } });
+    console.log(JSON.stringify({ evt: "tg.custom_ask.gate", conversation: conv.id }));
   }
-
-  if (askingMenu && !askingFree) {
-    const menu = await maybeSendMenu(env, sb, conn, conv, msg);
-    if (menu) { stopTyping(); return menu; }
-  }
-
-  // He answers in words now, because there are no buttons to tap. Bank is the
-  // only rail: a yes gets the bank details. If he names PayPal or crypto, the
-  // model answers "bank only x" from the persona rather than us sending a bank
-  // message he did not ask for.
-  // "hmmm myeah" is a yes. Strip the filler before deciding, or a man who has
-  // agreed in the way men actually type is left without the bank details.
-  const bare = lower.replace(/^(h+m+|m+h+m+|m+y+e+a+h+|ah+|oh+|erm+|well|ha+|aye)\s+/i, "").trim();
-  const affirmative = !mediaSynthetic && /^(yes|yeah|yep|yeh|ye|myeah|ok|okay|go on|please|pls|send it|send them|send us it|go for it|sure|course|of course|sound|perfect|aye|alright|i'?ll take|i'?ll have|i'?ll get|let'?s do it|do it|deal)\b/i.test(bare);
-  const starsHit = !mediaSynthetic && /\bstars?\b|⭐/.test(lower) &&
-    (/\b(pay|paying|payment|with|use|send|via|ok|yes|yeah|please|can|do)\b/.test(lower) ||
-     bare.split(/\s+/).filter(Boolean).length <= 4);
-  const methodHit = !mediaSynthetic
-    ? (starsHit ? "stars" : (/\bbank\b|\btransfer\b/i.test(lower) ? "bank" : null))
-    : null;
-  // "I want to pay for them" is the clearest signal there is, and it must not
-  // depend on a quote being recorded by a particular path. Money offered to
-  // meet is not that signal.
-  const meetAsk = !mediaSynthetic && MEET_RE.test(lower);
-  const wantsToPay = !mediaSynthetic && !meetAsk && /\b(pay|paying|payment|send (you )?the (money|cash)|how do i pay|where do i send)\b/i.test(lower);
-  // A turn-down is not a go-ahead. "no thanks", "too much", "maybe later" must
-  // stop the payment path entirely: re-posting the gated picture after a no is
-  // the single most shop-like thing she can do.
-  const rejectHit = !mediaSynthetic && (/^(no|nope|nah|pass)\b/i.test(bare) ||
-    /\b(no thanks|not (interested|for me)|i'?ll pass|too (much|expensive)|can'?t afford|maybe later|another time|not right now)\b/i.test(lower));
-  const cardHit = !mediaSynthetic && /\b(card|link|fangate)\b/i.test(lower);
-  if ((methodHit || cardHit || affirmative || wantsToPay) && !askingFree && !meetAsk && !rejectHit) {
-    const quoted = await lastQuotedItem(env, sb, conv);
-    if (cardHit && quoted && quoted.metadata && quoted.metadata.fangate_url) {
-      const sentLink = await sendFangateLink(env, sb, conn, conv, msg.chat.id, quoted);
-      if (sentLink) { stopTyping(); return sentLink; }
-    }
-    // Stars first: a digital item is unlocked in this chat, not by bank details.
-    if (methodHit === "stars") {
-      let starItem = (quoted && starsEligible(quoted)) ? quoted
-        : await matchLiveItem(env, sb, conn, text);
-      if (!starItem || !starsEligible(starItem)) starItem = await cheapestStarsItem(env, sb, conn);
-      if (starItem && starsEligible(starItem)) {
-        const starsSent = await sendStarsItem(env, sb, conn, conv, msg.chat.id, starItem);
-        if (starsSent) { stopTyping(); return starsSent; }
-      }
-    }
-    if (quoted && !methodHit) {
-      const choice = await sendPayChoice(env, sb, conn, conv, msg.chat.id, quoted);
-      if (choice) { stopTyping(); return choice; }
-    }
-    if (quoted) {
-      const bankMethod = methodHit === "stars" ? "bank" : (methodHit || "bank");
-      const paid = await sendPayDetails(env, sb, conn, conv, msg.chat.id, quoted, bankMethod);
-      if (paid) { stopTyping(); return paid; }
-    }
-  }
-
-  // "how do I pay?" -> re-send the payment-method buttons for the last item
-  // they were quoted, instead of letting the model invent details.
-  const askingHowPay = !mediaSynthetic && !meetAsk && /how (do|can) i pay|how.*(pay|payment)|payment (method|options|details)?|ways? to pay|pay options/.test(lower);
-  if (askingHowPay && !askingFree && !askingMenu) {
-    const lastReq = await sb(env, "messages?conversation_id=eq." + conv.id +
-      "&direction=eq.out&select=body_preview,raw&order=sent_at.desc&limit=10").catch(() => null);
-    const req = (lastReq || []).find(m => m.raw && m.raw.via === "menu-buy" && m.raw.item_id);
-    if (req) {
-      const it = await itemById(env, sb, req.raw.item_id, req.raw.item_source);
-      if (it) {
-        const payReq = await sendPaymentRequest(env, sb, conn, conv, msg, it);
-        if (payReq) { stopTyping(); return payReq; }
-      }
-    }
-  }
-
-  // BUY INTENT: they picked or named a specific item ("the video please",
-  // "i'll take the half naked one", "yes pls" right after a menu). Match it
-  // against her live titles and jump straight to the payment request.
-  const shortNamed = !mediaSynthetic && !askingFree && !askingMenu &&
-    bare.split(/\s+/).filter(Boolean).length <= 9 && await strongItemMatch(env, sb, conn, text);
-  if (!mediaSynthetic && !askingFree && !askingMenu && (shortNamed || await looksLikeBuyIntent(text, lower))) {
-    const picked = shortNamed || await matchLiveItem(env, sb, conn, text);
-    if (picked) {
-      const payReq = await sendPaymentRequest(env, sb, conn, conv, msg, picked);
-      if (payReq) { stopTyping(); return payReq; }
-    }
-  }
-
-  // He asked to see a video or clip without naming one. Show the ones she has,
-  // locked, instead of leaving him to guess which video it is.
-  if (!mediaSynthetic && !askingFree && !askingMenu && /\b(video|vid|clip|film)\b/i.test(lower)) {
-    const vids = (await sellableItems(env, sb, conn))
-      .filter(i => i.kind === "video" && Number(i.price_gbp || i.price_ton || 0) > 0);
-    if (vids.length === 1) {
-      const payReq = await sendPaymentRequest(env, sb, conn, conv, msg, vids[0]);
-      if (payReq) { stopTyping(); return payReq; }
-    }
-    if (vids.length > 1) {
-      const lines = ["which one baby 😈"];
-      for (const v of vids.slice(0, 6)) {
-        const s = Number(v.price_stars) || starsFor(v, env) || 0;
-        lines.push("• " + v.title + " - " + s + " ⭐");
-      }
-      lines.push("say the one you want and I'll unlock it x");
-      const body = lines.join("\n");
-      const token = await botTokenFor(env, sb, conn);
-      if (token) {
-        if (msg.message_id) await tg.readBusinessMessage(token, conn.id, msg.chat.id, msg.message_id).catch(() => {});
-        await humanPace(token, conn.id, msg.chat.id, body).catch(() => {});
-        try {
-          const sent = await tg.sendMessage(token, conn.id, msg.chat.id, body);
-          await sb(env, "messages", {
-            method: "POST",
-            headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
-            body: JSON.stringify({
-              conversation_id: conv.id, creator_id: conn.creator_id,
-              tg_message_id: sent && sent.message_id ? sent.message_id : null,
-              direction: "out", sender: "ai", kind: "text",
-              body_preview: preview(body), sent_at: new Date().toISOString(),
-              raw: { via: "video-options", count: vids.length },
-            }),
-          }).catch(() => {});
-          stopTyping();
-          return { video_options: vids.length };
-        } catch (e) {
-          console.log(JSON.stringify({ evt: "tg.video_options.failed", err: String(e).slice(0, 160) }));
-        }
-      }
-    }
+  if (ownerPhotoAsk) {
+    const who = (msg.from && (msg.from.first_name || msg.from.username)) || "someone";
+    await notifyOwner(env, sb, conn, conv, msg, "Needs you", who + " is asking the price of the photo you sent: " + String(text).slice(0, 120)).catch(() => null);
   }
 
   // Recent history. The stored preview is cut at 80 characters, so the end of
@@ -1305,7 +1590,7 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   // "[menu] 2 paid". They are bookkeeping, not chat the girl said, so strip
   // them before the model sees them - otherwise it parrots the tag verbatim.
   const stripInternal = s => String(s || "").replace(/\s*\[[^\]]{1,40}\]\s*/g, " ").replace(/\s+/g, " ").trim();
-  const history = [];
+  const histRows = [];
   for (const m of (hist || []).reverse()) {
     let body = m.body_preview;
     if (histDek && m.body_enc && m.body_nonce) {
@@ -1313,8 +1598,11 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
     }
     if (!body || body === text) continue;
     const t = stripInternal(body);
-    if (t) history.push({ dir: m.direction, text: t });
+    if (t) histRows.push({ dir: m.direction, text: t, sent_at: m.sent_at });
   }
+  // "Still waiting babe" two days after "nearly ready for you x" is not the
+  // next line in a hot chat. Mark the gap so the model knows time has passed.
+  const history = withGapMarkers(histRows, Date.now());
 
   // Generate. A forced intercept answer skips the model.
   let replyText = null, via = null;
@@ -1414,7 +1702,50 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   const rejectLine = rejectHit
     ? " He has just turned down what you offered. Do not repost it, do not repeat the price and do not ask him to unlock it again. Say something light, and if your menu has something else, name ONE other item (the cheapest is fine) exactly as it is written, once — then drop it. If he is not buying, just carry on chatting and flirting with him."
     : "";
-  const system = personaSystemPrompt(p, conn, catalogue, payLine, priorOut) + (custLine ? " " + custLine : "") + catchUp + sellGate + openerRule + rejectLine;
+  // What she knows about him, from this conversation's own memory only.
+  const memLine = memoryLine(memOf(conv));
+  if (memLine) custLine += (custLine ? " " : "") + memLine;
+  const customLine = customAsk
+    ? " He has just asked for something made specially for him. Do not quote a price, do not list anything and do not say yes or no to it yet. Ask him, in your own words, to tell you exactly what he wants, like \"ooh tell me exactly what you want x\"."
+    : "";
+  const ownerPhotoLine = ownerPhotoAsk
+    ? " He is asking what the photo you just sent would cost. Do not give a price; say you will sort him out in a minute, warmly."
+    : "";
+  // He is chasing something she said she would send. Never "what did I say I'd send you?".
+  const chasing = CHASE_IN.test(String(text || "")) &&
+    (!!(memOf(conv).open_promise) || priorOut.some(o => PROMISE_OUT.test(o)));
+  if (chasing && !quoteRow && !customAsk) {
+    const kept = await maybeSendFreeItem(env, sb, conn, conv, msg).catch(() => null);
+    if (kept) {
+      await remember(env, sb, conv, { open_promise: { text: "chased", at: new Date().toISOString(), status: "kept" } });
+      stopTyping();
+      return kept;
+    }
+  }
+  const chaseLine = chasing
+    ? " He is asking where the thing you said you would send is. Never ask him what you said you would send. Say sorry babe in one light line, then ask if he wants to see what you've got."
+    : "";
+  // The re-offer is one question inside a normal reply, at most once a day,
+  // never mid-scene, never after a no and never with a price open.
+  let reoffer = false;
+  if (!customAsk && !rejectHit && !chasing && !ownerPhotoAsk) {
+    const since24 = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const recentSell = await sb(env, "messages?conversation_id=eq." + conv.id +
+      "&direction=eq.out&raw->>via=in.(menu-text,menu-reoffer)&sent_at=gte." + encodeURIComponent(since24) +
+      "&select=id&limit=1").catch(() => null);
+    reoffer = reofferDue({
+      hisCount,
+      sellRecent: !Array.isArray(recentSell) || recentSell.length > 0,
+      declinedRecent: minsAgo(conv.declined_at) < 24 * 60,
+      quoted: !!quoteRow,
+      recentIn: history.filter(h => h.dir === "in").slice(-3).map(h => h.text).concat([String(text || "")]),
+    });
+  }
+  const reofferLine = reoffer
+    ? " At the end of this reply, ask him lightly if he wants to see what you've got. Do not list anything and do not name a price."
+    : "";
+  const system = personaSystemPrompt(p, conn, catalogue, payLine, priorOut) + (custLine ? " " + custLine : "") + catchUp + sellGate + openerRule + rejectLine +
+    customLine + ownerPhotoLine + chaseLine + reofferLine;
       try {
         replyText = scrubBankText(await generateReply(env, system, history, text));
       } catch (e) {
@@ -1487,6 +1818,26 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
         replyText = pickOf(["you still there? x", "mmm go on x", "tell me more x"]);
         console.log(JSON.stringify({ evt: "tg.reply.empty_fallback", conversation: conv.id }));
       }
+      // Never queue a promise nothing will keep. Keep it now with a picture
+      // he is still allowed, or turn it into an offer he can say yes to.
+      if (PROMISE_OUT.test(replyText)) {
+        const freeHad = (memOf(conv).free_sent || []).length;
+        const kept = (!quoteRow && freeHad < 2)
+          ? await maybeSendFreeItem(env, sb, conn, conv, msg).catch(() => null) : null;
+        if (kept) {
+          await remember(env, sb, conv, { open_promise: { text: replyText.slice(0, 120), at: new Date().toISOString(), status: "kept" } });
+          console.log(JSON.stringify({ evt: "tg.reply.promise_kept", conversation: conv.id }));
+          stopTyping();
+          return kept;
+        }
+        console.log(JSON.stringify({ evt: "tg.reply.promise_rewritten", conversation: conv.id, text: replyText.slice(0, 80) }));
+        const offers = MENU_QUESTIONS.filter(q => !repeatsSomething(q, priorOut));
+        replyText = pickOf(offers.length ? offers : MENU_QUESTIONS);
+      }
+      if (reoffer) {
+        if (!MENU_OFFER_RE.test(replyText)) replyText = replyText + "\nwant to see what I've got? x";
+        via = "menu-reoffer";
+      }
     }
   } catch (e) {
     console.log(JSON.stringify({ evt: "tg.reply.generate_failed", err: String(e).slice(0, 200) }));
@@ -1534,7 +1885,7 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
     stopTyping();
     // After the reply is queued, not before: a custom ask is flagged in the
     // background so it never delays what the customer sees.
-    await maybeFlagCustomAsk(env, sb, conn, conv, msg, text).catch(() => null);
+    if (!customAsk) await maybeFlagCustomAsk(env, sb, conn, conv, msg, text).catch(() => null);
     console.log(JSON.stringify({ evt: "tg.reply.queued", delay }));
     return { via, text: replyText, queued: delay };
   } catch (e) {
@@ -1566,6 +1917,7 @@ async function sendFreeLimitLine(env, sb, conn, conv, msg, recent, token) {
   const fresh = FREE_LIMIT_LINES.filter(l => !seen.some(b => b.includes(l.slice(0, 22).toLowerCase())));
   const pool = fresh.length ? fresh : FREE_LIMIT_LINES;
   const line = pool[Math.floor(Math.random() * pool.length)];
+  const sealedLimit = await sealedBody(env, sb, conn.creator_id, line);
   try {
     const sent = await tg.sendMessage(token, conn.id, msg.chat.id, line);
     await sb(env, "messages", {
@@ -1579,6 +1931,7 @@ async function sendFreeLimitLine(env, sb, conn, conv, msg, recent, token) {
         sender: "ai",
         kind: "text",
         body_preview: line.slice(0, 80),
+        ...sealedLimit,
         sent_at: new Date().toISOString(),
         raw: { via: "free-limit" },
       }),
@@ -1596,12 +1949,12 @@ async function maybeSendFreeItem(env, sb, conn, conv, msg) {
   // Live, price-0 items tagged to THIS girl's account.
   let rows = await sb(env, "media_items?telegram_account_id=eq." +
     encodeURIComponent(conn.telegram_account_id) +
-    "&visible=eq.true&price_ton=eq.0&select=id,title,kind,media_key" +
+    "&visible=eq.true&price_gbp=eq.0&select=id,title,kind,media_key" +
     "&order=uploaded_at.desc&limit=5").catch(() => null);
   // A freebie uploaded before the account existed still counts.
   if (!(rows && rows.length)){
     rows = await sb(env, "media_items?creator_id=eq." + encodeURIComponent(conn.creator_id) +
-      "&visible=eq.true&price_ton=eq.0&select=id,title,kind,media_key" +
+      "&visible=eq.true&price_gbp=eq.0&select=id,title,kind,media_key" +
       "&order=uploaded_at.desc&limit=5").catch(() => null);
   }
   const items = (rows || []).filter(m => m.media_key);   // need a real file
@@ -1617,7 +1970,10 @@ async function maybeSendFreeItem(env, sb, conn, conv, msg) {
   // Free pictures rotate: two at most, never the same file twice.
   const freeHist = await sb(env, "messages?conversation_id=eq." + conv.id +
     "&direction=eq.out&raw->>via=eq.free-item&select=raw&order=sent_at.desc&limit=10").catch(() => null);
-  const sentFreeIds = (freeHist || []).map(m => m.raw && m.raw.item_id).filter(Boolean);
+  // Lifetime per (her, his chat): the rows, plus memory, which survives a
+  // reconnect even before old rows are merged into this conversation.
+  const sentFreeIds = [...new Set((freeHist || []).map(m => m.raw && m.raw.item_id).filter(Boolean)
+    .concat(Array.isArray(memOf(conv).free_sent) ? memOf(conv).free_sent : []))];
   if (sentFreeIds.length >= 2) return null;
 
   // First free request: the face picture, and only that one. He sees her, then
@@ -1668,8 +2024,13 @@ async function maybeSendFreeItem(env, sb, conn, conv, msg) {
           sent_at: new Date().toISOString(),
           raw: { via: "free-item", item_id: it.id },
         }),
-      }).catch(() => {});
+      }).catch(e => console.log(JSON.stringify({ evt: "tg.free_item.record_failed", err: String(e).slice(0, 160) })));
       sentIds.push(it.id);
+      const at = new Date().toISOString();
+      await remember(env, sb, conv, m => ({
+        free_sent: [...new Set((Array.isArray(m.free_sent) ? m.free_sent : []).concat([it.id]))],
+        last_media: { item_id: it.id, source: "media", kind: it.kind || null, stars: 0, free: true, via: "free-item", at },
+      }));
     } catch (e) {
       console.log(JSON.stringify({ evt: "tg.free_item.send_failed", item: it.id, err: String(e).slice(0, 200) }));
     }
@@ -1694,7 +2055,7 @@ async function sellableItems(env, sb, conn) {
   }
   const rows = await sb(env, "media_items?telegram_account_id=eq." +
     encodeURIComponent(conn.telegram_account_id) +
-    "&visible=eq.true&select=id,title,kind,price_ton,price_gbp,price_stars,media_key,metadata,duration_secs&order=price_ton.desc&limit=20").catch(() => null);
+    "&visible=eq.true&select=id,title,kind,price_gbp,price_stars,media_key,metadata,duration_secs&order=price_gbp.desc.nullslast&limit=20").catch(() => null);
   return (rows || []).filter(m => m.title).map(m => ({ ...m, source: "media" }));
 }
 
@@ -1707,17 +2068,13 @@ async function maybeSendMenu(env, sb, conn, conv, msg) {
   const items = (await sellableItems(env, sb, conn)).filter(m => m.title);
   if (!items.length) return null;
 
-  const priceOf = m => Number(m.price_gbp || m.price_ton || 0);
+  const priceOf = m => Number(m.price_gbp || 0);
   const fmt = m => {
     const s = Number(m.price_stars) || starsFor(m, env) || 0;
     return s ? s + " ⭐" : "";
   };
   const paid = items.filter(m => priceOf(m) > 0).slice(0, 45);
   if (!paid.length) return null;
-  const freeRows = await sb(env, "media_items?telegram_account_id=eq." +
-    encodeURIComponent(conn.telegram_account_id) +
-    "&visible=eq.true&price_ton=eq.0&select=id,title,media_key&limit=5").catch(() => null);
-  const free = (freeRows || []).filter(m => m.media_key);
   const lines = ["here's what you can have from me 😈"];
   for (const m of paid) {
     lines.push("• " + m.title + " - " + fmt(m) + (m.kind === "physical" ? " (posted)" : ""));
@@ -1729,14 +2086,9 @@ async function maybeSendMenu(env, sb, conn, conv, msg) {
   const token = await botTokenFor(env, sb, conn);
   if (!token) return null;
   try {
-    // No holding line and no buttons: the free set goes out first, all at once,
-    // so he sees her before he sees a price, then the priced list lands as plain
-    // text a few seconds later, like she typed it.
-    const alreadyFree = await sb(env, "messages?conversation_id=eq." + conv.id +
-      "&direction=eq.out&raw->>via=eq.free-item&select=id&limit=1").catch(() => null);
-    if (!(alreadyFree && alreadyFree.length)) {
-      await maybeSendFreeItem(env, sb, conn, conv, msg).catch(() => null);
-    }
+    // No holding line, no buttons, and no free picture glued to it: sent in
+    // the same breath, the freebie looked like the product. The list lands as
+    // plain text a few seconds later, like she typed it.
     const menuDelay = 18 + Math.floor(Math.random() * 14);   // 18 to 31 seconds
     await env.REPLY_QUEUE.send({
       conversation_id: conv.id,
@@ -1751,7 +2103,7 @@ async function maybeSendMenu(env, sb, conn, conv, msg) {
       read_message_id: msg.message_id || null,
       generated_at: new Date().toISOString(),
     }, { delaySeconds: menuDelay });
-    console.log(JSON.stringify({ evt: "tg.menu.sent", paid: paid.length, free: free.length, delay: menuDelay }));
+    console.log(JSON.stringify({ evt: "tg.menu.sent", paid: paid.length, delay: menuDelay }));
     return { menu: true, queued: menuDelay };
   } catch (e) {
     console.log(JSON.stringify({ evt: "tg.menu.send_failed", err: String(e).slice(0, 200) }));
@@ -1899,7 +2251,7 @@ async function onDeleted(env, sb, d) {
    it. Requiring two matching words keeps "knickers" from quoting at random. */
 async function strongItemMatch(env, sb, conn, text) {
   const items = (await sellableItems(env, sb, conn))
-    .filter(m => m.title && Number(m.price_gbp || m.price_ton || 0) > 0);
+    .filter(m => m.title && Number(m.price_gbp || 0) > 0);
   const clean = (v) => String(v || "").replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, " ").toLowerCase();
   const lower = clean(text);
   let best = null, bestScore = 0;
@@ -1918,7 +2270,7 @@ async function looksLikeBuyIntent(text, lower) {
   // Only a clear decision to buy. Naming a video or asking to see something is
   // not a purchase, and treating it as one fired prices and payment buttons at
   // men who were only chatting.
-  return /\b(i'?ll take|i'?ll buy|i want to buy|buy it|buy that|i'?ll have|take it|pay for (it|that)|send (it|that) (to me|over)|send me (that|the|your|those|them)|give me (that|it|those|them)|i want (that|the|those)|let me see (that|the)|show me (that|the)|can i (have|get|see)|could i (have|get|see)|i'?d like (that|the))\b/i.test(text);
+  return BUY_INTENT_RE.test(text);
 }
 
 /* Match their words against her live item titles. Exact-word overlap wins;
@@ -1927,7 +2279,7 @@ async function matchLiveItem(env, sb, conn, text) {
   // Same list the model sells from. A media-only matcher could never find a
   // menu item, so "the three photo set please" produced no payment request.
   const items = (await sellableItems(env, sb, conn))
-    .filter(m => m.title && Number(m.price_gbp || m.price_ton || 0) > 0);
+    .filter(m => m.title && Number(m.price_gbp || 0) > 0);
   if (!items.length) return null;
   const lower = String(text || "").toLowerCase();
   let best = null, bestScore = 0;
@@ -1994,11 +2346,11 @@ async function onCallback(env, sb, cq, persona) {
   }
   if (!conn && item.telegram_account_id) {
     const c = await sb(env, "business_connections?telegram_account_id=eq." +
-      encodeURIComponent(item.telegram_account_id) + "&is_enabled=eq.true" +
+      encodeURIComponent(item.telegram_account_id) + "&is_enabled=eq.true&creator_id=not.is.null" +
       "&select=id,creator_id,telegram_account_id,tg_user_id,is_enabled,rights").catch(() => null);
     conn = c && c[0];
   }
-  if (!conn) return { skipped: "no connection for callback" };
+  if (!conn || !conn.creator_id) return { skipped: "no connection for callback" };
 
   const token = await botTokenFor(env, sb, conn);
   const chatId = cq.message ? cq.message.chat.id : null;
@@ -2013,20 +2365,10 @@ async function onCallback(env, sb, cq, persona) {
     last_seen_at: new Date().toISOString(),
   });
   const cust = upsertCust && upsertCust[0];
-  const convs = await upsert(sb, env, "conversations", "business_connection_id,chat_id", {
-    business_connection_id: conn.id,
-    chat_id: chatId,
-    creator_id: conn.creator_id,
+  const conv = await findOrCreateConversation(env, sb, conn, chatId, {
     customer_id: cust ? cust.id : null,
     customer_ref: String(cq.from.id),
-    last_message_at: new Date().toISOString(),
   });
-  let conv = convs && convs[0];
-  if (!conv) {
-    const found = await sb(env, "conversations?business_connection_id=eq." +
-      encodeURIComponent(conn.id) + "&chat_id=eq." + chatId + "&select=*&order=last_message_at.desc&limit=1");
-    conv = found && found[0];
-  }
   if (!conv) return { skipped: "no conversation" };
 
   if (action === "pay") {
@@ -2058,7 +2400,7 @@ async function onCallback(env, sb, cq, persona) {
     method: "PATCH", headers: { Prefer: "return=minimal" },
     body: JSON.stringify({ purchase_intent_at: new Date().toISOString() }),
   }).catch(() => {});
-  console.log(JSON.stringify({ evt: "tg.menu.buy_pressed", item: item.id, price: item.price_ton }));
+  console.log(JSON.stringify({ evt: "tg.menu.buy_pressed", item: item.id, price: item.price_gbp }));
   return r || { buy_pressed: item.id };
 }
 
@@ -2100,7 +2442,8 @@ function starsFor(item, env) {
   if (!item) return 0;
   const explicit = Number(item.price_stars) || 0;
   if (explicit > 0) return Math.min(25000, Math.max(1, Math.round(explicit)));
-  const gbp = Number(item.price_gbp) || Number(item.price_ton) || 0;
+  // price_gbp only: price_ton always held pounds and is deprecated (0018).
+  const gbp = Number(item.price_gbp) || 0;
   if (!gbp) return 0;
   const rate = Number(env.STAR_GBP_RATE) > 0 ? Number(env.STAR_GBP_RATE) : STAR_GBP_DEFAULT;
   const raw = gbp / rate;
@@ -2185,6 +2528,11 @@ async function sendStarsItem(env, sb, conn, conv, chatId, item) {
     return null;
   }
 
+  // This row is what every "already on screen" guard reads. It needs kind
+  // 'paid_media' in messages_kind_check (0018); without it the insert failed
+  // silently and the same lock could be re-posted.
+  const wallText = caption + " · " + stars + " ⭐";
+  const sealedWall = await sealedBody(env, sb, conn.creator_id, wallText);
   await sb(env, "messages", {
     method: "POST",
     headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
@@ -2195,11 +2543,21 @@ async function sendStarsItem(env, sb, conn, conv, chatId, item) {
       direction: "out",
       sender: "ai",
       kind: "paid_media",
-      body_preview: "[stars] " + caption + " · " + stars + " ⭐",
+      body_preview: "[stars] " + wallText,
+      ...sealedWall,
       sent_at: new Date().toISOString(),
       raw: { via: "stars-paid-media", item_id: item.id, item_source: item.source || "media", stars },
     }),
-  }).catch(() => {});
+  }).catch(e => console.log(JSON.stringify({ evt: "tg.stars.record_failed", what: "stars-paid-media",
+    item: item.id, err: String(e && e.message || e).slice(0, 200) })));
+  {
+    const at = new Date().toISOString();
+    const mediaKind = /video/.test(kind) ? "video" : "image";
+    await remember(env, sb, conv, {
+      last_media: { item_id: item.id, source: item.source || "media", kind: mediaKind, stars, free: false, via: "stars-paid-media", at },
+      open_quote: { item_id: item.id, source: item.source || "media", stars, at, status: "open" },
+    });
+  }
   await sb(env, "conversations?id=eq." + conv.id, {
     method: "PATCH", headers: { Prefer: "return=minimal" },
     body: JSON.stringify({ purchase_intent_at: new Date().toISOString() }),
@@ -2244,6 +2602,14 @@ async function maybeDeflect(env, sb, conn, conv, msg, text) {
   const recent = await sb(env, "messages?conversation_id=eq." + conv.id +
     "&direction=eq.out&raw->>via=eq." + via + "&select=sent_at&order=sent_at.desc&limit=1").catch(() => null);
   if (recent && recent[0] && Date.now() - new Date(recent[0].sent_at).getTime() < 30 * 60 * 1000) return null;
+  if (isMeet) {
+    await remember(env, sb, conv, { custom_ask: { text: String(text).slice(0, 200), at: new Date().toISOString(), kind: "meet" } });
+    if (VIDEO_WITH_ME_RE.test(text)) {
+      const who = (msg.from && (msg.from.first_name || msg.from.username)) || "someone";
+      await notifyOwner(env, sb, conn, conv, msg, "Needs you",
+        who + " wants to be in a video with you: " + String(text).slice(0, 140)).catch(() => null);
+    }
+  }
   const pool = isPlatform ? DEFLECT_PLATFORM : DEFLECT_MEET;
   // Never the same line twice in a chat: read the ones already used, walk
   // through the rest, and only repeat once the whole pool is spent.
@@ -2279,23 +2645,6 @@ async function maybeDeflect(env, sb, conn, conv, msg, text) {
            sent: { via, text: line } };
 }
 
-/* Long chat with no sale? Offer the list again, roughly every fifteen messages. */
-async function maybeReofferMenu(env, sb, conn, conv, msg) {
-  const rows = await sb(env, "messages?conversation_id=eq." + conv.id +
-    "&select=raw&order=sent_at.desc&limit=40").catch(() => null);
-  if (!rows || rows.length < 15) return null;
-  let since = 0;
-  for (const m of rows) {
-    const via = m.raw && m.raw.via;
-    if (via === "menu-text" || via === "menu-buy" || via === "pay-choice") break;
-    since++;
-  }
-  if (since < 15) return null;
-  const sent = await maybeSendMenu(env, sb, conn, conv, msg);
-  return sent ? { conversation_id: conv.id, direction: "in", intercept: "menu-reoffer",
-                   sent: { via: "menu-text" } } : null;
-}
-
 /* The item's Fangate checkout, sent as her in the chat. */
 async function sendFangateLink(env, sb, conn, conv, chatId, item) {
   const token = await botTokenFor(env, sb, conn);
@@ -2329,11 +2678,10 @@ async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
   const prof = await sb(env, "ai_profiles?creator_id=eq." +
     encodeURIComponent(conn.creator_id) + "&select=wallet_address").catch(() => null);
   if (prof && prof[0] && prof[0].wallet_address) wallet = prof[0].wallet_address;
-  // Prices are shown to the customer in GBP. They can pay by TON,
-  // PayPal or bank transfer. Written in her voice, not like an invoice.
-  const ton = Number(item.price_ton) || 0;
-  const gbp = Number(item.price_gbp) || ton;   // GBP column wins when set
-  const price = "£" + gbp;
+  // The customer only ever sees Stars. GBP is the owner's accounting, shown in
+  // the console preview and the owner alert, always as £9.50.
+  const gbp = Number(item.price_gbp) || 0;
+  const price = gbpText(gbp);
   const name = item.name || item.title || "that";
   const starPrice = starsEligible(item) ? starsFor(item, env) : 0;
   const fangate = (item.metadata && item.metadata.fangate_url) || "";
@@ -2407,6 +2755,8 @@ async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
         raw: { via: "menu-buy", item_id: item.id, item_source: item.source || "media", price_gbp: gbp },
       }),
     }).catch(() => {});
+    await remember(env, sb, conv, { open_quote: { item_id: item.id, source: item.source || "media",
+      stars: starPrice || 0, at: new Date().toISOString(), status: "open" } });
     console.log(JSON.stringify({ evt: "tg.pay_request.sent", item: item.id, price }));
     return { buy_pressed: item.id };
   } catch (e) {
@@ -2432,11 +2782,12 @@ const PAY_CLOSERS = [
 async function sendPayChoice(env, sb, conn, conv, chatId, item){
   const token = await botTokenFor(env, sb, conn);
   if (!token || !chatId || !item) return null;
-  const gbp = Number(item.price_gbp || item.price_ton || 0);
+  const gbp = Number(item.price_gbp || 0);
   const starPrice = starsEligible(item) ? starsFor(item, env) : 0;
   if (!starPrice) return await sendPayDetails(env, sb, conn, conv, chatId, item, "bank");
   const name = item.name || item.title || "that";
   const line = `${name} is ${starPrice} ⭐ here in the chat. tap the lock and it's yours x`;
+  const sealedChoice = await sealedBody(env, sb, conn.creator_id, line);
   try {
     await humanPace(token, conn.id, chatId, line);
     const sent = await tg.sendMessage(token, conn.id, chatId, line);
@@ -2447,7 +2798,8 @@ async function sendPayChoice(env, sb, conn, conv, chatId, item){
         conversation_id: conv.id, creator_id: conn.creator_id,
         tg_message_id: sent && sent.message_id ? sent.message_id : null,
         direction: "out", sender: "ai", kind: "text",
-        body_preview: "[pay choice] " + name + " · £" + gbp + " / " + starPrice + " stars",
+        body_preview: "[pay choice] " + name + " · " + gbpText(gbp) + " / " + starPrice + " stars",
+        ...sealedChoice,
         sent_at: new Date().toISOString(),
         raw: { via: "pay-choice", item_id: item.id, price_gbp: gbp, stars: starPrice },
       }),
@@ -2520,7 +2872,9 @@ async function sendPayDetails(env, sb, conn, conv, chatId, item, method) {
 }
 
 /* A meet or an address. Money offered for one is not a payment for an item. */
-const MEET_RE = /\b(meet|meeting|meet ?up|come (round|over)|your address|where do you live|postcode|hotel|visit you|see you in person)\b/i;
+const MEET_RE = /\b(meet|meeting|meet ?up|come (round|over)|your address|where do you live|postcode|hotel|visit you|see you in person|be in (the|a|your) (video|vid|clip)|film (me|us|together)|make a (video|vid) (with|of) (me|us)|star in)\b/i;
+// He wants to be IN the content: a meet in disguise, and the owner's call.
+const VIDEO_WITH_ME_RE = /\b(be in (the|a|your) (video|vid|clip)|film (me|us|together)|make a (video|vid) (with|of) (me|us)|star in)\b/i;
 
 /* A small model once invented "M Thompson, sort code 04-00-75" and sent it to a
    customer. No model-written message may carry bank details: the deterministic
@@ -2569,7 +2923,7 @@ async function onDirectMessage(env, sb, msg, persona) {
   // Find the active business connection for this account; it carries
   // user_chat_id (the owner's chat with the bot) used as the customer id.
   const rows = await sb(env, "business_connections?telegram_account_id=eq." +
-    encodeURIComponent(account.id) + "&is_enabled=eq.true" +
+    encodeURIComponent(account.id) + "&is_enabled=eq.true&creator_id=not.is.null" +
     "&select=id,creator_id,telegram_account_id,tg_user_id,user_chat_id,is_enabled,rights");
   const conn = rows && rows[0];
   if (!conn) return { skipped: "no active business connection" };
@@ -2584,7 +2938,7 @@ async function onDirectMessage(env, sb, msg, persona) {
 /* A customer paid for Stars paid-media. The payload carries the conversation
    and item because the update itself carries no chat id. The media is already
    unlocked by Telegram; this records the sale, thanks him and tells the owner. */
-export async function onPaidMediaPurchase(env, sb, ppm) {
+export async function onPaidMediaPurchase(env, sb, ppm, updateId) {
   const payload = String((ppm && ppm.paid_media_payload) || "");
   const m = payload.match(/^v1\|([0-9a-f-]{36})\|([0-9a-f-]{36})$/i);
   if (!m) {
@@ -2592,19 +2946,39 @@ export async function onPaidMediaPurchase(env, sb, ppm) {
     return { skipped: "unknown payload" };
   }
   const convId = m[1], itemId = m[2];
-  const convs = await sb(env, "conversations?id=eq." + encodeURIComponent(convId) +
-    "&select=id,creator_id,business_connection_id,chat_id,customer_ref").catch(() => null);
-  const conv = convs && convs[0];
+  const convs = await sb(env, "conversations?id=eq." + encodeURIComponent(convId) + "&select=*").catch(() => null);
+  let conv = convs && convs[0];
   if (!conv) return { skipped: "conversation not found" };
+  // A lock posted before a reconnect points at a conversation that has since
+  // been merged into the current one. Follow it, at most a few hops.
+  for (let hop = 0; hop < 3 && conv && conv.merged_into; hop++) {
+    const next = await sb(env, "conversations?id=eq." + encodeURIComponent(conv.merged_into) + "&select=*").catch(() => null);
+    if (!(next && next[0])) break;
+    conv = next[0];
+  }
   const conns = await sb(env, "business_connections?id=eq." + encodeURIComponent(conv.business_connection_id) +
     "&select=id,creator_id,telegram_account_id,tg_user_id,user_chat_id,is_enabled,rights").catch(() => null);
   const conn = conns && conns[0];
   if (!conn) return { skipped: "connection not found" };
 
   const item = await itemById(env, sb, itemId);
-  const stars = starsFor(item, env);
+  // The stars he actually paid are the ones on the lock, i.e. the last wall
+  // posted for this item; the item's current price is only the fallback.
+  let stars = starsFor(item, env);
+  try {
+    const walls = await sb(env, "messages?conversation_id=eq." + conv.id +
+      "&direction=eq.out&raw->>via=eq.stars-paid-media&select=raw&order=sent_at.desc&limit=10");
+    const w = (walls || []).find(r => r.raw && r.raw.item_id === itemId && Number(r.raw.stars) > 0);
+    if (w) stars = Number(w.raw.stars);
+  } catch (e) { /* keep the item's price */ }
   const gbp = Number(item && item.price_gbp) || 0;
+  const rate = Number(env.STAR_GBP_RATE) > 0 ? Number(env.STAR_GBP_RATE) : STAR_GBP_DEFAULT;
+  const netPence = Math.round(stars * rate * 100);
   const buyer = (ppm && ppm.from) || {};
+  // update_id is unique per purchase. stars:<buyer>:<stars> collided when one
+  // man bought two things at the same price, and processor_ref is UNIQUE.
+  const ref = updateId != null ? "stars:" + updateId
+    : "stars:" + (buyer.id || "?") + ":" + conv.id + ":" + itemId + ":" + Date.now();
 
   await sb(env, "payments", {
     method: "POST",
@@ -2612,13 +2986,16 @@ export async function onPaidMediaPurchase(env, sb, ppm) {
     body: JSON.stringify({
       creator_id: conn.creator_id,
       conversation_id: conv.id,
-      processor_ref: "stars:" + (buyer.id || "?") + ":" + stars,
-      amount_pence: Math.round(gbp * 100) || null,
-      fee_pence: null,
+      processor_ref: ref,
+      amount_pence: netPence,           // actual net to the bot at STAR_GBP_RATE, not the list price
+      fee_pence: 0,
       status: "paid",
     }),
-  }).catch((e) => console.log(JSON.stringify({ evt: "tg.stars.payment_write_failed", err: String(e).slice(0, 160) })));
+  }).catch((e) => console.log(JSON.stringify({ evt: "tg.stars.record_failed", what: "payments", ref,
+    err: String(e && e.message || e).slice(0, 200) })));
 
+  const paidText = (item ? (item.name || item.title || "") : itemId) + " · " + stars + " ⭐";
+  const sealedPaid = await sealedBody(env, sb, conn.creator_id, paidText);
   await sb(env, "messages", {
     method: "POST",
     headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
@@ -2628,11 +3005,19 @@ export async function onPaidMediaPurchase(env, sb, ppm) {
       direction: "in",
       sender: "customer",
       kind: "payment",
-      body_preview: "[stars paid] " + (item ? (item.name || item.title || "") : itemId) + " · " + stars + " ⭐",
+      body_preview: "[stars paid] " + paidText,
+      ...sealedPaid,
       sent_at: new Date().toISOString(),
-      raw: { via: "stars-purchase", item_id: itemId, stars, buyer: buyer.id || null },
+      raw: { via: "stars-purchase", item_id: itemId, stars, buyer: buyer.id || null, processor_ref: ref, net_pence: netPence },
     }),
-  }).catch(() => {});
+  }).catch((e) => console.log(JSON.stringify({ evt: "tg.stars.record_failed", what: "payment-message",
+    err: String(e && e.message || e).slice(0, 200) })));
+
+  await remember(env, sb, conv, mem => {
+    const at = new Date().toISOString();
+    const oq = mem.open_quote && mem.open_quote.item_id === itemId ? { ...mem.open_quote, status: "paid", at } : mem.open_quote;
+    return { bought: (Array.isArray(mem.bought) ? mem.bought : []).concat([itemId]).slice(-50), open_quote: oq || null };
+  });
 
   const token = await botTokenFor(env, sb, conn);
   if (token && conv.chat_id) {
@@ -2642,7 +3027,7 @@ export async function onPaidMediaPurchase(env, sb, ppm) {
   }
   await notifyOwner(env, sb, conn, conv, null, "Stars sale",
     (item ? (item.name || item.title || "") : itemId) + " · " + stars + " ⭐"
-    + (gbp ? " (listed £" + gbp + ")" : "")).catch(() => null);
+    + (gbp ? " (listed " + gbpText(gbp) + ", about " + gbpText(netPence / 100) + " net)" : "")).catch(() => null);
   console.log(JSON.stringify({ evt: "tg.stars.paid", item: itemId, stars, conv: conv.id }));
   return { stars_paid: stars, item: itemId };
 }
@@ -2688,7 +3073,7 @@ export async function handleWebhook(request, env, sb, persona) {
     const bots = await sb(env, "bots?persona=eq." + encodeURIComponent(persona) + "&select=username");
     const botUser = bots && bots[0] && bots[0].username;
     if (botUser) {
-      const acc = await sb(env, "telegram_accounts?username=eq." + encodeURIComponent(botUser) + "&select=id,creator_id");
+      const acc = await sb(env, "telegram_accounts?username=eq." + encodeURIComponent(botUser) + "&select=*");
       if (acc && acc[0]) botAccount = acc[0];
     }
   } catch (e) { console.log(JSON.stringify({ evt: "tg.webhook.bot_lookup_failed", err: String(e).slice(0, 120) })); }
@@ -2700,7 +3085,7 @@ export async function handleWebhook(request, env, sb, persona) {
     else if (kind === "edited_business_message") result = await onMessage(env, sb, update.edited_business_message, true);
     else if (kind === "deleted_business_messages") result = await onDeleted(env, sb, update.deleted_business_messages);
     else if (kind === "message")              result = await onDirectMessage(env, sb, update.message, persona);
-    else if (kind === "purchased_paid_media") result = await onPaidMediaPurchase(env, sb, update.purchased_paid_media);
+    else if (kind === "purchased_paid_media") result = await onPaidMediaPurchase(env, sb, update.purchased_paid_media, update.update_id);
     else if (kind === "callback_query")         result = await onCallback(env, sb, update.callback_query, persona);
     else result = { skipped: "unhandled kind: " + kind };
   } catch (e) {
@@ -2719,4 +3104,6 @@ export async function handleWebhook(request, env, sb, persona) {
 // Exported for the reply-quality regression tests.
 export { generateReply, repeatsSomething, personaSystemPrompt, ensureEmoji, sellableItems,
          nameFromText, nameForChat, nameFromUsername, usableName, NAME_QUESTION, stripNameQuestion,
-         isPaymentClaim, scrubBankText };
+         isPaymentClaim, scrubBankText,
+         inboundSignals, routeInbound, menuOffered, openQuoteRow, reofferDue, withGapMarkers, memoryLine,
+         PROMISE_OUT, CHASE_IN, MEET_RE, gbpText, starsFor, onMessage, onConnection, sendStarsItem };

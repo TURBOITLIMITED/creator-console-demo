@@ -2892,7 +2892,7 @@ function libForm(item=null){
     <div class="field"><span class="flabel">Type</span><div class="seg" role="radiogroup">
       ${['video','image','document'].map(v=>`<input type="radio" name="kind" id="md-type-${v}" value="${v}" ${t===v?'checked':''}><label for="md-type-${v}">${ic(typeIcon(v))}${v[0].toUpperCase()+v.slice(1)}</label>`).join('')}
     </div></div>
-    <div class="field"><label for="md-price">Price</label><div class="input-affix"><input class="input mono" id="md-price" name="price_ton" type="number" min="0" step="0.1" value="${item?.price_ton ?? ''}" placeholder="9.5" oninput="window.starsHintText('md-stars-hint', this.value)"><span>£</span></div></div>
+    <div class="field"><label for="md-price">Price</label><div class="input-affix"><input class="input mono" id="md-price" name="price_ton" type="number" min="0" step="0.1" value="${item?.price_gbp ?? item?.price_ton ?? ''}" placeholder="9.50" oninput="window.starsHintText('md-stars-hint', this.value)"><span>£</span></div></div>
     <div class="field"><label for="md-stars">Stars price</label><div class="input-affix"><input class="input mono" id="md-stars" name="price_stars" type="number" min="1" max="25000" step="1" value="${item?.price_stars ?? ''}" placeholder="${starsFromGbp(item?.price_ton) || 500}"><span>⭐</span></div><span class="hint" id="md-stars-hint">${starsHintLine(item?.price_ton)}</span></div>
     ${item?.media_key ? `<div class="field"><span class="flabel">Current file</span>
       <div class="input mono" style="background:var(--sunk);display:flex;gap:10px;justify-content:space-between;align-items:center;overflow:hidden">
@@ -3655,7 +3655,9 @@ document.addEventListener('submit', async e => {
   }
   if(kind === 'tg-menu'){ return tgSaveMenuItem(f, btn); }
   if(kind === 'media'){
-    const data = { title:f.title.value.trim(), kind:f.kind.value, price_ton:f.price_ton.value?Number(f.price_ton.value):null, price_stars:f.price_stars && f.price_stars.value ? Math.round(Number(f.price_stars.value)) : null, description:f.description.value.trim()||null, visible:f.visible.checked };
+    // price_gbp is the price the bot reads; price_ton is kept in step only for the older list views.
+    const gbpIn = f.price_ton.value ? Number(f.price_ton.value) : null;
+    const data = { title:f.title.value.trim(), kind:f.kind.value, price_gbp:gbpIn, price_ton:gbpIn, price_stars:f.price_stars && f.price_stars.value ? Math.round(Number(f.price_stars.value)) : null, description:f.description.value.trim()||null, visible:f.visible.checked };
     if(!data.title){ f.title.classList.add('invalid'); return; }
     const file = f.file?.files?.[0];
     const fgInput = f.fangate_url;

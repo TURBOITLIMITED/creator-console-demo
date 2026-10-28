@@ -658,8 +658,8 @@ async function checkPayment(env, body) {
   let price = 0, itemName = "", itemKind = "";
   if (q && q.raw && q.raw.item_id) {
     let item = (await sb(env, "telegram_menu_items?id=eq." + q.raw.item_id + "&select=name,price_gbp,kind").catch(() => null) || [])[0];
-    if (!item) item = (await sb(env, "media_items?id=eq." + q.raw.item_id + "&select=title,price_ton,kind").catch(() => null) || [])[0];
-    price = Number((item && (item.price_gbp || item.price_ton)) || 0);
+    if (!item) item = (await sb(env, "media_items?id=eq." + q.raw.item_id + "&select=title,price_gbp,kind").catch(() => null) || [])[0];
+    price = Number((item && item.price_gbp) || 0);
     itemName = (item && (item.name || item.title)) || "";
     itemKind = (item && item.kind) || "";
   }
@@ -735,7 +735,12 @@ async function checkPayment(env, body) {
       ? "still not showing on mine baby, give it a minute and I'll look again x"
       : "not showing on mine yet baby, what name did you send it under? x";
   try {
-    const conns = await sb(env, "business_connections?id=eq." + encodeURIComponent(b.business_connection_id || "") +
+    // The connection the job was queued on may have been replaced by a
+    // reconnect; the conversation always holds the current one.
+    const cur = await sb(env, "conversations?id=eq." + encodeURIComponent(b.conversation_id) +
+      "&select=business_connection_id").catch(() => null);
+    const bcId = (cur && cur[0] && cur[0].business_connection_id) || b.business_connection_id || "";
+    const conns = await sb(env, "business_connections?id=eq." + encodeURIComponent(bcId) +
       "&select=id,telegram_account_id");
     const conn = conns && conns[0];
     const accts = conn ? await sb(env, "telegram_accounts?id=eq." + encodeURIComponent(conn.telegram_account_id || "") + "&select=username") : null;
@@ -743,7 +748,9 @@ async function checkPayment(env, body) {
     const bots = uname ? await sb(env, "bots?persona=eq." + encodeURIComponent(uname) + "&select=token") : null;
     const token = bots && bots[0] && bots[0].token;
     if (!token) throw new Error("no bot token");
-    const sent = await tgapi.sendMessage(token, b.business_connection_id, b.chat_id, text);
+    const sent = await tgapi.sendMessage(token, bcId, b.chat_id, text);
+    let sealedCheck = {};
+    try { const dek = await getDek(env, sb, b.creator_id); const x = await seal(dek, text); sealedCheck = { body_enc: x.body_enc, body_nonce: x.body_nonce }; } catch (e) { /* keep preview */ }
     await sb(env, "messages", {
       method: "POST",
       headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
@@ -751,7 +758,7 @@ async function checkPayment(env, body) {
         conversation_id: b.conversation_id, creator_id: b.creator_id,
         tg_message_id: sent && sent.message_id ? sent.message_id : null,
         direction: "out", sender: "ai", kind: "text",
-        body_preview: preview(text),
+        body_preview: preview(text), ...sealedCheck,
         sent_at: new Date().toISOString(),
         raw: { via: hit ? "payment-found" : (askedName ? "payment-not-found" : "payment-ask-name") },
       }),
@@ -765,13 +772,21 @@ async function checkPayment(env, body) {
 async function deliverQueuedReply(env, body) {
   const b = body || {};
   if (!b.conversation_id || !b.text || !b.business_connection_id) return;
+  // Send through the connection the conversation holds NOW, not the one baked
+  // into the job. Her account reconnects; a job queued before that threw
+  // "connection unavailable" and retried until it died.
+  const convs = await sb(env, "conversations?id=eq." + encodeURIComponent(b.conversation_id) +
+    "&select=business_connection_id,last_inbound_at,last_outbound_at").catch(() => null);
+  const c = (convs && convs[0]) || {};
+  const bcId = c.business_connection_id || b.business_connection_id;
+  if (bcId !== b.business_connection_id) {
+    console.log(JSON.stringify({ evt: "tg.reply.connection_moved", conversation: b.conversation_id,
+      from: b.business_connection_id, to: bcId }));
+  }
   // If he has sent something newer since this reply was written, drop it. The
   // newer message has its own reply queued, so a burst gets one answer rather
   // than one per line, the way a person actually reads the thread.
   if (b.generated_at) {
-    const convs = await sb(env, "conversations?id=eq." + encodeURIComponent(b.conversation_id) +
-      "&select=last_inbound_at,last_outbound_at").catch(() => null);
-    const c = (convs && convs[0]) || {};
     const gen = new Date(b.generated_at).getTime();
     // Only drop when something has actually been sent since this job was
     // written, which means he is already answered. Dropping merely because a
@@ -797,7 +812,7 @@ async function deliverQueuedReply(env, body) {
     }
   }
   const conns = await sb(env, "business_connections?id=eq." +
-    encodeURIComponent(b.business_connection_id) + "&select=id,telegram_account_id,is_enabled");
+    encodeURIComponent(bcId) + "&select=id,telegram_account_id,is_enabled");
   const conn = conns && conns[0];
   if (!conn || conn.is_enabled === false) throw new Error("connection unavailable");
   const accts = await sb(env, "telegram_accounts?id=eq." +
@@ -809,16 +824,16 @@ async function deliverQueuedReply(env, body) {
   // Read it now, at reply time, not when it arrived: the second tick should
   // land when she answers, not the instant he sends.
   if (b.read_message_id) {
-    await tgapi.readBusinessMessage(token, b.business_connection_id, b.chat_id, b.read_message_id).catch(() => {});
+    await tgapi.readBusinessMessage(token, bcId, b.chat_id, b.read_message_id).catch(() => {});
   }
   // Show typing for the last few seconds, then send. Without this the message
   // just appears out of nowhere after the pause, which reads as a machine.
   try {
     const words = String(b.text || "").split(/\s+/).filter(Boolean).length;
-    await tgapi.sendChatAction(token, b.business_connection_id, b.chat_id, "typing");
+    await tgapi.sendChatAction(token, bcId, b.chat_id, "typing");
     await new Promise(r => setTimeout(r, Math.min(9000, 1500 + words * 450)));
   } catch (e) { /* sending matters more than the badge */ }
-  const sent = await tgapi.sendMessage(token, b.business_connection_id, b.chat_id, b.text);
+  const sent = await tgapi.sendMessage(token, bcId, b.chat_id, b.text);
   // Seal the body even when the producer did not: without it the inbox can only
   // show the 80-character preview and the message looks cut off mid-sentence.
   let bodyEnc = b.body_enc || null, bodyNonce = b.body_nonce || null;
@@ -839,7 +854,7 @@ async function deliverQueuedReply(env, body) {
       body_preview: preview(b.text),
       body_enc: bodyEnc,
       body_nonce: bodyNonce,
-      raw: { via: b.via || "workers-ai", business_connection_id: b.business_connection_id, queued: true },
+      raw: { via: b.via || "workers-ai", business_connection_id: bcId, queued: true },
       sent_at: now,
       delivered: true,
     }),
@@ -1045,8 +1060,8 @@ export default {
           const itemId = q.raw && q.raw.item_id;
           if (!itemId) continue;
           let item = (await sb(env, "telegram_menu_items?id=eq." + itemId + "&select=name,price_gbp").catch(() => null) || [])[0];
-          if (!item) item = (await sb(env, "media_items?id=eq." + itemId + "&select=title,price_ton").catch(() => null) || [])[0];
-          const price = item ? Number(item.price_gbp || item.price_ton || 0) : 0;
+          if (!item) item = (await sb(env, "media_items?id=eq." + itemId + "&select=title,price_gbp").catch(() => null) || [])[0];
+          const price = item ? Number(item.price_gbp || 0) : 0;
           if (price && Math.abs(price - Number(amount)) < 0.01) { matched = { q, item }; break; }
         }
       } catch (e) {}
@@ -1128,6 +1143,20 @@ export default {
       } catch (e) {
         return json({ error: String(e).slice(0, 300) }, 500, origin);
       }
+    }
+
+    // Re-drive a conversation whose inbound was recorded but never answered
+    // (a crash, a deploy, a lost queue message). Admin only, one call per chat.
+    if (url.pathname === "/admin/catchup" && request.method === "POST") {
+      if (!env.ADMIN_TOKEN || request.headers.get("x-admin") !== env.ADMIN_TOKEN) return json({ error: "no" }, 401, origin);
+      const b = await request.json().catch(() => ({}));
+      const ids = Array.isArray(b.conversation_ids) ? b.conversation_ids : (b.conversation_id ? [b.conversation_id] : []);
+      const out = [];
+      for (const id of ids.slice(0, 20)) {
+        try { out.push({ id, result: await catchUpReply(env, sb, id) }); }
+        catch (e) { out.push({ id, error: String(e).slice(0, 140) }); }
+      }
+      return json({ ok: true, out }, 200, origin);
     }
 
     if (url.pathname === "/bots/hook" && request.method === "POST") {
