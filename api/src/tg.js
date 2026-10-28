@@ -600,6 +600,7 @@ function payLineFrom(prof) {
   return "Payment methods you have: " + bits.join("; ") +
     ", plus Telegram Stars for photos and videos (never for anything posted, a meet or a service). " +
     "Everything is quoted in pounds. Never type, quote or invent bank details, a sort code, an account number, a PayPal address or a link: the system sends the real details when he is paying for an item. " +
+    "Stars are never sent to you: he taps the unlock on the picture or video you posted in the chat. " +
     "If he asks for a meet, never send payment details. Never offer or mention PayPal, crypto or any other method, and if he asks for one say bank transfer or stars is all you do x.";
 }
 
@@ -1146,9 +1147,14 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   if ((methodHit || affirmative || wantsToPay) && !askingFree && !meetAsk) {
     const quoted = await lastQuotedItem(env, sb, conv);
     // Stars first: a digital item is unlocked in this chat, not by bank details.
-    if (quoted && methodHit === "stars" && starsEligible(quoted)) {
-      const starsSent = await sendStarsItem(env, sb, conn, conv, msg.chat.id, quoted);
-      if (starsSent) { stopTyping(); return starsSent; }
+    if (methodHit === "stars") {
+      let starItem = (quoted && starsEligible(quoted)) ? quoted
+        : await matchLiveItem(env, sb, conn, text);
+      if (!starItem || !starsEligible(starItem)) starItem = await cheapestStarsItem(env, sb, conn);
+      if (starItem && starsEligible(starItem)) {
+        const starsSent = await sendStarsItem(env, sb, conn, conv, msg.chat.id, starItem);
+        if (starsSent) { stopTyping(); return starsSent; }
+      }
     }
     if (quoted || wantsToPay) {
       const bankMethod = methodHit === "stars" ? "bank" : (methodHit || "bank");
@@ -1536,13 +1542,13 @@ async function sellableItems(env, sb, conn) {
   if (!conn.telegram_account_id) return [];
   const menu = await sb(env, "telegram_menu_items?telegram_account_id=eq." +
     encodeURIComponent(conn.telegram_account_id) +
-    "&active=eq.true&select=id,name,kind,price_gbp,description,media_key&order=position.asc&limit=20").catch(() => null);
+    "&active=eq.true&select=id,name,kind,price_gbp,price_stars,description,media_key&order=position.asc&limit=20").catch(() => null);
   if (menu && menu.length) {
     return menu.filter(m => m.name).map(m => ({ ...m, title: m.name, source: "menu" }));
   }
   const rows = await sb(env, "media_items?telegram_account_id=eq." +
     encodeURIComponent(conn.telegram_account_id) +
-    "&visible=eq.true&select=id,title,kind,price_ton,price_gbp,media_key&order=price_ton.desc&limit=20").catch(() => null);
+    "&visible=eq.true&select=id,title,kind,price_ton,price_gbp,price_stars,media_key&order=price_ton.desc&limit=20").catch(() => null);
   return (rows || []).filter(m => m.title).map(m => ({ ...m, source: "media" }));
 }
 
@@ -1944,6 +1950,16 @@ function starsFor(item, env) {
   return Math.min(25000, rounded);
 }
 
+/* The cheapest payable digital item, used when he says "stars" without having
+   picked one: something locked has to appear for him to tap. */
+async function cheapestStarsItem(env, sb, conn) {
+  const items = (await sellableItems(env, sb, conn))
+    .filter(i => starsEligible(i) && starsFor(i, env) > 0);
+  if (!items.length) return null;
+  items.sort((a, b) => starsFor(a, env) - starsFor(b, env));
+  return items[0];
+}
+
 const STARS_THANKS = [
   "enjoy that one 😏",
   "all yours now x",
@@ -2028,10 +2044,37 @@ async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
   const price = "£" + gbp;
   const name = item.name || item.title || "that";
   const starPrice = starsEligible(item) ? starsFor(item, env) : 0;
-  const howPay = starPrice
-    ? `bank transfer or ${starPrice} ⭐ stars, paid right here? x`
-    : `want me to send my bank details? x`;
-  const payText = `ooh good choice 😏 ${name} is ${price} babe, ${howPay}`;
+  // Wall first. A digital item is posted locked, for Stars, the moment he picks
+  // it; bank transfer is the fallback he is told about in the line underneath.
+  if (starPrice) {
+    const wall = await sendStarsItem(env, sb, conn, conv, msg.chat.id, item);
+    if (wall) {
+      const line = `${starPrice} ⭐ unlocks it babe, tap the lock 😏 or bank transfer if you'd rather x`;
+      try {
+        await humanPace(token, conn.id, msg.chat.id, line);
+        const sent = await tg.sendMessage(token, conn.id, msg.chat.id, line);
+        await sb(env, "messages", {
+          method: "POST",
+          headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+          body: JSON.stringify({
+            conversation_id: conv.id,
+            creator_id: conn.creator_id,
+            tg_message_id: sent && sent.message_id ? sent.message_id : null,
+            direction: "out",
+            sender: "ai",
+            kind: "text",
+            body_preview: "[payment request] " + name + " · " + price + " / " + starPrice + " stars",
+            sent_at: new Date().toISOString(),
+            raw: { via: "menu-buy", item_id: item.id, item_source: item.source || "media", price_gbp: gbp, stars: starPrice },
+          }),
+        }).catch(() => {});
+      } catch (e) {
+        console.log(JSON.stringify({ evt: "tg.stars.line_failed", err: String(e && e.message || e).slice(0, 160) }));
+      }
+      return { buy_pressed: item.id, stars_wall: starPrice };
+    }
+  }
+  const payText = `ooh good choice 😏 ${name} is ${price} babe, want me to send my bank details? x`;
   // No inline keyboard. Buttons make the account look like a shop bot; the
   // methods are named in the text and he answers with the one he wants.
   try {
