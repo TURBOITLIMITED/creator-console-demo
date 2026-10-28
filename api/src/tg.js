@@ -281,13 +281,6 @@ async function onMessage(env, sb, msg, edited) {
     delivered: true,
   }, "resolution=merge-duplicates,return=minimal");
 
-  // Mark it read on the business account, so he gets the double tick straight
-  // away instead of thinking nobody has looked at it.
-  if (!outgoing && msg.message_id && conn.id) {
-    botTokenFor(env, sb, conn).then(token => {
-      if (token) return tg.readBusinessMessage(token, conn.id, msg.chat.id, msg.message_id).catch(() => {});
-    }).catch(() => {});
-  }
 
   // Learn the name he gives. It has to live in flags: the customers upsert
   // above rewrites first_name from the Telegram profile on every message, so a
@@ -1438,6 +1431,7 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
       body_nonce: sealed.body_nonce || null,
       sender: "ai",
       via,
+      read_message_id: msg.message_id || null,
       generated_at: new Date().toISOString(),
     }, { delaySeconds: delay });
     stopTyping();
@@ -1558,6 +1552,7 @@ async function maybeSendFreeItem(env, sb, conn, conv, msg) {
     const tgKind = it.kind === "image" ? "photo" : it.kind === "video" ? "video" : "document";
     try {
       const cap = pickOf(FREE_CAPTIONS);
+      if (i === 0 && msg.message_id) await tg.readBusinessMessage(token, conn.id, msg.chat.id, msg.message_id).catch(() => {});
       if (i === 0) await humanPace(token, conn.id, msg.chat.id, cap);
       const sent = await tg.sendMedia(token, conn.id, msg.chat.id, tgKind, fileUrl,
         i === 0 ? cap : "");
@@ -1656,6 +1651,7 @@ async function maybeSendMenu(env, sb, conn, conv, msg) {
       body_nonce: null,
       sender: "ai",
       via: "menu-text",
+      read_message_id: msg.message_id || null,
       generated_at: new Date().toISOString(),
     }, { delaySeconds: menuDelay });
     console.log(JSON.stringify({ evt: "tg.menu.sent", paid: paid.length, free: free.length, delay: menuDelay }));

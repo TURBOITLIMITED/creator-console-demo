@@ -806,6 +806,11 @@ async function deliverQueuedReply(env, body) {
   const bots = uname ? await sb(env, "bots?persona=eq." + encodeURIComponent(uname) + "&select=token") : null;
   const token = bots && bots[0] && bots[0].token;
   if (!token) throw new Error("no bot token for " + uname);
+  // Read it now, at reply time, not when it arrived: the second tick should
+  // land when she answers, not the instant he sends.
+  if (b.read_message_id) {
+    await tgapi.readBusinessMessage(token, b.business_connection_id, b.chat_id, b.read_message_id).catch(() => {});
+  }
   // Show typing for the last few seconds, then send. Without this the message
   // just appears out of nowhere after the pause, which reads as a machine.
   try {
