@@ -235,7 +235,7 @@ async function onMessage(env, sb, msg, edited) {
   let conv = convs && convs[0];
   if (!conv) {
     const found = await sb(env, "conversations?business_connection_id=eq." +
-      encodeURIComponent(bcId) + "&chat_id=eq." + msg.chat.id + "&select=*");
+      encodeURIComponent(bcId) + "&chat_id=eq." + msg.chat.id + "&select=*&order=last_message_at.desc&limit=1");
     conv = found && found[0];
   }
   if (!conv) return { skipped: "no conversation" };
@@ -1893,7 +1893,7 @@ async function onCallback(env, sb, cq, persona) {
   let conv = convs && convs[0];
   if (!conv) {
     const found = await sb(env, "conversations?business_connection_id=eq." +
-      encodeURIComponent(conn.id) + "&chat_id=eq." + chatId + "&select=*");
+      encodeURIComponent(conn.id) + "&chat_id=eq." + chatId + "&select=*&order=last_message_at.desc&limit=1");
     conv = found && found[0];
   }
   if (!conv) return { skipped: "no conversation" };
