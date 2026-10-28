@@ -15,7 +15,12 @@ test("model-written bank details are replaced", () => {
 });
 
 test("ordinary chat is untouched", () => {
-  for (const t of ["hey you x", "it's £20 babe", "send me a pic x"]) {
+  for (const t of ["hey you x", "1550 ⭐ babe", "send me a pic x"]) {
     assert.equal(scrubBankText(t), t, t);
   }
+});
+
+test("a pound price is never sent", () => {
+  assert.equal(scrubBankText("it's £20 babe"), "it's stars only babe x");
+  assert.equal(scrubBankText("£9.50 x"), "it's stars only babe x");
 });

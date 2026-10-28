@@ -545,12 +545,13 @@ async function liveCatalogue(env, sb, conn) {
   // things that get posted, all priced in pounds.
   const menu = await sb(env, "telegram_menu_items?telegram_account_id=eq." +
     encodeURIComponent(conn.telegram_account_id) +
-    "&active=eq.true&select=name,kind,price_gbp,description&order=position.asc&limit=20").catch(() => null);
+    "&active=eq.true&select=name,kind,price_gbp,price_stars,description&order=position.asc&limit=20").catch(() => null);
   if (menu && menu.length){
     const lines = ["Your menu for sale (the ONLY things you can offer, use these exact names and prices):"];
     for (const m of menu){
       const kind = m.kind === "physical" ? "posted to him" : m.kind === "service" ? "done with you live" : (m.kind || "content");
-      lines.push("- " + m.name + " (" + kind + ", £" + Number(m.price_gbp || 0) +
+      const stars = starsFor(m, env) || 0;
+      lines.push("- " + m.name + " (" + kind + ", " + stars + " ⭐" +
         (m.description ? " - " + String(m.description).slice(0, 60) : "") + ")");
     }
     lines.push("Digital things are sent the moment payment is confirmed. A physical thing is posted, so say it gets posted out and let the human take the address after payment. Never invent anything that is not on this list.");
@@ -559,12 +560,12 @@ async function liveCatalogue(env, sb, conn) {
 
   let rows = await sb(env, "media_items?telegram_account_id=eq." +
     encodeURIComponent(conn.telegram_account_id) +
-    "&visible=eq.true&select=title,kind,price_ton,price_gbp,media_key&order=price_ton.desc&limit=15").catch(() => null);
+    "&visible=eq.true&select=title,kind,price_ton,price_gbp,price_stars,media_key&order=price_ton.desc&limit=15").catch(() => null);
   // Content uploaded before an account existed sits unassigned. It is still
   // hers, so it counts rather than the bot saying she has nothing to sell.
   if (!(rows && rows.length)){
     rows = await sb(env, "media_items?creator_id=eq." + encodeURIComponent(conn.creator_id) +
-      "&telegram_account_id=is.null&visible=eq.true&select=title,kind,price_ton,price_gbp,media_key&order=price_ton.desc&limit=15").catch(() => null);
+      "&telegram_account_id=is.null&visible=eq.true&select=title,kind,price_ton,price_gbp,price_stars,media_key&order=price_ton.desc&limit=15").catch(() => null);
   }
   const items = (rows || []).filter(m => m.title && !String(m.media_key || "").startsWith("demo/"));
   if (!items.length) return "";
@@ -574,7 +575,7 @@ async function liveCatalogue(env, sb, conn) {
   const lines = [];
   if (paid.length) {
     lines.push("Your current live content for sale. These are the ONLY things you can sell, with these exact names and prices:");
-    for (const m of paid) lines.push("- " + m.title + " (" + (m.kind || "content") + ", £" + priceOf(m) + ")");
+    for (const m of paid) lines.push("- " + m.title + " (" + (m.kind || "content") + ", " + (starsFor(m, env) || 0) + " ⭐)");
     lines.push("Prices are exact. Never invent an item, an add-on, a discount, a bundle or a different price. If he asks for anything that is not on this list, say you have not got that on you right now.");
   }
   if (free.length) {
@@ -592,7 +593,7 @@ async function liveCatalogue(env, sb, conn) {
 function payLineFrom(prof) {
   // Bank transfer is off until the owner confirms the account details. Stars
   // only for now, and the numbers are never in the model's prompt.
-  return "Payment method: Telegram Stars only, for photos and videos. Everything is quoted in stars, with the pound price it equals. " +
+  return "Payment method: Telegram Stars only. Everything is quoted in Stars. " +
     "Never type, quote or invent bank details, a sort code, an account number, a PayPal address or a link. " +
     "Stars are never sent to you: he taps the unlock on the picture or video you posted in the chat. " +
     "If he asks for bank transfer or any other way, say stars is all you are doing at the moment x. " +
@@ -629,7 +630,7 @@ function personaSystemPrompt(p, conn, catalogue, wallet, saidAlready) {
   } else {
     lines.push("You have nothing live for sale right now. Do not offer, quote or hint at any product, price, picture, video or worn item. Chat and flirt only, and if he asks for something, say you have not got anything on you at the moment.");
   }
-  const hasPaid = !!catalogue && /£\d/.test(catalogue);
+  const hasPaid = !!catalogue && /\d+\s*⭐/.test(catalogue);
   if (hasPaid) lines.push(
     "Build the connection first: answer him, flirt, take it dirtier than he does. As soon as he has replied a couple of times, or the moment he asks what you do or what you have got, prompt him to your menu: say you have got a menu of your stuff and ask if he wants to see it. Do not wait for him to ask twice.",
     "When he picks something, name it naturally and give the exact price from your list. Never invent an item, an add-on, a discount or a price.",
@@ -637,7 +638,7 @@ function personaSystemPrompt(p, conn, catalogue, wallet, saidAlready) {
   lines.push(
     // Real payment details are the owner's to give. Never quote a placeholder
     // sort code or an address at a paying customer.
-    wallet || `Prices are always in pounds, like £15, never dollars. You have no payment details set, so when he asks how to pay say \"give me a sec and I'll send you the details x\" and leave it for the human. Never invent a bank account, sort code, PayPal address or link.`,
+    wallet || `Prices are always in Stars, like 1550 ⭐. You have no payment details set, so when he asks how to pay say "give me a sec and I'll send you the details x" and leave it for the human. Never invent a bank account, sort code, PayPal address or link, and never quote a pound or dollar price.`,
     "Write like a real human woman texting: natural, warm, filthy, small imperfections are fine. She swears when it fits (slut, knickers, cock, fucking) and is never prim or corporate.",
     // Long chatty paragraphs are what make her sound generated. Real people
     // on their phone send a line, sometimes four words.
@@ -1588,7 +1589,7 @@ async function maybeSendMenu(env, sb, conn, conv, msg) {
   const priceOf = m => Number(m.price_gbp || m.price_ton || 0);
   const fmt = m => {
     const s = Number(m.price_stars) || starsFor(m, env) || 0;
-    return "£" + priceOf(m) + (s ? " / " + s + " ⭐" : "");
+    return s ? s + " ⭐" : "";
   };
   const paid = items.filter(m => priceOf(m) > 0).slice(0, 45);
   if (!paid.length) return null;
@@ -1920,7 +1921,7 @@ async function onCallback(env, sb, cq, persona) {
   }
 
   // buy: ack, then the shared payment-request flow.
-  try { await tg.answerCallbackQuery(token, cq.id, item.title + " · £" + (Number(item.price_gbp) || Number(item.price_ton))); } catch (e) {
+  try { await tg.answerCallbackQuery(token, cq.id, item.title + " · " + (starsFor(item, env) || 0) + " ⭐"); } catch (e) {
     console.log(JSON.stringify({ evt: "tg.callback.ack_failed", err: String(e).slice(0, 120) })); }
   const r = await sendPaymentRequest(env, sb, conn, conv, { chat: { id: chatId } }, item);
   await sb(env, "conversations?id=eq." + conv.id, {
@@ -2122,7 +2123,7 @@ async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
   if (starPrice) {
     const wall = await sendStarsItem(env, sb, conn, conv, msg.chat.id, item);
     if (wall) {
-      const line = `${starPrice} ⭐ (${price}) unlocks it babe, tap the lock 😏` + (fangate ? `\nor card here if you'd rather 💕 ${fangate}` : ` x`);
+      const line = `${starPrice} ⭐ unlocks it babe, tap the lock 😏` + (fangate ? `\nor card here if you'd rather 💕 ${fangate}` : ` x`);
       const sealedLine = await sealedBody(env, sb, conn.creator_id, line);
       try {
         await humanPace(token, conn.id, msg.chat.id, line);
@@ -2150,7 +2151,7 @@ async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
     }
   }
   const payText = fangate
-    ? `ooh good choice 😏 ${name} is ${price} babe, here's the link 💕 ${fangate}`
+    ? `ooh good choice 😏 ${name} is ${starPrice} ⭐ babe, here's the link 💕 ${fangate}`
     : `ooh good choice 😏 ${name} is stars only at the moment babe, tap the lock on the one you want x`;
   const sealedPay = await sealedBody(env, sb, conn.creator_id, payText);
   // No inline keyboard. Buttons make the account look like a shop bot; the
@@ -2203,7 +2204,7 @@ async function sendPayChoice(env, sb, conn, conv, chatId, item){
   const starPrice = starsEligible(item) ? starsFor(item, env) : 0;
   if (!starPrice) return await sendPayDetails(env, sb, conn, conv, chatId, item, "bank");
   const name = item.name || item.title || "that";
-  const line = `${name} is ${starPrice} ⭐ (${gbp}) here in the chat. tap the lock and it's yours x`;
+  const line = `${name} is ${starPrice} ⭐ here in the chat. tap the lock and it's yours x`;
   try {
     await humanPace(token, conn.id, chatId, line);
     const sent = await tg.sendMessage(token, conn.id, chatId, line);
@@ -2291,6 +2292,11 @@ function scrubBankText(text){
   if (/\b(sort code|account (number|no\.?|num)|acc(?:ount)?\s*#?\s*\d{6,})\b/i.test(text)) {
     console.log(JSON.stringify({ evt: "tg.reply.bank_details_blocked", text: String(text).slice(0, 100) }));
     return "let me send you the proper details x";
+  }
+  // Stars only. A pound figure in a reply is wrong even if it is accurate.
+  if (/£\s?\d/.test(text)) {
+    console.log(JSON.stringify({ evt: "tg.reply.pounds_blocked", text: String(text).slice(0, 100) }));
+    return "it's stars only babe x";
   }
   return text;
 }
