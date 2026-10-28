@@ -16,7 +16,7 @@ const json = (data, status = 200, origin) =>
   });
 
 import { sign, timingSafe } from "./media.js";
-import { sealSecret, openSecret, getDek, open, preview } from "./crypto.js";
+import { sealSecret, openSecret, getDek, seal, open, preview } from "./crypto.js";
 import { inboxSnapshot, inboxPage, login as fsLogin, ageMinutes, parseInbox, parseThread, sendReply } from "./fabswingers.js";
 import { handleWebhook, onPaidMediaPurchase, catchUpReply, notifyOwner } from "./tg.js";
 import * as tgapi from "./telegram.js";
@@ -807,6 +807,12 @@ async function deliverQueuedReply(env, body) {
   const token = bots && bots[0] && bots[0].token;
   if (!token) throw new Error("no bot token for " + uname);
   const sent = await tgapi.sendMessage(token, b.business_connection_id, b.chat_id, b.text);
+  // Seal the body even when the producer did not: without it the inbox can only
+  // show the 80-character preview and the message looks cut off mid-sentence.
+  let bodyEnc = b.body_enc || null, bodyNonce = b.body_nonce || null;
+  if (!bodyEnc) {
+    try { const dek = await getDek(env, sb, b.creator_id); const sealed = await seal(dek, b.text); bodyEnc = sealed.body_enc; bodyNonce = sealed.body_nonce; } catch (e) { /* keep preview */ }
+  }
   const now = new Date().toISOString();
   await sb(env, "messages", {
     method: "POST",
@@ -819,8 +825,8 @@ async function deliverQueuedReply(env, body) {
       sender: b.sender || "ai",
       kind: "text",
       body_preview: preview(b.text),
-      body_enc: b.body_enc || null,
-      body_nonce: b.body_nonce || null,
+      body_enc: bodyEnc,
+      body_nonce: bodyNonce,
       raw: { via: b.via || "workers-ai", business_connection_id: b.business_connection_id, queued: true },
       sent_at: now,
       delivered: true,

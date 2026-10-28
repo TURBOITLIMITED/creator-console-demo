@@ -1323,7 +1323,7 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
       let catchUp = "";
       if (since.length) {
         catchUp = " Since your last reply he has sent: " + since.map(s => '"' + s + '"').join("; ") +
-          ". Answer the ones that matter (a question, anything sexual, anything about what you sell) and skip the filler. Do not answer each one separately, and do not let it go flat: take the dirtiest thread and push it further.";
+          ". Answer every direct question in there (where he is, how old, what you do, where you are based) inside that one reply, plus anything sexual or about buying; skip only pure filler. Do not answer each message separately, and do not let it go flat: take the dirtiest thread and push it further.";
       }
       // Selling before he has said anything is the thing that makes a chat feel
   // like a shop. In a new chat she flirts and nothing else.
@@ -1498,15 +1498,17 @@ async function maybeSendFreeItem(env, sb, conn, conv, msg) {
   const token = await botTokenFor(env, sb, conn);
   if (!token) return null;
 
-  // One opener per chat. A second request gets no line about having had one;
-  // the model steers him to the menu instead.
-  const alreadyFree = await sb(env, "messages?conversation_id=eq." + conv.id +
-    "&direction=eq.out&raw->>via=eq.free-item&select=id&limit=1").catch(() => null);
-  if (alreadyFree && alreadyFree.length) return null;
+  // Free pictures rotate: two at most, never the same file twice.
+  const freeHist = await sb(env, "messages?conversation_id=eq." + conv.id +
+    "&direction=eq.out&raw->>via=eq.free-item&select=raw&order=sent_at.desc&limit=10").catch(() => null);
+  const sentFreeIds = (freeHist || []).map(m => m.raw && m.raw.item_id).filter(Boolean);
+  if (sentFreeIds.length >= 2) return null;
 
   // First free request: the face picture, and only that one. He sees her, then
   // the next ask gets the paid list. Other free files stay in reserve.
-  const opener = items.find(m => /\bface\b|selfie/i.test(m.title || "")) || items[0];
+  const opener = items.find(m => !sentFreeIds.includes(m.id) && /\bface\b|selfie/i.test(m.title || ""))
+    || items.find(m => !sentFreeIds.includes(m.id));
+  if (!opener) return null;
   const batch = opener ? [opener] : [];
   const sentIds = [];
   for (let i = 0; i < batch.length; i++) {
@@ -1615,7 +1617,7 @@ async function maybeSendMenu(env, sb, conn, conv, msg) {
     if (!(alreadyFree && alreadyFree.length)) {
       await maybeSendFreeItem(env, sb, conn, conv, msg).catch(() => null);
     }
-    const menuDelay = 10 + Math.floor(Math.random() * 9);   // 10 to 18 seconds
+    const menuDelay = 3 + Math.floor(Math.random() * 4);   // 3 to 6 seconds
     await env.REPLY_QUEUE.send({
       conversation_id: conv.id,
       creator_id: conn.creator_id,
@@ -2071,12 +2073,18 @@ async function sendStarsItem(env, sb, conn, conv, chatId, item) {
   return { stars_media: item.id, stars };
 }
 
+/* Seal a deterministic line so the inbox can show it in full. */
+async function sealedBody(env, sb, creatorId, text) {
+  try { const dek = await getDek(env, sb, creatorId); const x = await seal(dek, text); return { body_enc: x.body_enc, body_nonce: x.body_nonce }; } catch (e) { return {}; }
+}
+
 /* The item's Fangate checkout, sent as her in the chat. */
 async function sendFangateLink(env, sb, conn, conv, chatId, item) {
   const token = await botTokenFor(env, sb, conn);
   const url = item && item.metadata && item.metadata.fangate_url;
   if (!token || !chatId || !url) return null;
   const line = `here you go babe 💕 ${url}`;
+  const sealedLink = await sealedBody(env, sb, conn.creator_id, line);
   await humanPace(token, conn.id, chatId, line);
   const sent = await tg.sendMessage(token, conn.id, chatId, line);
   await sb(env, "messages", {
@@ -2087,6 +2095,7 @@ async function sendFangateLink(env, sb, conn, conv, chatId, item) {
       tg_message_id: sent && sent.message_id ? sent.message_id : null,
       direction: "out", sender: "ai", kind: "text",
       body_preview: "[fangate] " + (item.title || item.name || ""),
+      ...sealedLink,
       sent_at: new Date().toISOString(),
       raw: { via: "fangate-link", item_id: item.id },
     }),
@@ -2116,6 +2125,7 @@ async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
     const wall = await sendStarsItem(env, sb, conn, conv, msg.chat.id, item);
     if (wall) {
       const line = `${starPrice} ⭐ (${price}) unlocks it babe, tap the lock 😏` + (fangate ? `\nor card here if you'd rather 💕 ${fangate}` : ` or bank transfer if you'd rather x`);
+      const sealedLine = await sealedBody(env, sb, conn.creator_id, line);
       try {
         await humanPace(token, conn.id, msg.chat.id, line);
         const sent = await tg.sendMessage(token, conn.id, msg.chat.id, line);
@@ -2130,6 +2140,7 @@ async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
             sender: "ai",
             kind: "text",
             body_preview: "[payment request] " + name + " · " + price + " / " + starPrice + " stars",
+            ...sealedLine,
             sent_at: new Date().toISOString(),
             raw: { via: "menu-buy", item_id: item.id, item_source: item.source || "media", price_gbp: gbp, stars: starPrice },
           }),
@@ -2143,6 +2154,7 @@ async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
   const payText = fangate
     ? `ooh good choice 😏 ${name} is ${price} babe, here's the link 💕 ${fangate}`
     : `ooh good choice 😏 ${name} is ${price} babe, want me to send my bank details? x`;
+  const sealedPay = await sealedBody(env, sb, conn.creator_id, payText);
   // No inline keyboard. Buttons make the account look like a shop bot; the
   // methods are named in the text and he answers with the one he wants.
   try {
@@ -2159,6 +2171,7 @@ async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
         sender: "ai",
         kind: "text",
         body_preview: "[payment request] " + name + " · " + price,
+        ...sealedPay,
         sent_at: new Date().toISOString(),
         raw: { via: "menu-buy", item_id: item.id, item_source: item.source || "media", price_gbp: gbp },
       }),
@@ -2253,6 +2266,7 @@ async function sendPayDetails(env, sb, conn, conv, chatId, item, method) {
   } else {
     detail = "give me a sec and I'll send you the details x";
   }
+  const sealedDetail = await sealedBody(env, sb, conn.creator_id, detail);
   try {
     await humanPace(token, conn.id, chatId, detail);
     const sent = await tg.sendMessage(token, conn.id, chatId, detail);
@@ -2267,6 +2281,7 @@ async function sendPayDetails(env, sb, conn, conv, chatId, item, method) {
         sender: "ai",
         kind: "text",
         body_preview: "[pay details] " + method + (item ? " · " + (item.name || item.title || "") : ""),
+        ...sealedDetail,
         sent_at: new Date().toISOString(),
         raw: { via: "pay-details", method, item_id: item ? item.id : null },
       }),
