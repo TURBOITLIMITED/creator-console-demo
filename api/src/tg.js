@@ -2215,11 +2215,11 @@ const DEFLECT_PLATFORM = [
   "no other apps babe, but i'm not going anywhere on here x",
 ];
 const DEFLECT_MEET = [
+  "you've not even spoiled me yet 😏 do that and see how nice i am x",
+  "havent even spoiled me yet babe 😇 i like being treated",
+  "spoil me first x i'm not going anywhere 😏",
+  "you're keen 😅 spoil me a little and i'll be even sweeter on you x",
   "slow down x i like to get to know someone properly first 😘",
-  "you've not even bought me a drink yet 😏 tell me more about you first",
-  "i want to know you a bit more before any of that x",
-  "i'm enjoying talking to you, let's keep it like this for now x",
-  "you're keen 😅 i like to take my time with someone",
   "let's keep chatting a bit first, i'm not in a rush x",
 ];
 
