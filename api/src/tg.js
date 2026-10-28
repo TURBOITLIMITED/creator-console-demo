@@ -22,7 +22,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 /* Human timing. A reply lands 20 seconds to 2 minutes later. When the chat is
    going nowhere (a nudge, or a two-word reply after a long quiet spell) it
    takes 2 to 3 minutes, the way someone half-interested would. */
-function replyDelaySeconds(text, conv, opts) {
+export function replyDelaySeconds(text, conv, opts) {
   const o = opts || {};
   const t = String(text || "").trim().toLowerCase();
   // A man with his cock in his hand is not kept waiting. Anything sexual, or a
@@ -1401,7 +1401,15 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
     ? " He has just turned down what you offered. Do not repost it, do not repeat the price and do not ask him to unlock it again. Say something light, and if your menu has something else, name ONE other item (the cheapest is fine) exactly as it is written, once — then drop it. If he is not buying, just carry on chatting and flirting with him."
     : "";
   const system = personaSystemPrompt(p, conn, catalogue, payLine, priorOut) + (custLine ? " " + custLine : "") + catchUp + sellGate + openerRule + rejectLine;
-      replyText = scrubBankText(await generateReply(env, system, history, text));
+      try {
+        replyText = scrubBankText(await generateReply(env, system, history, text));
+      } catch (e) {
+        // A failed generation must never leave him on read. Send one safe line.
+        console.log(JSON.stringify({ evt: "tg.reply.generate_failed", err: String(e && e.message || e).slice(0, 200) }));
+        replyText = "sorry babe my phone's playing up x say that again?";
+        notifyOwner(env, sb, conn, conv, msg, "Reply failed",
+          String(e && e.message || e).slice(0, 200)).catch(() => null);
+      }
       via = "workers-ai";
       // The model has learned the gate wording and sometimes writes "N ⭐ unlocks
       // it" with no locked media behind it. That is a dead end for the customer.
@@ -1483,10 +1491,12 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   } catch (e) { ownerOnline = false; }
   replyText = finishReply(replyText);
   const hisMsgCount = history.filter(h => h.dir === "in").length;
-  const delay = replyDelaySeconds(text, conv, { ownerOnline, hisCount: hisMsgCount,
+  let delay = 30;
+  try { delay = replyDelaySeconds(text, conv, { ownerOnline, hisCount: hisMsgCount,
     priorText: history.slice(-3).map(h => h.text).join(" "),
     replyText,
-    sentMedia: !!(msg.photo || msg.voice || msg.video || msg.video_note) });
+    sentMedia: !!(msg.photo || msg.voice || msg.video || msg.video_note) }); }
+  catch (e) { console.log(JSON.stringify({ evt: "tg.reply.delay_failed", err: String(e && e.message || e).slice(0, 160) })); }
   const sealed = histDek ? await seal(histDek, replyText) : {};
   try {
     await env.REPLY_QUEUE.send({
