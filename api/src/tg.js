@@ -35,9 +35,16 @@ function replyDelaySeconds(text, conv, opts) {
   // reads as a machine again.
   const replyWords = String(o.replyText || "").split(/\s+/).filter(Boolean).length;
   const typing = Math.min(14000, 1200 + replyWords * 600);
-  if (o.ownerOnline) return Math.max(14, Math.round((typing + 5000 + Math.random() * 4000) / 1000));
-  if (horny) return Math.max(16, Math.round((typing + 7000 + Math.random() * 6000) / 1000));
-  return 20 + Math.floor(Math.random() * 45);                        // 20 to 65 seconds
+  // Engagement curve. A stranger waits; a man she has been talking to for a
+  // while gets an answer at the speed of someone already in the conversation.
+  // 0 messages in -> ~55s, 25+ -> ~15s, with the spread narrowing as it warms.
+  const his = Number(o.hisCount) || 0;
+  const e = Math.min(1, Math.max(0, (his - 1) / 24));
+  const base = 55 - 40 * e;
+  const spread = 25 - 14 * e;
+  if (o.ownerOnline) return Math.max(10, Math.round((typing + 3500 + Math.random() * 2500) / 1000));
+  if (horny) return Math.max(10, Math.round((typing + 5000 + 3000 * (1 - e) + Math.random() * 4000) / 1000));
+  return Math.max(12, Math.round(base + (Math.random() - 0.5) * 2 * spread));
 }
 
 /* The deterministic sends (menu, payment request, freebie) used to land the
@@ -1475,7 +1482,7 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
     }
   } catch (e) { ownerOnline = false; }
   replyText = finishReply(replyText);
-  const delay = replyDelaySeconds(text, conv, { ownerOnline,
+  const delay = replyDelaySeconds(text, conv, { ownerOnline, hisCount,
     priorText: history.slice(-3).map(h => h.text).join(" "),
     replyText,
     sentMedia: !!(msg.photo || msg.voice || msg.video || msg.video_note) });
