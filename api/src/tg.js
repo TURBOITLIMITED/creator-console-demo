@@ -497,6 +497,13 @@ async function onMessage(env, sb, msg, edited) {
 
   // Auto-reply: deterministic intercept answers send straight away; everything
   // else asks the model, then sends through the business connection.
+  if (!outgoing && text && windowOpen && conv.mode !== "human" && !conv.ai_disabled) {
+    const deflected = await maybeDeflect(env, sb, conn, conv, msg, text).catch(() => null);
+    if (deflected) return deflected;
+    const reoffered = await maybeReofferMenu(env, sb, conn, conv, msg).catch(() => null);
+    if (reoffered) return reoffered;
+  }
+
   let sent = null, vision = null;
   if (!outgoing && (reply || !intercept) && windowOpen && conv.mode !== "human" && !conv.ai_disabled) {
     let incoming = text;
@@ -2192,6 +2199,74 @@ async function sendStarsItem(env, sb, conn, conv, chatId, item) {
 /* Seal a deterministic line so the inbox can show it in full. */
 async function sealedBody(env, sb, creatorId, text) {
   try { const dek = await getDek(env, sb, creatorId); const x = await seal(dek, text); return { body_enc: x.body_enc, body_nonce: x.body_nonce }; } catch (e) { return {}; }
+}
+
+
+/* Soft, in-character deflections. A man offering WhatsApp or a meet gets one
+   warm line that keeps her where she is, not a lecture and not a hard stop
+   repeated every message. */
+const PLATFORM_RE = /\b(whats\s?app|whatsap|snap(chat)?|snap me|kik|instagram|insta|signal|onlyfans|of page)\b|\+44\s?\d{9,}|\b0?7\d{9}\b/i;
+const DEFLECT_PLATFORM = [
+  "i'd rather keep it all on here tbh x 😘",
+  "i'm rubbish with other apps babe, telegram's where i am x",
+  "just keep me on here x i like it better 😏",
+];
+const DEFLECT_MEET = [
+  "i don't meet babe, but i'd rather keep you all to myself on here x 😘",
+  "i'm not a meet up girl x but there's plenty of me right here 😏",
+  "no meets x but i'll keep you company on here all night",
+];
+
+async function maybeDeflect(env, sb, conn, conv, msg, text) {
+  const isPlatform = PLATFORM_RE.test(text);
+  const isMeet = !isPlatform && MEET_RE.test(text);
+  if (!isPlatform && !isMeet) return null;
+  const via = isPlatform ? "deflect-platform" : "deflect-meet";
+  const recent = await sb(env, "messages?conversation_id=eq." + conv.id +
+    "&direction=eq.out&raw->>via=eq." + via + "&select=sent_at&order=sent_at.desc&limit=1").catch(() => null);
+  if (recent && recent[0] && Date.now() - new Date(recent[0].sent_at).getTime() < 30 * 60 * 1000) return null;
+  const pool = isPlatform ? DEFLECT_PLATFORM : DEFLECT_MEET;
+  let line = pool[Math.floor(Math.random() * pool.length)];
+  const menus = await sb(env, "messages?conversation_id=eq." + conv.id +
+    "&direction=eq.out&raw->>via=eq.menu-text&select=id&limit=1").catch(() => null);
+  if (!menus || !menus.length) line += " want the list? x";
+  const token = await botTokenFor(env, sb, conn);
+  if (!token) return null;
+  await humanPace(token, conn.id, msg.chat.id, line);
+  const sent = await tg.sendMessage(token, conn.id, msg.chat.id, line);
+  const sealed = await sealedBody(env, sb, conn.creator_id, line);
+  await sb(env, "messages", {
+    method: "POST",
+    headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+    body: JSON.stringify({
+      conversation_id: conv.id, creator_id: conn.creator_id,
+      tg_message_id: sent && sent.message_id ? sent.message_id : null,
+      direction: "out", sender: "ai", kind: "text",
+      body_preview: "[" + via + "] " + line.slice(0, 60),
+      sent_at: new Date().toISOString(), ...sealed,
+      raw: { via },
+    }),
+  }).catch(() => {});
+  console.log(JSON.stringify({ evt: "tg.deflect", kind: via, conversation: conv.id }));
+  return { conversation_id: conv.id, direction: "in", intercept: via,
+           sent: { via, text: line } };
+}
+
+/* Long chat with no sale? Offer the list again, roughly every fifteen messages. */
+async function maybeReofferMenu(env, sb, conn, conv, msg) {
+  const rows = await sb(env, "messages?conversation_id=eq." + conv.id +
+    "&select=raw&order=sent_at.desc&limit=40").catch(() => null);
+  if (!rows || rows.length < 15) return null;
+  let since = 0;
+  for (const m of rows) {
+    const via = m.raw && m.raw.via;
+    if (via === "menu-text" || via === "menu-buy" || via === "pay-choice") break;
+    since++;
+  }
+  if (since < 15) return null;
+  const sent = await maybeSendMenu(env, sb, conn, conv, msg);
+  return sent ? { conversation_id: conv.id, direction: "in", intercept: "menu-reoffer",
+                   sent: { via: "menu-text" } } : null;
 }
 
 /* The item's Fangate checkout, sent as her in the chat. */
