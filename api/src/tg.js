@@ -1144,8 +1144,13 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   // meet is not that signal.
   const meetAsk = !mediaSynthetic && MEET_RE.test(lower);
   const wantsToPay = !mediaSynthetic && !meetAsk && /\b(pay|paying|payment|send (you )?the (money|cash)|how do i pay|where do i send)\b/i.test(lower);
-  if ((methodHit || affirmative || wantsToPay) && !askingFree && !meetAsk) {
+  const cardHit = !mediaSynthetic && /\b(card|link|fangate)\b/i.test(lower);
+  if ((methodHit || cardHit || affirmative || wantsToPay) && !askingFree && !meetAsk) {
     const quoted = await lastQuotedItem(env, sb, conv);
+    if (cardHit && quoted && quoted.metadata && quoted.metadata.fangate_url) {
+      const sentLink = await sendFangateLink(env, sb, conn, conv, msg.chat.id, quoted);
+      if (sentLink) { stopTyping(); return sentLink; }
+    }
     // Stars first: a digital item is unlocked in this chat, not by bank details.
     if (methodHit === "stars") {
       let starItem = (quoted && starsEligible(quoted)) ? quoted
@@ -1552,7 +1557,7 @@ async function sellableItems(env, sb, conn) {
   }
   const rows = await sb(env, "media_items?telegram_account_id=eq." +
     encodeURIComponent(conn.telegram_account_id) +
-    "&visible=eq.true&select=id,title,kind,price_ton,price_gbp,price_stars,media_key&order=price_ton.desc&limit=20").catch(() => null);
+    "&visible=eq.true&select=id,title,kind,price_ton,price_gbp,price_stars,media_key,metadata&order=price_ton.desc&limit=20").catch(() => null);
   return (rows || []).filter(m => m.title).map(m => ({ ...m, source: "media" }));
 }
 
@@ -2048,6 +2053,29 @@ async function sendStarsItem(env, sb, conn, conv, chatId, item) {
   return { stars_media: item.id, stars };
 }
 
+/* The item's Fangate checkout, sent as her in the chat. */
+async function sendFangateLink(env, sb, conn, conv, chatId, item) {
+  const token = await botTokenFor(env, sb, conn);
+  const url = item && item.metadata && item.metadata.fangate_url;
+  if (!token || !chatId || !url) return null;
+  const line = `here you go babe 💕 ${url}`;
+  await humanPace(token, conn.id, chatId, line);
+  const sent = await tg.sendMessage(token, conn.id, chatId, line);
+  await sb(env, "messages", {
+    method: "POST",
+    headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+    body: JSON.stringify({
+      conversation_id: conv.id, creator_id: conn.creator_id,
+      tg_message_id: sent && sent.message_id ? sent.message_id : null,
+      direction: "out", sender: "ai", kind: "text",
+      body_preview: "[fangate] " + (item.title || item.name || ""),
+      sent_at: new Date().toISOString(),
+      raw: { via: "fangate-link", item_id: item.id },
+    }),
+  }).catch(() => {});
+  return { fangate_link: item.id };
+}
+
 /* Payment request for a specific item (shared by buy button and text). */
 async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
   const token = await botTokenFor(env, sb, conn);
@@ -2063,12 +2091,13 @@ async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
   const price = "£" + gbp;
   const name = item.name || item.title || "that";
   const starPrice = starsEligible(item) ? starsFor(item, env) : 0;
+  const fangate = (item.metadata && item.metadata.fangate_url) || "";
   // Wall first. A digital item is posted locked, for Stars, the moment he picks
   // it; bank transfer is the fallback he is told about in the line underneath.
   if (starPrice) {
     const wall = await sendStarsItem(env, sb, conn, conv, msg.chat.id, item);
     if (wall) {
-      const line = `${starPrice} ⭐ (${price}) unlocks it babe, tap the lock 😏 or bank transfer if you'd rather x`;
+      const line = `${starPrice} ⭐ (${price}) unlocks it babe, tap the lock 😏` + (fangate ? `\nor card here if you'd rather 💕 ${fangate}` : ` or bank transfer if you'd rather x`);
       try {
         await humanPace(token, conn.id, msg.chat.id, line);
         const sent = await tg.sendMessage(token, conn.id, msg.chat.id, line);
@@ -2093,7 +2122,9 @@ async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
       return { buy_pressed: item.id, stars_wall: starPrice };
     }
   }
-  const payText = `ooh good choice 😏 ${name} is ${price} babe, want me to send my bank details? x`;
+  const payText = fangate
+    ? `ooh good choice 😏 ${name} is ${price} babe, here's the link 💕 ${fangate}`
+    : `ooh good choice 😏 ${name} is ${price} babe, want me to send my bank details? x`;
   // No inline keyboard. Buttons make the account look like a shop bot; the
   // methods are named in the text and he answers with the one he wants.
   try {

@@ -2891,7 +2891,8 @@ function libForm(item=null){
         <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(item.media_key).split('/').pop())}</span>
         <span class="muted" style="flex:none">${item.media_size ? (item.media_size/1048576).toFixed(2)+' MB' : ''}${item.duration_secs ? (item.media_size ? ' · ' : '') + fmtDuration(item.duration_secs) : ''}</span>
       </div></div>` : ''}
-    <div class="field"><label for="md-file">File</label><input class="input" id="md-file" name="file" type="file" accept="video/*,image/*,audio/*,.zip,.pdf"><span class="hint">${item?'Choose a replacement, or leave it empty to keep the current one.':'Stored in content-store; the bot delivers it after payment.'}</span></div>
+    <div class="field"><label for="md-fangate">Fangate link</label><input class="input mono" id="md-fangate" name="fangate_url" value="${esc((item?.metadata||{}).fangate_url||'')}" data-orig="${esc((item?.metadata||{}).fangate_url||'')}" placeholder="https://bg.fangate.app/..."><span class="hint">Card/GBP checkout. She sends this link in the chat when he buys the item.</span></div>
+    <div class="field"><label for="md-file">File</label><input class="input" id="md-file" name="file" type="file" accept="video/*,image/*,audio/*,.zip,.pdf"><span class="hint">${item?'Leave empty to keep the current file.':'Stored in content-store; the bot delivers it after payment.'}</span></div>
     <div class="field"><label for="md-desc">Description</label><textarea class="input" id="md-desc" name="description" maxlength="280" style="min-height:64px" placeholder="What fans get.">${esc(item?.description||'')}</textarea></div>
     <label class="switch" for="md-visible"><input type="checkbox" id="md-visible" name="visible" ${item?.visible ?? true ?'checked':''}><span class="track"></span><span>Visible<small>Visible to fans and the AI</small></span></label>
     <div class="form-actions"><button class="btn primary" type="submit">${ic('check')}${item?'Save changes':'Add to library'}</button>${item?`<button class="btn" type="button" data-act="lib-new">Cancel</button>`:''}</div>
@@ -3649,6 +3650,9 @@ document.addEventListener('submit', async e => {
     const data = { title:f.title.value.trim(), kind:f.kind.value, price_ton:f.price_ton.value?Number(f.price_ton.value):null, price_stars:f.price_stars && f.price_stars.value ? Math.round(Number(f.price_stars.value)) : null, description:f.description.value.trim()||null, visible:f.visible.checked };
     if(!data.title){ f.title.classList.add('invalid'); return; }
     const file = f.file?.files?.[0];
+    const fgInput = f.fangate_url;
+    const fangate = fgInput ? String(fgInput.value || '').trim() : null;
+    const fangateOrig = fgInput ? String(fgInput.dataset.orig || '') : null;
     const run = async () => {
       let media_key = null;
       if(file){
@@ -3660,6 +3664,14 @@ document.addEventListener('submit', async e => {
         media_key = path;
       }
       const fields = { ...data, ...(media_key ? { media_key, media_type: file.type || 'application/octet-stream', media_size: file.size } : {}) };
+      if(fgInput && fangate !== fangateOrig){
+        let base = {};
+        if(id){
+          const { data: cur } = await state.sb.from('media_items').select('metadata').eq('id', id).maybeSingle();
+          base = (cur && cur.metadata) || {};
+        }
+        fields.metadata = { ...base, fangate_url: fangate || null };
+      }
       const t = f.girl?.value || f.dataset.girl || state.libGirl || ownerTarget();
       let acct = state.girlAccounts?.[t] || state.libAccountId || null;
       // An upload with no account attached is invisible in the library and the
