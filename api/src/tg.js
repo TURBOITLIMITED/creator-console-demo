@@ -1334,7 +1334,7 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
       " so far. Do not mention selling, prices or content at all in this reply, and do not drop hints about it. Chat and flirt, that is all."
     : "";
   const rejectLine = rejectHit
-    ? " He has just turned down what you offered. Do not repost it, do not repeat the price and do not ask him to unlock it again: say something light and either offer something cheaper or in a different direction, or just keep the chat going."
+    ? " He has just turned down what you offered. Do not repost it, do not repeat the price and do not ask him to unlock it again. Say something light, and if your menu has something else, name ONE other item (the cheapest is fine) exactly as it is written, once — then drop it. If he is not buying, just carry on chatting and flirting with him."
     : "";
   const system = personaSystemPrompt(p, conn, catalogue, payLine, priorOut) + (custLine ? " " + custLine : "") + catchUp + sellGate + rejectLine;
       replyText = scrubBankText(await generateReply(env, system, history, text));
