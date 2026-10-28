@@ -1482,7 +1482,8 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
     }
   } catch (e) { ownerOnline = false; }
   replyText = finishReply(replyText);
-  const delay = replyDelaySeconds(text, conv, { ownerOnline, hisCount,
+  const hisMsgCount = history.filter(h => h.dir === "in").length;
+  const delay = replyDelaySeconds(text, conv, { ownerOnline, hisCount: hisMsgCount,
     priorText: history.slice(-3).map(h => h.text).join(" "),
     replyText,
     sentMedia: !!(msg.photo || msg.voice || msg.video || msg.video_note) });
@@ -2174,8 +2175,9 @@ async function sendStarsItem(env, sb, conn, conv, chatId, item) {
     method: "PATCH", headers: { Prefer: "return=minimal" },
     body: JSON.stringify({ purchase_intent_at: new Date().toISOString() }),
   }).catch(() => {});
-  console.log(JSON.stringify({ evt: "tg.stars.media_sent", item: item.id, stars }));
-  return { stars_media: item.id, stars };
+  console.log(JSON.stringify({ evt: "tg.stars.media_sent", item: item.id, stars,
+    message_id: (sent && sent.message_id) || null }));
+  return { stars_media: item.id, stars, tg_message_id: (sent && sent.message_id) || null };
 }
 
 /* Seal a deterministic line so the inbox can show it in full. */
@@ -2235,7 +2237,13 @@ async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
   // it; bank transfer is the fallback he is told about in the line underneath.
   if (starPrice) {
     const wall = await sendStarsItem(env, sb, conn, conv, msg.chat.id, item);
-    if (wall) {
+    // A line pointing at a lock nobody can see is worse than no line at all.
+    const wallOk = !!(wall && (wall.reused === true || wall.tg_message_id));
+    if (wall && !wallOk) {
+      console.log(JSON.stringify({ evt: "tg.stars.wall_no_message", item: item.id }));
+      return null;
+    }
+    if (wallOk) {
       const line = `${starPrice} ⭐ unlocks it babe, tap the lock 😏` + (fangate ? `\nor card here if you'd rather 💕 ${fangate}` : ` x`);
       const sealedLine = await sealedBody(env, sb, conn.creator_id, line);
       try {
