@@ -1768,7 +1768,7 @@ async function looksLikeBuyIntent(text, lower) {
   // Only a clear decision to buy. Naming a video or asking to see something is
   // not a purchase, and treating it as one fired prices and payment buttons at
   // men who were only chatting.
-  return /\b(i'?ll take|i'?ll buy|i want to buy|buy it|buy that|i'?ll have|take it|pay for (it|that)|send (it|that) (to me|over))\b/i.test(text);
+  return /\b(i'?ll take|i'?ll buy|i want to buy|buy it|buy that|i'?ll have|take it|pay for (it|that)|send (it|that) (to me|over)|send me (that|the|your|those|them)|give me (that|it|those|them)|i want (that|the|those)|let me see (that|the)|show me (that|the))\b/i.test(text);
 }
 
 /* Match their words against her live item titles. Exact-word overlap wins;
@@ -1968,8 +1968,30 @@ const STARS_THANKS = [
   "have fun with it 😜",
 ];
 
-/* Post the item as paid media, in this chat, as the account. The customer taps
-   once and Stars do the rest; nobody leaves the conversation for a bot. */
+/* Console uploads live in Supabase Storage (content-store), not R2. Sign a URL
+   Telegram can fetch; fall back to uploading R2 bytes for legacy rows. */
+async function sendPaidFile(env, token, bcId, chatId, item, type, stars, payload, caption) {
+  let url = null;
+  try {
+    const path = String(item.media_key || "").split("/").map(encodeURIComponent).join("/");
+    const r = await fetch(env.SUPABASE_URL + "/storage/v1/object/sign/content-store/" + path, {
+      method: "POST",
+      headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ expiresIn: 3600 }),
+    });
+    const d = await r.json();
+    if (d && d.signedURL) url = env.SUPABASE_URL + "/storage/v1" + d.signedURL;
+  } catch (e) { /* fall through to R2 */ }
+  if (url) return await tg.sendPaidMedia(token, bcId, chatId, [{ type, media: url }], stars, payload, caption);
+  const obj = await env.MEDIA.get(item.media_key);
+  if (!obj) throw new Error("media missing in storage and R2");
+  const data = await obj.arrayBuffer();
+  const ct = (obj.httpMetadata && obj.httpMetadata.contentType) || (type === "video" ? "video/mp4" : "image/jpeg");
+  const filename = String(item.media_key).split("/").pop() || "item";
+  return await tg.sendPaidMediaUpload(token, bcId, chatId, { type, filename, contentType: ct, data }, stars, payload, caption);
+}
+
+/* Post the item as paid media, in this chat, as the account. The customer taps once and Stars do the rest; nobody leaves the conversation for a bot. */
 async function sendStarsItem(env, sb, conn, conv, chatId, item) {
   const token = await botTokenFor(env, sb, conn);
   if (!token || !chatId) return null;
@@ -1985,14 +2007,7 @@ async function sendStarsItem(env, sb, conn, conv, chatId, item) {
     if (meta.tg_file_id) {
       sent = await tg.sendPaidMedia(token, conn.id, chatId, [{ type, media: meta.tg_file_id }], stars, payload, caption);
     } else {
-      const obj = await env.MEDIA.get(item.media_key);
-      if (!obj) throw new Error("media missing in R2: " + item.media_key);
-      const data = await obj.arrayBuffer();
-      const contentType = (obj.httpMetadata && obj.httpMetadata.contentType) ||
-        (type === "video" ? "video/mp4" : "image/jpeg");
-      const filename = (String(item.media_key).split("/").pop() || "item") ;
-      sent = await tg.sendPaidMediaUpload(token, conn.id, chatId,
-        { type, filename, contentType, data }, stars, payload, caption);
+      sent = await sendPaidFile(env, token, conn.id, chatId, item, type, stars, payload, caption);
       const fileId = tg.paidMediaFileId(sent);
       if (fileId) {
         await sb(env, "media_items?id=eq." + encodeURIComponent(item.id), {
