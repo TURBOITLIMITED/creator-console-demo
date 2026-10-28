@@ -465,7 +465,15 @@ async function onMessage(env, sb, msg, edited) {
   if (!outgoing && !intercept && text && !isPurchaseContext(text)) {
     const t = String(text).trim().toLowerCase();
     const ack = /^(ok|okay|kk|cool|nice|lol|lmao|haha+|hehe+|yeah|yea|yep|yes|no|cheers|thanks|ta|x+|😊|😂|🤣|👍)[\s.!?]*$/i.test(t);
-    if (ack && Math.random() < 0.55) {
+    // Never leave a kiss unanswered when she has been quiet for a while: the
+    // skip is for a stream of acks, not for a man waiting on a reply.
+    let quiet = true;
+    try {
+      const lo = await sb(env, "messages?conversation_id=eq." + conv.id +
+        "&direction=eq.out&select=sent_at&order=sent_at.desc&limit=1").catch(() => null);
+      quiet = !(lo && lo[0]) || (Date.now() - new Date(lo[0].sent_at).getTime()) > 10 * 60 * 1000;
+    } catch (e) { quiet = true; }
+    if (ack && !quiet && Math.random() < 0.5) {
       console.log(JSON.stringify({ evt: "tg.reply.ack_skip", conversation: conv.id }));
       return { conversation_id: conv.id, direction: "in", sender, window_open: windowOpen,
                intercept: null, reply: null, sent: null, skipped: "ack" };
@@ -1473,7 +1481,12 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
         }
       }
       if (replyText) replyText = ensureEmoji(replyText, p && p.emoji_level);
-      if (!replyText) { stopTyping(); return null; }
+      // An empty model answer must never become silence: a man waiting on a
+      // reply assumes the account is dead. One short line keeps it alive.
+      if (!replyText) {
+        replyText = pickOf(["you still there? x", "mmm go on x", "tell me more x"]);
+        console.log(JSON.stringify({ evt: "tg.reply.empty_fallback", conversation: conv.id }));
+      }
     }
   } catch (e) {
     console.log(JSON.stringify({ evt: "tg.reply.generate_failed", err: String(e).slice(0, 200) }));
