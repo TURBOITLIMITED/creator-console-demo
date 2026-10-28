@@ -2006,6 +2006,12 @@ async function refreshThread(id){
     const msgs = await Data.messages(id);
     let lastDay = '';
     const box = $('#msgs'); if(!box) return;
+    // Leave the reader alone. Re-rendering the thread on every poll and
+    // snapping to the bottom made it impossible to scroll back through a chat.
+    const sig = msgs.length ? (msgs[msgs.length - 1].id + ":" + msgs.length) : "0";
+    if (box.dataset.sig === sig) return;
+    const stick = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+    const prevTop = box.scrollTop;
     box.innerHTML = msgs.length ? msgs.map(m => {
       const day = new Date(m.sent_at).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
       const sep = day !== lastDay ? `<span class="day-sep">${day}</span>` : ''; lastDay = day;
@@ -2016,7 +2022,8 @@ async function refreshThread(id){
       return `${sep}<div class="bubble ${m.direction==='out'?'out':'in'}">${mediaHtml}<time>${m.sender==='ai'?'<span class="ai">AI</span>':''}${fmtTime(m.sent_at)}</time></div>`;
     }).join('') : box.innerHTML;
     signTgfiles(box);
-    box.scrollTop = box.scrollHeight;
+    box.dataset.sig = sig;
+    box.scrollTop = stick ? box.scrollHeight : prevTop;
   }catch(e){ /* polling errors are silent; the full openConversation shows them */ }
 }
 let convCache = [];
@@ -2062,6 +2069,7 @@ async function openConversation(id){
     }).join('') : `<div class="thread-empty">${empty('message','No messages','Say hello to start the conversation.')}</div>`;
     signTgfiles($('#msgs'));
     const box = $('#msgs'); box.scrollTop = box.scrollHeight;
+    box.dataset.sig = msgs.length ? (msgs[msgs.length - 1].id + ":" + msgs.length) : "0";
     if(conv.unread_count){
       conv.unread_count = 0;
       document.querySelector(`.conv[data-id="${id}"]`)?.classList.remove('is-unread');
