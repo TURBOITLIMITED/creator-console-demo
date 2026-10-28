@@ -1333,7 +1333,7 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
       " so far. Do not mention selling, prices or content at all in this reply, and do not drop hints about it. Chat and flirt, that is all."
     : "";
   const system = personaSystemPrompt(p, conn, catalogue, payLine, priorOut) + (custLine ? " " + custLine : "") + catchUp + sellGate;
-      replyText = await generateReply(env, system, history, text);
+      replyText = scrubBankText(await generateReply(env, system, history, text));
       via = "workers-ai";
       // A name the profile or the username already gives must never be asked
       // for. The prompt says so, but a small model still asks, so this is the
@@ -2282,6 +2282,18 @@ async function sendPayDetails(env, sb, conn, conv, chatId, item, method) {
 /* A meet or an address. Money offered for one is not a payment for an item. */
 const MEET_RE = /\b(meet|meeting|meet ?up|come (round|over)|your address|where do you live|postcode|hotel|visit you|see you in person)\b/i;
 
+/* A small model once invented "M Thompson, sort code 04-00-75" and sent it to a
+   customer. No model-written message may carry bank details: the deterministic
+   path is the only one allowed to send the real ones. */
+function scrubBankText(text){
+  if (!text) return text;
+  if (/\b(sort code|account (number|no\.?|num)|acc(?:ount)?\s*#?\s*\d{6,})\b/i.test(text)) {
+    console.log(JSON.stringify({ evt: "tg.reply.bank_details_blocked", text: String(text).slice(0, 100) }));
+    return "let me send you the proper details x";
+  }
+  return text;
+}
+
 /* A payment claim we should act on. A question is not a claim, a promise is
    not a claim, a negation is not a claim, sending a photo is not money, and
    money offered to meet is not a payment. */
@@ -2462,4 +2474,4 @@ export async function handleWebhook(request, env, sb, persona) {
 // Exported for the reply-quality regression tests.
 export { generateReply, repeatsSomething, personaSystemPrompt, ensureEmoji, sellableItems,
          nameFromText, nameForChat, nameFromUsername, usableName, NAME_QUESTION, stripNameQuestion,
-         isPaymentClaim };
+         isPaymentClaim, scrubBankText };
