@@ -1156,7 +1156,11 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
         if (starsSent) { stopTyping(); return starsSent; }
       }
     }
-    if (quoted || wantsToPay) {
+    if (quoted && !methodHit) {
+      const choice = await sendPayChoice(env, sb, conn, conv, msg.chat.id, quoted);
+      if (choice) { stopTyping(); return choice; }
+    }
+    if (quoted) {
       const bankMethod = methodHit === "stars" ? "bank" : (methodHit || "bank");
       const paid = await sendPayDetails(env, sb, conn, conv, msg.chat.id, quoted, bankMethod);
       if (paid) { stopTyping(); return paid; }
@@ -2064,7 +2068,7 @@ async function sendPaymentRequest(env, sb, conn, conv, msg, item) {
   if (starPrice) {
     const wall = await sendStarsItem(env, sb, conn, conv, msg.chat.id, item);
     if (wall) {
-      const line = `${starPrice} ⭐ unlocks it babe, tap the lock 😏 or bank transfer if you'd rather x`;
+      const line = `${starPrice} ⭐ (${price}) unlocks it babe, tap the lock 😏 or bank transfer if you'd rather x`;
       try {
         await humanPace(token, conn.id, msg.chat.id, line);
         const sent = await tg.sendMessage(token, conn.id, msg.chat.id, line);
@@ -2129,6 +2133,38 @@ const PAY_CLOSERS = [
   "I'll be waiting 😏 just tell me when it's done",
   "once it lands it's straight over to you 💝 say the word",
 ];
+
+/* Both ways, with both prices, so he can pick. Bank details only go out once
+   he has chosen bank, or when Stars is not available for that item. */
+async function sendPayChoice(env, sb, conn, conv, chatId, item){
+  const token = await botTokenFor(env, sb, conn);
+  if (!token || !chatId || !item) return null;
+  const gbp = Number(item.price_gbp || item.price_ton || 0);
+  const starPrice = starsEligible(item) ? starsFor(item, env) : 0;
+  if (!starPrice) return await sendPayDetails(env, sb, conn, conv, chatId, item, "bank");
+  const name = item.name || item.title || "that";
+  const line = `${name} is £${gbp} by bank transfer, or ${starPrice} ⭐ here in the chat. which one do you want baby? x`;
+  try {
+    await humanPace(token, conn.id, chatId, line);
+    const sent = await tg.sendMessage(token, conn.id, chatId, line);
+    await sb(env, "messages", {
+      method: "POST",
+      headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+      body: JSON.stringify({
+        conversation_id: conv.id, creator_id: conn.creator_id,
+        tg_message_id: sent && sent.message_id ? sent.message_id : null,
+        direction: "out", sender: "ai", kind: "text",
+        body_preview: "[pay choice] " + name + " · £" + gbp + " / " + starPrice + " stars",
+        sent_at: new Date().toISOString(),
+        raw: { via: "pay-choice", item_id: item.id, price_gbp: gbp, stars: starPrice },
+      }),
+    }).catch(() => {});
+    return { pay_choice: item.id };
+  } catch (e) {
+    console.log(JSON.stringify({ evt: "tg.pay_choice.failed", err: String(e).slice(0, 160) }));
+    return null;
+  }
+}
 
 async function sendPayDetails(env, sb, conn, conv, chatId, item, method) {
   const token = await botTokenFor(env, sb, conn);
