@@ -1112,9 +1112,16 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
   // the menu, so it goes out rather than another line about knickers.
   const wantsMenu = !mediaSynthetic && /^(yes|yeah|yep|yeh|go on|please|pls|show me|send it|send them|what have you got|what you got|what do you sell|the list)\b/i.test(lower);
   if (wantsMenu) {
+    // He is saying yes to whatever she offered last. If that was the menu, the
+    // list goes out now, whoever wrote the offer.
+    const lastOut = await sb(env, "messages?conversation_id=eq." + conv.id +
+      "&direction=eq.out&select=body_preview,sent_at&order=sent_at.desc&limit=2").catch(() => null);
+    const offered = (lastOut || []).find(m => Date.now() - new Date(m.sent_at).getTime() < 30 * 60 * 1000 &&
+      /menu|price|list|what i (have|do|sell)|my stuff/i.test(m.body_preview || ""));
     const recentLimit = await sb(env, "messages?conversation_id=eq." + conv.id +
       "&direction=eq.out&raw->>via=eq.free-limit&select=sent_at&order=sent_at.desc&limit=1").catch(() => null);
-    if (recentLimit && recentLimit[0] && Date.now() - new Date(recentLimit[0].sent_at).getTime() < 30 * 60 * 1000) {
+    const limitFresh = recentLimit && recentLimit[0] && Date.now() - new Date(recentLimit[0].sent_at).getTime() < 30 * 60 * 1000;
+    if (offered || limitFresh) {
       const m = await maybeSendMenu(env, sb, conn, conv, msg);
       if (m) { stopTyping(); return m; }
     }
@@ -1352,8 +1359,8 @@ async function autoReply(env, sb, conn, conv, msg, text, forcedReply) {
         else {
           console.log(JSON.stringify({ evt: "tg.reply.repeat_suppressed",
             conversation: conv.id, text: replyText.slice(0, 80) }));
-          stopTyping();
-          return null;
+          // Silence reads as a broken bot. A short, plain line is better.
+          replyText = pickOf(["say that again for me x", "go on, tell me x", "and? x"]);
         }
       }
       if (replyText) replyText = ensureEmoji(replyText, p && p.emoji_level);
