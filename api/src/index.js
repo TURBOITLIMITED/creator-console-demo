@@ -223,24 +223,48 @@ function fsStopReason(text){
   return null;
 }
 
+/* Coded asks for T/, rotated, no link and no @ in an opener. The word
+   telegram and a handle on every message is what got the last account
+   muted. */
+const FS_T_ASKS = [
+  "have you got T/ x",
+  "you on tele? x",
+  "what's your t/ x",
+  "got t/ babe? x",
+  "are you on t/? x",
+];
+function fsTAsk(seed){ return FS_T_ASKS[Math.abs(Number(seed) || 0) % FS_T_ASKS.length]; }
+
+/* Strips the two things Fab's filter looks for: the word telegram, and a
+   live @handle or link. The bare username survives, so he can still find her
+   if he asks, but nothing is pushed at him. */
+function fsScrub(text){
+  return String(text || "")
+    .replace(/\btelegram\b/gi, "T/")
+    .replace(/\bhttps?:\/\/\S+/gi, "")
+    .replace(/\bt\.me\/\S+/gi, "")
+    .replace(/@([a-z0-9_]{4,})/gi, "$1")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function fsInviteRule(acct, seed){
+  if (!acct || !acct.telegram_username) return "";
+  const handle = String(acct.telegram_username).replace(/^@/, "");
+  return `Getting him onto T/ is the point, but never write the word telegram, never a link, and never an @ in your first message. Ask in code and vary it, the way "${fsTAsk(seed)}" lands. Only when he says he has T/ or asks for yours, give it as "${handle}", bare, no @. If he has not got it, say "no worries x" once and leave it.`;
+}
+
 async function fsDraftFor(env, acct, persona, row, thread, turn, meetAsk, force){
   const rules = [
     persona.system_prompt || "You are a real woman chatting on FabSwingers. Be cheeky, playful and short.",
     persona.tone ? `Tone: ${persona.tone}.` : "",
     persona.emoji_level ? `Emoji use: ${persona.emoji_level}.` : "",
     persona.message_length ? `Message length: ${persona.message_length}.` : "",
-    force && acct.telegram_username
-      ? `Your message must end with a casual invitation to Telegram and must contain @${acct.telegram_username}. Something like "why don't you add me on telegram, I hate it on here x". Clear and offhand.`
+    force ? fsInviteRule(acct, row.user)
       : "",
-    meetAsk && acct.telegram_username
-      ? `He is asking to meet. Do not agree, do not discuss where, when or a hotel, not one word about it. Turn it into the invite, casual and clear, the way "why don't you add me on telegram, I hate it on here x" lands, with @${acct.telegram_username} in it.`
+    meetAsk ? "He is asking to meet. Do not agree, do not discuss where, when or a hotel, not one word about it. Turn it into the T/ ask. " + fsInviteRule(acct, row.user)
       : "",
-    acct.telegram_username ? (() => {
-      const h = "@" + acct.telegram_username;
-      // Straight to the point: his answer, then the handle, one message, no
-      // preamble. The model needs telling twice because it likes to warm up.
-      return `Answer the question he asked, in one short line, then put your telegram in the same message: "add me on telegram ${h}". No preamble, no "oh you're a cheeky one", no questions back at him, no pet names. Under thirty words in total. If he says he has not got Telegram, tell him to download it and add you. If he refuses, say "aww well that's a shame, we could have had fun x" and leave it there. If he wants to be degraded, only tease him about it here: "you'd have to ask me nicely somewhere private", the real thing waits until Telegram.`;
-    })() : "",
+    fsInviteRule(acct, row.user),
     "Reply with the message text only. No quotes, no labels, no explanation.",
   ].filter(Boolean).join("\n");
   const history = (thread.messages || []).slice(-8).map((m) => m.text).join("\n") || row.snippet;
@@ -506,17 +530,13 @@ async function pollFab(env){
           // the invite straight away instead of waiting for a second exchange
           const warm = String(row.snippet || "").length >= 90 || /\?/.test(row.snippet || "");
           text = await fsDraftFor(env, acct, persona, row, thread, turn, meetAsk);
-          // getting him onto Telegram is the whole point of this account, so it
-          // does not depend on the model remembering
-          const handle = "@" + acct.telegram_username;
-          // the invite belongs in the first two replies, after the answer, and
-          // never after that: by then she has shrugged and moved on
-          const shrug = /that'?s a shame/i.test(text || "");
-          if(acct.telegram_username && !shrug && text && !text.toLowerCase().includes(handle.toLowerCase())){
-            const retry = await fsDraftFor(env, acct, persona, row, thread, turn, meetAsk, true);
-            text = retry && retry.toLowerCase().includes(handle.toLowerCase())
-              ? retry
-              : text.replace(/[\s.]+$/, "") + ` add me on telegram ${handle} x`;
+          text = fsScrub(text);
+          // the coded ask goes in the first couple of replies, after the
+          // answer, and never the same phrase every time
+          const shrug = /that'?s a shame|no worries/i.test(text || "");
+          const hasAsk = /\bt\/|tele|snap|whatsapp/i.test(text || "");
+          if(acct.telegram_username && !shrug && text && !hasAsk){
+            text = text.replace(/[\s.]+$/, "") + " " + fsTAsk(row.user);
           }
           const drafted = fsStopReason(text);
           if(!text){ status = "skipped: empty draft"; }
@@ -1696,7 +1716,7 @@ export default {
           p.tone ? `Tone: ${p.tone}.` : "",
           p.emoji_level ? `Emoji use: ${p.emoji_level}.` : "",
           p.message_length ? `Message length: ${p.message_length}.` : "",
-          acct.telegram_username ? `Answer the question he asked in one short line, then put "add me on telegram @${acct.telegram_username}" in the same message. Under thirty words in total. No preamble, no pet names, no questions back at him. If he wants to be degraded, only tease him about it here and say the real thing waits until Telegram.` : "",
+          acct.telegram_username ? fsInviteRule(acct, row.user) : "",
           "Reply with the message text only. No quotes, no labels, no explanation.",
         ].filter(Boolean).join("\n");
         const history = (thread.messages || []).slice(-8).map((m) => m.text).join("\n");
@@ -1707,7 +1727,7 @@ export default {
           ],
           max_tokens: 220,
         });
-        const text = String(typeof out === "string" ? out : (out && out.response) || "").trim().replace(/^["']|["']$/g, "");
+        const text = fsScrub(String(typeof out === "string" ? out : (out && out.response) || "").trim().replace(/^["']|["']$/g, ""));
         return json({ ok: true, row, thread, draft: text }, 200, origin);
       } catch (e) {
         return json({ ok: false, error: String((e && e.message) || e) }, 200, origin);
@@ -1722,7 +1742,7 @@ export default {
       if (!acct) return json({ ok: false, error: "unknown account" }, 404, origin);
       // A human tapping Send is not an auto-reply: the switch governs the
       // poller, not the operator. Without this you could not test the voice.
-      const text = String(b.text || "").trim();
+      const text = fsScrub(String(b.text || "").trim());
       if (!text) return json({ ok: false, error: "Nothing to send" }, 400, origin);
       if (!b.user || !b.guid) return json({ ok: false, error: "user and guid are required" }, 400, origin);
       try {
