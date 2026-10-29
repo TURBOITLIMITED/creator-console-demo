@@ -800,6 +800,9 @@ document.addEventListener('gesturechange', e => e.preventDefault(), { passive:fa
       <div class="nav-group">MESSAGING</div>
       <a href="#fabswingers" data-sec="fabswingers" title="FabSwingers"><svg class="i"><use href="#i-chat"/></svg><span class="nav-label">FabSwingers</span><span class="count" id="nav-fab" hidden style="background:var(--bad);color:#fff">0</span></a>
       <a href="#telegram" data-sec="telegram" title="Telegram"><svg class="i"><use href="#i-send"/></svg><span class="nav-label">Telegram</span></a>
+      <div class="nav-group">SOCIAL</div>
+      <a href="#reddit" data-sec="reddit" title="Reddit Automation"><svg class="i"><use href="#i-layers"/></svg><span class="nav-label">Reddit</span><span class="count" id="nav-reddit" hidden>0</span></a>
+      <a href="#twitter" data-sec="twitter" title="Twitter Automation"><svg class="i"><use href="#i-send"/></svg><span class="nav-label">Twitter</span><span class="count" id="nav-twitter" hidden>0</span></a>
       <div class="nav-group">CONTENT</div>
       <a href="#library" data-sec="library" title="Library"><svg class="i"><use href="#i-layers"/></svg><span class="nav-label">Library</span></a>
       <a href="#gallery" data-sec="gallery" title="Gallery"><svg class="i"><use href="#i-image"/></svg><span class="nav-label">Gallery</span></a>
@@ -885,6 +888,46 @@ document.addEventListener('gesturechange', e => e.preventDefault(), { passive:fa
     <div class="form-actions sheet-actions">
       <button class="btn" type="button" data-act="tg-menu-close">Cancel</button>
       <button class="btn primary" type="submit"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg>Add to menu</button>
+    </div>
+  </form>
+</dialog>
+<dialog class="sheet" id="social-dialog" aria-labelledby="so-dialog-title">
+  <form class="form" data-form="social-account" id="so-form" autocomplete="off">
+    <div class="sheet-head">
+      <h2 id="so-dialog-title">Add account</h2>
+      <button class="icon-btn" type="button" data-act="social-close" aria-label="Close"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="sheet-body">
+      <div id="so-fields"></div>
+      <span class="hint">The login is checked against the live site before it is saved, so a typo cannot queue posts.</span>
+    </div>
+    <div class="form-actions sheet-actions">
+      <button class="btn" type="button" data-act="social-close">Cancel</button>
+      <button class="btn primary" type="submit">Add account</button>
+    </div>
+  </form>
+</dialog>
+<dialog class="sheet" id="social-post-dialog" aria-labelledby="sp-dialog-title">
+  <form class="form" data-form="social-post" id="sp-form" autocomplete="off">
+    <div class="sheet-head">
+      <h2 id="sp-dialog-title">New post</h2>
+      <button class="icon-btn" type="button" data-act="social-post-close" aria-label="Close"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="sheet-body">
+      <div class="field"><label for="sp-account">Account</label>
+        <select class="input" id="sp-account"></select></div>
+      <div class="field" id="sp-reddit-row"><label for="sp-subreddit">Subreddit</label>
+        <input class="input" id="sp-subreddit" placeholder="gonewild"></div>
+      <div class="field" id="sp-title-row"><label for="sp-title">Title</label>
+        <input class="input" id="sp-title" placeholder="F 25 what would you do to me?"></div>
+      <div class="field"><label for="sp-body">Text</label>
+        <textarea class="input" id="sp-body" rows="3" placeholder="tell me on tg x"></textarea></div>
+      <div class="field"><label for="sp-when">Schedule for</label>
+        <input class="input" id="sp-when" type="datetime-local"></div>
+    </div>
+    <div class="form-actions sheet-actions">
+      <button class="btn" type="button" data-act="social-post-close">Cancel</button>
+      <button class="btn primary" type="submit">Add post</button>
     </div>
   </form>
 </dialog>
@@ -1470,6 +1513,8 @@ const SECTIONS = {
   accounts:{ title:'Accounts', group:'Telegram', render:renderAccounts },
   inbox:{ title:'Inbox', group:'Telegram', render:renderInbox },
   fabswingers:{ title:'FabSwingers', group:'FabSwingers', render:renderFabSwingers },
+  reddit:{ title:'Reddit', group:'Social', render:renderSocial },
+  twitter:{ title:'Twitter', group:'Social', render:renderSocial },
   telegram:{ title:'Telegram', group:'MESSAGING', render:renderTelegram },
   library:{ title:'Library', group:'Content', render:renderLibrary },
   gallery:{ title:'Gallery', group:'Content', render:renderGallery },
@@ -2561,6 +2606,251 @@ async function fsUpgradeAlerts(sel){
   }catch(e){ slot.innerHTML = ''; }
 }
 
+/* ---------- Social (Reddit + Twitter) ---------- */
+const SOCIAL_API = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+  ? 'http://127.0.0.1:8787'
+  : 'https://api-telebotcreator.turboit.uk';
+async function socialCall(path, opts = {}) {
+  const token = state.session?.access_token;
+  if (!token) throw new Error('Sign in again: the session has expired');
+  const res = await fetch(SOCIAL_API + path, {
+    ...opts,
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token, ...(opts.headers || {}) },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || ('Request failed (' + res.status + ')'));
+  return body;
+}
+
+async function renderSocial(){
+  const platform = state.section === 'twitter' ? 'twitter' : 'reddit';
+  const label = platform === 'twitter' ? 'Twitter (X)' : 'Reddit';
+  setView(`
+    ${secHead(`One ${label} account posts her teasers on a schedule. Each post is a nudge towards her Telegram, never a full reveal.`)}
+    <div class="panel"><div class="panel-head"><h2>${label} accounts</h2>
+      <span class="end">
+        <button class="btn sm" data-act="social-refresh">${ic('refresh')}Refresh</button>
+        <button class="btn sm" data-act="social-pubnow" title="Publish any due posts now">${ic('up')}Publish due</button>
+        <button class="btn sm primary" data-act="social-add">${ic('plus')}Add account</button></span></div>
+      <div id="social-list">${spinner('Loading accounts...')}</div>
+    </div>
+    <section class="panel">
+      <div class="panel-head"><h2>Post queue</h2><span class="end muted" id="social-q-count"></span></div>
+      <div id="social-queue">${spinner('Loading posts...')}</div>
+      <div class="panel-body" style="border-top:1px solid var(--rule-2);display:flex;justify-content:flex-end">
+        <button class="btn primary" type="button" data-act="social-post-add">${ic('plus')}New post</button>
+      </div>
+    </section>`);
+  socialLoad(platform);
+}
+
+async function socialLoad(platform){
+  const listEl = $('#social-list'), qEl = $('#social-queue'); if(!listEl) return;
+  try{
+    const [acctRes, postRes] = await Promise.all([
+      socialCall('/social/accounts?platform=' + platform),
+      socialCall('/social/posts?platform=' + platform),
+    ]);
+    const accounts = acctRes.accounts || [];
+    const posts = postRes.posts || [];
+    state.socialAccounts = accounts;
+    state.socialPosts = posts;
+    // accounts table
+    if (!accounts.length){
+      listEl.innerHTML = `<div class="panel-body">${empty(platform === 'twitter' ? 'message' : 'layers', 'No ' + platform + ' accounts yet',
+        'Add the account login and its API keys. It is verified against the live site before it is saved.')}</div>`;
+    } else {
+      listEl.innerHTML = `<div class="table-wrap"><table>
+        <thead><tr><th>Account</th><th>Linked bot</th><th>Posts</th><th>Status</th><th class="num">Actions</th></tr></thead>
+        <tbody>${accounts.map(a => `<tr>
+          <td><b>@${esc(a.username)}</b></td>
+          <td class="muted">${a.telegram_account_id ? esc(String(a.telegram_account_id).slice(0,8)) : '<span class="muted">unlinked</span>'}</td>
+          <td class="mono">${fmtNum(a.posts_total || 0)}</td>
+          <td><div><span class="pill ${a.enabled ? 'ok' : 'draft'}">${a.enabled ? 'On' : 'Off'}</span>
+            ${a.last_error ? `<small class="err" style="display:block;margin-top:4px;font-size:11px">${esc(a.last_error).slice(0,80)}</small>` : ''}</div></td>
+          <td class="num"><div class="row-actions">
+            <button class="act" data-act="social-edit" data-id="${esc(a.id)}">${ic('edit')}Edit</button>
+            <button class="act" data-act="social-toggle" data-id="${esc(a.id)}" data-on="${a.enabled ? 1 : 0}">${ic('power')}${a.enabled ? 'Turn off' : 'Turn on'}</button>
+            <button class="act danger" data-act="social-remove" data-id="${esc(a.id)}">${ic('trash')}Delete</button>
+          </div></td></tr>`).join('')}</tbody></table></div>`;
+    }
+    // queue
+    const qc = $('#social-q-count'); if (qc) qc.textContent = posts.length ? posts.length + ' post' + (posts.length === 1 ? '' : 's') : '';
+    if (!posts.length){
+      qEl.innerHTML = `<div class="panel-body">${empty('up', 'Nothing queued', 'Write a teaser and give it a time. The Worker publishes it when the time arrives.')}</div>`;
+    } else {
+      const pillFor = p => p.state === 'posted' ? 'ok' : p.state === 'failed' ? 'off' : p.state === 'scheduled' ? 'accent' : 'draft';
+      qEl.innerHTML = `<div class="table-wrap"><table>
+        <thead><tr><th>When</th><th>Post</th><th>State</th><th class="num">Actions</th></tr></thead>
+        <tbody>${posts.map(p => `<tr>
+          <td class="mono">${p.scheduled_at ? fmtDate(p.scheduled_at) + ' ' + fmtTime(p.scheduled_at) : '—'}</td>
+          <td><div class="cell-main"><b>${esc((p.platform === 'reddit' ? p.title : (p.body || p.title)) || '(no text)')}</b>
+            ${p.subreddit ? `<small>r/${esc(p.subreddit)}</small>` : ''}</div>
+            ${p.state === 'posted' && p.post_url ? `<a class="muted" href="${esc(p.post_url)}" target="_blank" rel="noopener">view${ic('arrow')}</a>` : ''}
+            ${p.state === 'failed' && p.error_message ? `<small class="err" style="display:block">${esc(p.error_message).slice(0,100)}</small>` : ''}</td>
+          <td><span class="pill ${pillFor(p)}">${esc(p.state)}</span></td>
+          <td class="num"><div class="row-actions">
+            ${p.state === 'draft' || p.state === 'failed' ? `<button class="act" data-act="social-post-schedule" data-id="${esc(p.id)}">${ic('up')}Schedule</button>` : ''}
+            ${p.state !== 'posted' ? `<button class="act" data-act="social-post-del" data-id="${esc(p.id)}">${ic('trash')}Delete</button>` : ''}
+          </div></td></tr>`).join('')}</tbody></table></div>`;
+    }
+  }catch(e){
+    listEl.innerHTML = errorState(e, 'social');
+    if (qEl) qEl.innerHTML = '';
+  }
+}
+
+function socialCredFields(platform, a){
+  const a2 = a || {};
+  if (platform === 'reddit'){
+    return `
+      <div class="row2">
+        <div class="field"><label for="so-username">Reddit username</label>
+          <input class="input" id="so-username" value="${esc(a2.username || '')}" placeholder="her_throwaway" required></div>
+        <div class="field"><label for="so-password">Password</label>
+          <input class="input" id="so-password" type="password" placeholder="${a2.id ? 'unchanged' : 'required'}" ${a2.id ? '' : 'required'}></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label for="so-clientid">App client ID</label>
+          <input class="input" id="so-clientid" value="${esc(a2._clientId || '')}" placeholder="from reddit.com/prefs/apps" required></div>
+        <div class="field"><label for="so-clientsecret">App secret</label>
+          <input class="input" id="so-clientsecret" type="password" placeholder="${a2.id ? 'unchanged' : 'required'}" ${a2.id ? '' : 'required'}></div>
+      </div>`;
+  }
+  return `
+    <div class="row2">
+      <div class="field"><label for="so-username">Twitter handle</label>
+        <input class="input" id="so-username" value="${esc(a2.username || '')}" placeholder="her_handle" required></div>
+      <div class="field"><label for="so-accesstoken">Access token</label>
+        <input class="input" id="so-accesstoken" type="password" placeholder="${a2.id ? 'unchanged' : 'from developer portal'}" ${a2.id ? '' : 'required'}></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label for="so-apikey">API key</label>
+        <input class="input" id="so-apikey" value="${esc(a2._apiKey || '')}" placeholder="consumer key" required></div>
+      <div class="field"><label for="so-apisecret">API secret</label>
+        <input class="input" id="so-apisecret" type="password" placeholder="${a2.id ? 'unchanged' : 'consumer secret'}" ${a2.id ? '' : 'required'}></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label for="so-accesssecret">Access secret</label>
+        <input class="input" id="so-accesssecret" type="password" placeholder="${a2.id ? 'unchanged' : 'required'}" ${a2.id ? '' : 'required'}></div>
+      <div class="field"><label for="so-tg">Link to bot account</label>
+        <select class="input" id="so-tg">${(state.socialTgAccounts || [{ id:'', username:'none' }]).map(t => `<option value="${esc(t.id)}" ${a2.telegram_account_id === t.id ? 'selected' : ''}>${esc(t.username ? '@' + t.username : 'none')}</option>`).join('')}</select></div>
+    </div>`;
+}
+
+async function socialOpenAccountDialog(existing){
+  const platform = state.section === 'twitter' ? 'twitter' : 'reddit';
+  // bot accounts for the link dropdown
+  if (!state.socialTgAccounts){
+    try{
+      const { rows } = await Data.list('telegram_accounts', { select: 'id, username, first_name, creator_id', size: 50, scopeOwner: true });
+      state.socialTgAccounts = [{ id: '', username: '' }, ...(rows || [])];
+    }catch(e){ state.socialTgAccounts = [{ id: '', username: '' }]; }
+  }
+  const d = $('#social-dialog'), f = $('#so-form');
+  if(!d || !f) return;
+  f.reset();
+  delete f.dataset.edit;
+  $('#so-dialog-title').textContent = (existing ? 'Edit ' : 'Add ') + (platform === 'twitter' ? 'Twitter' : 'Reddit') + ' account';
+  $('#so-fields').innerHTML = socialCredFields(platform, existing);
+  if (existing) f.dataset.edit = existing.id;
+  const b = f.querySelector('button[type="submit"]');
+  if (b) b.innerHTML = existing ? ic('check') + 'Save changes' : ic('plus') + 'Add account';
+  if(!d.open) d.showModal();
+}
+
+async function socialSaveAccount(f, btn){
+  const platform = state.section === 'twitter' ? 'twitter' : 'reddit';
+  const editId = f.dataset.edit || '';
+  const username = $('#so-username').value.trim().replace(/^@/, '');
+  if (!username){ toast('Enter the account username', 'error'); return; }
+  const body = { platform, username, telegram_account_id: ($('#so-tg') && $('#so-tg').value) || null };
+  if (platform === 'reddit'){
+    body.clientId = $('#so-clientid').value.trim();
+    body.redditUsername = username;
+    if ($('#so-password').value) body.password = $('#so-password').value;
+    if (!editId){
+      if (!$('#so-clientsecret').value){ toast('Enter the app secret', 'error'); return; }
+      body.clientSecret = $('#so-clientsecret').value;
+    } else if ($('#so-clientsecret').value){
+      body.creds = { clientSecret: $('#so-clientsecret').value };
+    }
+  } else {
+    body.apiKey = $('#so-apikey').value.trim();
+    if ($('#so-accesstoken').value) body.accessToken = $('#so-accesstoken').value;
+    if ($('#so-accesssecret').value) body.accessSecret = $('#so-accesssecret').value;
+    if ($('#so-apisecret').value) body.apiSecret = $('#so-apisecret').value;
+    if (!editId){
+      if (!$('#so-apikey').value || !$('#so-accesstoken').value || !$('#so-accesssecret').value){ toast('Fill in all four keys', 'error'); return; }
+    } else if ($('#so-apikey').value){
+      body.creds = { apiKey: body.apiKey };
+      if ($('#so-apisecret').value) body.creds.apiSecret = $('#so-apisecret').value;
+      if ($('#so-accesstoken').value) body.creds.accessToken = body.accessToken;
+      if ($('#so-accesssecret').value) body.creds.accessSecret = body.accessSecret;
+    }
+  }
+  const saved = await withBusy(btn, () => socialCall(editId ? '/social/accounts/' + editId : '/social/accounts', {
+    method: editId ? 'PATCH' : 'POST',
+    body: JSON.stringify(body),
+  }), editId ? 'Account updated' : 'Account added');
+  if (saved){
+    delete f.dataset.edit;
+    const d = $('#social-dialog'); if (d && d.open) d.close();
+    socialLoad(platform);
+  }
+}
+
+function socialOpenPostDialog(post){
+  const platform = state.section === 'twitter' ? 'twitter' : 'reddit';
+  const d = $('#social-post-dialog'), f = $('#sp-form');
+  if(!d || !f) return;
+  f.reset();
+  delete f.dataset.edit;
+  $('#sp-dialog-title').textContent = (post ? 'Edit' : 'New') + (platform === 'twitter' ? ' tweet' : ' post');
+  // account select
+  const accts = state.socialAccounts || [];
+  $('#sp-account').innerHTML = accts.length
+    ? accts.map(a => `<option value="${esc(a.id)}" ${post && post.account_id === a.id ? 'selected' : ''}>@${esc(a.username)}</option>`).join('')
+    : '<option value="">no accounts yet</option>';
+  $('#sp-reddit-row').style.display = platform === 'reddit' ? '' : 'none';
+  $('#sp-title-row').style.display = platform === 'reddit' ? '' : 'none';
+  if (post){
+    f.dataset.edit = post.id;
+    if (post.subreddit) $('#sp-subreddit').value = post.subreddit;
+    if (post.title) $('#sp-title').value = post.title;
+    if (post.body) $('#sp-body').value = post.body;
+  }
+  const b = f.querySelector('button[type="submit"]');
+  if (b) b.innerHTML = post ? ic('check') + 'Save changes' : ic('plus') + 'Add post';
+  if(!d.open) d.showModal();
+}
+
+async function socialSavePost(f, btn){
+  const platform = state.section === 'twitter' ? 'twitter' : 'reddit';
+  const editId = f.dataset.edit || '';
+  const body = { platform };
+  body.account_id = $('#sp-account').value;
+  if (!body.account_id){ toast('Add an account first', 'error'); return; }
+  if (platform === 'reddit'){
+    body.subreddit = $('#sp-subreddit').value.trim().replace(/^r\//i, '');
+    body.title = $('#sp-title').value.trim();
+    if (!body.subreddit){ toast('Which subreddit', 'error'); return; }
+    if (!body.title){ toast('Give it a title', 'error'); return; }
+  }
+  body.body = $('#sp-body').value.trim() || null;
+  const when = $('#sp-when').value;
+  if (when) body.scheduled_at = new Date(when).toISOString();
+  const saved = await withBusy(btn, () => socialCall(editId ? '/social/posts/' + editId : '/social/posts', {
+    method: editId ? 'PATCH' : 'POST',
+    body: JSON.stringify(body),
+  }), 'Post saved');
+  if (saved){
+    delete f.dataset.edit;
+    const d = $('#social-post-dialog'); if (d && d.open) d.close();
+    socialLoad(platform);
+  }
+}
+
 /* ---------- Telegram ----------
    Same shape as FabSwingers: a list of accounts, then one page per account with
    the menu she sells from. Items can be a photo, a video or something posted. */
@@ -3482,6 +3772,68 @@ document.addEventListener('click', async e => {
     }
     /* fabswingers inbox */
     case 'fs-inbox-check': fsInboxLoad(); break;
+    /* social */
+    case 'social-refresh': socialLoad(state.section === 'twitter' ? 'twitter' : 'reddit'); break;
+    case 'social-pubnow': {
+      const p = state.section === 'twitter' ? 'twitter' : 'reddit';
+      try{
+        const out = await socialCall('/social/publish', { method: 'POST', body: '{}' });
+        toast(out.posted ? 'Published ' + out.posted + ' post' + (out.posted === 1 ? '' : 's') : 'Nothing was due', 'success');
+        socialLoad(p);
+      }catch(e){ toast('Publish failed', 'error', e.message); }
+      break;
+    }
+    case 'social-add': socialOpenAccountDialog(null); break;
+    case 'social-close': { const d = $('#social-dialog'); if(d && d.open) d.close(); break; }
+    case 'social-post-close': { const d = $('#social-post-dialog'); if(d && d.open) d.close(); break; }
+    case 'social-post-add': {
+      if(!(state.socialAccounts || []).length){ toast('Add an account first', 'error', 'The post queue needs somewhere to post from.'); break; }
+      socialOpenPostDialog(null);
+      break;
+    }
+    case 'social-edit': {
+      const a = (state.socialAccounts || []).find(x => x.id === id);
+      if (a) socialOpenAccountDialog(a);
+      break;
+    }
+    case 'social-toggle': {
+      const on = a.dataset.on === '1';
+      try{
+        await socialCall('/social/accounts/' + id, { method: 'PATCH', body: JSON.stringify({ enabled: !on }) });
+        toast(!on ? 'Account on' : 'Account off', 'success');
+        socialLoad(state.section === 'twitter' ? 'twitter' : 'reddit');
+      }catch(e){ toast('Could not change that account', 'error', e.message); }
+      break;
+    }
+    case 'social-remove': {
+      if (!armed(a)) break;
+      try{
+        await socialCall('/social/accounts/' + id, { method: 'DELETE' });
+        toast('Account removed', 'success');
+        socialLoad(state.section === 'twitter' ? 'twitter' : 'reddit');
+      }catch(e){ toast('Could not remove that account', 'error', e.message); }
+      break;
+    }
+    case 'social-post-schedule': {
+      const p = state.socialPosts?.find(x => x.id === id);
+      if (!p) break;
+      const when = new Date(Date.now() + 60000).toISOString();
+      try{
+        await socialCall('/social/posts/' + id, { method: 'PATCH', body: JSON.stringify({ scheduled_at: when }) });
+        toast('Scheduled for one minute from now', 'success');
+        socialLoad(state.section === 'twitter' ? 'twitter' : 'reddit');
+      }catch(e){ toast('Could not schedule that post', 'error', e.message); }
+      break;
+    }
+    case 'social-post-del': {
+      if (!armed(a)) break;
+      try{
+        await socialCall('/social/posts/' + id, { method: 'DELETE' });
+        toast('Post deleted', 'success');
+        socialLoad(state.section === 'twitter' ? 'twitter' : 'reddit');
+      }catch(e){ toast('Could not delete that post', 'error', e.message); }
+      break;
+    }
     case 'tg-load': tgLoadAccounts(); break;
     case 'tg-open': { state.tgOpenFor = a.dataset.id; if(!state.tgAccounts || !state.tgAccounts.length) await tgLoadAccounts(); renderTelegram(); window.scrollTo({top:0}); break; }
     case 'tg-back': { state.tgOpenFor = null; renderTelegram(); window.scrollTo({top:0}); break; }
@@ -3654,6 +4006,8 @@ document.addEventListener('submit', async e => {
     return;
   }
   if(kind === 'tg-menu'){ return tgSaveMenuItem(f, btn); }
+  if(kind === 'social-account'){ return socialSaveAccount(f, btn); }
+  if(kind === 'social-post'){ return socialSavePost(f, btn); }
   if(kind === 'media'){
     // price_gbp is the price the bot reads; price_ton is kept in step only for the older list views.
     const gbpIn = f.price_ton.value ? Number(f.price_ton.value) : null;
@@ -3838,6 +4192,8 @@ function setDrawer(open, restore=true){
 $('#menu').onclick = () => setDrawer(true);
 // A click on the sheet's backdrop closes it; Escape is handled by the dialog itself.
 $('#menu-dialog')?.addEventListener('click', e => { if(e.target === $('#menu-dialog')) $('#menu-dialog').close(); });
+$('#social-dialog')?.addEventListener('click', e => { if(e.target === $('#social-dialog')) $('#social-dialog').close(); });
+$('#social-post-dialog')?.addEventListener('click', e => { if(e.target === $('#social-post-dialog')) $('#social-post-dialog').close(); });
 
 /* ---------- Library drag and drop ----------
    Stop the browser opening a dropped file anywhere on the page, highlight the

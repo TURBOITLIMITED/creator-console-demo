@@ -21,6 +21,10 @@ import { inboxSnapshot, inboxPage, login as fsLogin, ageMinutes, parseInbox, par
 import { handleWebhook, onPaidMediaPurchase, catchUpReply, notifyOwner } from "./tg.js";
 import * as tgapi from "./telegram.js";
 import { validateBotAnswer, DEFAULT_BOT_ANSWERS, EXPLICIT_BOT_ANSWER } from "./persona.js";
+import {
+  SOCIAL_PLATFORMS, newPostRow, newAccountRow, sealCreds, openCreds, validateCreds,
+  redditVerify, redditPublish, twitterVerify, twitterPublish, socialPostTick,
+} from "./social.js";
 
 // Creator records live in Supabase Postgres: one row per creator, the full record in jsonb,
 // plus the summary columns the console and roster read. Media stays in R2.
@@ -2262,6 +2266,133 @@ export default {
       if (url.pathname.startsWith("/creator/")) {
         return json(await record(env, url.pathname.split("/")[2]), 200, origin);
       }
+
+      // ========== SOCIAL AUTOMATION =========
+      // Accounts and the post queue for Reddit and Twitter. Console-admin
+      // gated. Credentials are sealed with the app KEK, never plaintext.
+      if (url.pathname === "/social/accounts" && request.method === "GET") {
+        const platform = url.searchParams.get("platform");
+        const filter = platform ? `platform=eq.${platform}&` : "";
+        const rows = await sb(env, `social_accounts?${filter}select=id,telegram_account_id,creator_id,platform,username,enabled,posts_total,last_post_at,last_error,verified_at,created_at&order=created_at.desc`);
+        return json({ accounts: rows || [] }, 200, origin);
+      }
+      if (url.pathname === "/social/accounts" && request.method === "POST") {
+        const b = await request.json().catch(() => ({}));
+        const platform = String(b.platform || "").toLowerCase();
+        if (!["reddit", "twitter"].includes(platform)) return json({ error: "platform must be reddit or twitter" }, 400, origin);
+        const username = String(b.username || "").trim().replace(/^@/, "");
+        const creds = {
+          reddit:  { clientId: b.clientId, clientSecret: b.clientSecret, username: b.redditUsername || username, password: b.password },
+          twitter: { apiKey: b.apiKey, apiSecret: b.apiSecret, accessToken: b.accessToken, accessSecret: b.accessSecret, username },
+        }[platform];
+        const check = validateCreds(platform, creds);
+        if (!check.valid) return json({ error: "missing " + check.missing.join(", ") }, 400, origin);
+        const dup = await sb(env, `social_accounts?platform=eq.${platform}&username=eq.${encodeURIComponent(username)}&select=id`);
+        if (dup && dup.length) return json({ error: "that " + platform + " account already exists" }, 409, origin);
+        // verify against the live site before saving, so a typo cannot queue posts
+        try {
+          const verify = platform === "reddit" ? await redditVerify(env, creds) : await twitterVerify(env, creds);
+          const row = await sb(env, "social_accounts", {
+            method: "POST", headers: { Prefer: "return=representation" },
+            body: JSON.stringify({
+              platform, username, telegram_account_id: b.telegram_account_id || null,
+              creator_id: b.creator_id || null, creds_enc: await sealCreds(env, creds),
+              enabled: true, verified_at: new Date().toISOString(),
+            }),
+          });
+          return json({ saved: Array.isArray(row) ? row[0] : row, verified: verify }, 201, origin);
+        } catch (e) {
+          return json({ error: "could not verify: " + String(e.message || e).slice(0, 200) }, 200, origin);
+        }
+      }
+      if (url.pathname.startsWith("/social/accounts/") && request.method === "DELETE") {
+        const id = url.pathname.split("/")[3];
+        await sb(env, `social_accounts?id=eq.${id}`, { method: "DELETE" });
+        return json({ ok: true }, 200, origin);
+      }
+      if (url.pathname.startsWith("/social/accounts/") && request.method === "PATCH") {
+        const id = url.pathname.split("/")[3];
+        const b = await request.json().catch(() => ({}));
+        const body = {};
+        if (typeof b.enabled === "boolean") body.enabled = b.enabled;
+        if (b.telegram_account_id !== undefined) body.telegram_account_id = b.telegram_account_id || null;
+        // re-seal when fresh creds arrive; verify first like the add path
+        if (b.creds) {
+          const rows = await sb(env, `social_accounts?id=eq.${id}&select=platform,creds_enc`);
+          const acct = rows && rows[0];
+          if (!acct) return json({ error: "unknown account" }, 404, origin);
+          const merged = { ...(await openCreds(env, acct.creds_enc)), ...b.creds };
+          const check = validateCreds(acct.platform, merged);
+          if (!check.valid) return json({ error: "missing " + check.missing.join(", ") }, 400, origin);
+          try {
+            const verify = acct.platform === "reddit" ? await redditVerify(env, merged) : await twitterVerify(env, merged);
+            body.creds_enc = await sealCreds(env, merged);
+            body.verified_at = new Date().toISOString();
+            body.last_error = null;
+          } catch (e) {
+            return json({ error: "could not verify: " + String(e.message || e).slice(0, 200) }, 200, origin);
+          }
+        }
+        if (!Object.keys(body).length) return json({ error: "nothing to update" }, 400, origin);
+        const row = await sb(env, `social_accounts?id=eq.${id}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(body) });
+        return json({ ok: true, account: Array.isArray(row) ? row[0] : row }, 200, origin);
+      }
+
+      // post queue
+      if (url.pathname === "/social/posts" && request.method === "GET") {
+        const platform = url.searchParams.get("platform");
+        const accountId = url.searchParams.get("account_id");
+        const conds = [];
+        if (platform) conds.push(`platform=eq.${platform}`);
+        if (accountId) conds.push(`account_id=eq.${accountId}`);
+        const where = conds.length ? conds.join("&") + "&" : "";
+        const rows = await sb(env, `social_posts?${where}select=*&order=created_at.desc&limit=100`);
+        return json({ posts: rows || [] }, 200, origin);
+      }
+      if (url.pathname === "/social/posts" && request.method === "POST") {
+        const b = await request.json().catch(() => ({}));
+        const platform = String(b.platform || "").toLowerCase();
+        if (!["reddit", "twitter"].includes(platform)) return json({ error: "platform must be reddit or twitter" }, 400, origin);
+        const accts = await sb(env, `social_accounts?id=eq.${encodeURIComponent(b.account_id || "")}&select=id,platform`);
+        const acct = accts && accts[0];
+        if (!acct || acct.platform !== platform) return json({ error: "unknown account for that platform" }, 404, origin);
+        const row = newPostRow(platform, b);
+        row.account_id = acct.id;
+        if (b.scheduled_at) { row.scheduled_at = new Date(b.scheduled_at).toISOString(); row.state = "scheduled"; }
+        if (platform === "reddit" && !row.subreddit) return json({ error: "subreddit is required" }, 400, origin);
+        if (platform === "reddit" && !row.title) return json({ error: "title is required" }, 400, origin);
+        if (platform === "twitter" && !(row.body || row.title)) return json({ error: "text is required" }, 400, origin);
+        const saved = await sb(env, "social_posts", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(row) });
+        return json({ saved: Array.isArray(saved) ? saved[0] : saved }, 201, origin);
+      }
+      if (url.pathname.startsWith("/social/posts/") && request.method === "PATCH") {
+        const id = url.pathname.split("/")[3];
+        const b = await request.json().catch(() => ({}));
+        const body = {};
+        if (b.subreddit !== undefined) body.subreddit = b.subreddit;
+        if (b.title !== undefined) body.title = b.title;
+        if (b.body !== undefined) body.body = b.body;
+        if (b.scheduled_at !== undefined) {
+          body.scheduled_at = b.scheduled_at ? new Date(b.scheduled_at).toISOString() : null;
+          body.state = b.scheduled_at ? "scheduled" : "draft";
+          body.tries = 0;
+        }
+        if (b.state === "scheduled" || b.state === "draft") body.state = b.state;
+        if (!Object.keys(body).length) return json({ error: "nothing to update" }, 400, origin);
+        const row = await sb(env, `social_posts?id=eq.${id}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(body) });
+        return json({ ok: true, post: Array.isArray(row) ? row[0] : row }, 200, origin);
+      }
+      if (url.pathname.startsWith("/social/posts/") && request.method === "DELETE") {
+        const id = url.pathname.split("/")[3];
+        await sb(env, `social_posts?id=eq.${id}`, { method: "DELETE" });
+        return json({ ok: true }, 200, origin);
+      }
+
+      // publish now (admin poke, same path the cron takes)
+      if (url.pathname === "/social/publish" && request.method === "POST") {
+        const out = await socialPostTick(env, sb);
+        return json({ ok: true, ...out }, 200, origin);
+      }
     }
 
 
@@ -2273,7 +2404,11 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
+    // the Fab poller and the social queue both ride the same minute tick
     ctx.waitUntil(pollFab(env));
+    ctx.waitUntil(socialPostTick(env, sb).catch((e) => {
+      console.log(JSON.stringify({ evt: "social.tick_failed", err: String(e && e.message || e).slice(0, 160) }));
+    }));
   },
 
   // Delayed chat replies. Retry on failure so a transient Telegram error does
